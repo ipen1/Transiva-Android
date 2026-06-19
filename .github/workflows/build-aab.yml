@@ -28,8 +28,17 @@ jobs:
       - name: Build AAB
         run: gradle bundleRelease
 
+      - name: Build APK
+        run: gradle assembleDebug
+
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
           name: transiva-release-aab
           path: app/build/outputs/bundle/release/*.aab
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: transiva-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
