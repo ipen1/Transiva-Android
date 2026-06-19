@@ -1,1 +1,5 @@
-
+<resources>
+    <color name="transiva_dark">#06142E</color>
+    <color name="transiva_blue">#00A8FF</color>
+    <color name="transiva_orange">#FF8A00</color>
+</resources>
