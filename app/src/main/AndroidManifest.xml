@@ -2,38 +2,42 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Internet -->
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- GPS -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <!-- Camera -->
-    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- Notification -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Notification Android 13+ -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Vibration -->
-    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Storage -->
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
-    <!-- Optional -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Optional Hardware -->
     <uses-feature
         android:name="android.hardware.camera"
-        android:required="false"/>
+        android:required="false" />
 
     <uses-feature
         android:name="android.hardware.location.gps"
-        android:required="false"/>
+        android:required="false" />
 
     <application
         android:allowBackup="true"
@@ -46,6 +50,15 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
 
+        <!-- Firebase Cloud Messaging Service -->
+        <service
+            android:name=".TransivaFirebaseService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- File Provider -->
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -55,11 +68,11 @@
 
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths"/>
+                android:resource="@xml/file_paths" />
 
         </provider>
 
-        <!-- Splash Screen -->
+        <!-- Splash Screen / Launcher -->
         <activity
             android:name=".SplashActivity"
             android:exported="true"
@@ -67,9 +80,9 @@
             android:theme="@style/AppTheme">
 
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
+                <action android:name="android.intent.action.MAIN" />
 
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
         </activity>
@@ -77,21 +90,21 @@
         <!-- Main WebView -->
         <activity
             android:name=".MainActivity"
-            android:exported="false"
+            android:exported="true"
             android:screenOrientation="portrait"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode">
 
             <!-- Deep Link -->
             <intent-filter android:autoVerify="true">
 
-                <action android:name="android.intent.action.VIEW"/>
+                <action android:name="android.intent.action.VIEW" />
 
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
                     android:scheme="https"
-                    android:host="transiva.my.id"/>
+                    android:host="transiva.my.id" />
 
             </intent-filter>
 
