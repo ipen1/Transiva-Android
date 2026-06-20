@@ -14,12 +14,11 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.PowerManager;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
 import android.provider.MediaStore;
-import android.util.Log;
-import android.view.Gravity;
-import android.view.View;
+import android.provider.Settings;
 import android.webkit.DownloadListener;
 import android.webkit.GeolocationPermissions;
 import android.webkit.JavascriptInterface;
@@ -27,14 +26,17 @@ import android.webkit.PermissionRequest;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
-import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
+import android.view.Gravity;
+import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
+import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
@@ -61,7 +63,12 @@ public class MainActivity extends Activity {
     private static final int REQ_FILE = 11;
 
     private static final String URL = "https://transiva.my.id/?app=1";
-    private static final String CHANNEL_ID = "transiva_channel";
+
+    public static final String PREF_NAME = "transiva";
+    public static final String PREF_FCM_TOKEN = "fcm_token";
+
+    public static final String CHANNEL_ID = "transiva_order_channel";
+    public static final String CHANNEL_NAME = "Order Transiva";
 
     private long lastBack = 0;
 
@@ -74,6 +81,7 @@ public class MainActivity extends Activity {
 
         createNotificationChannel();
         requestAppPermissions();
+        requestIgnoreBatteryOptimization();
 
         buildLayout();
         configureWebView();
@@ -92,25 +100,23 @@ public class MainActivity extends Activity {
     }
 
     private void handleIntent(Intent intent) {
-        if (intent == null) return;
+        if (intent == null || webView == null) return;
 
         String orderId = intent.getStringExtra("order_id");
         String type = intent.getStringExtra("type");
 
-        if (orderId != null && webView != null) {
-            webView.postDelayed(() -> {
-                String js =
-                        "(function(){" +
-                                "window.TRANSIVA_PUSH_ORDER_ID='" + escapeJs(orderId) + "';" +
-                                "window.TRANSIVA_PUSH_TYPE='" + escapeJs(type == null ? "" : type) + "';" +
-                                "if(typeof window.onTransivaPush==='function'){" +
-                                "window.onTransivaPush(window.TRANSIVA_PUSH_TYPE,window.TRANSIVA_PUSH_ORDER_ID);" +
-                                "}" +
-                                "})();";
+        webView.postDelayed(() -> {
+            String js =
+                    "(function(){" +
+                            "window.TRANSIVA_PUSH_TYPE='" + escapeJs(type == null ? "" : type) + "';" +
+                            "window.TRANSIVA_PUSH_ORDER_ID='" + escapeJs(orderId == null ? "" : orderId) + "';" +
+                            "if(typeof window.onTransivaPush==='function'){" +
+                            "window.onTransivaPush(window.TRANSIVA_PUSH_TYPE,window.TRANSIVA_PUSH_ORDER_ID);" +
+                            "}" +
+                            "})();";
 
-                webView.evaluateJavascript(js, null);
-            }, 1200);
-        }
+            webView.evaluateJavascript(js, null);
+        }, 1000);
     }
 
     private void buildLayout() {
@@ -173,7 +179,6 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
                 Uri u = r.getUrl();
-
                 String host = u.getHost() == null ? "" : u.getHost();
 
                 if (host.contains("transiva.my.id")) {
@@ -298,11 +303,9 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            Log.d("FCM_TOKEN", token);
-
-            getSharedPreferences("transiva", MODE_PRIVATE)
+            getSharedPreferences(PREF_NAME, MODE_PRIVATE)
                     .edit()
-                    .putString("fcm_token", token)
+                    .putString(PREF_FCM_TOKEN, token)
                     .apply();
 
             sendFcmTokenToWeb(token);
@@ -310,8 +313,8 @@ public class MainActivity extends Activity {
     }
 
     private void sendSavedFcmTokenToWeb() {
-        String token = getSharedPreferences("transiva", MODE_PRIVATE)
-                .getString("fcm_token", "");
+        String token = getSharedPreferences(PREF_NAME, MODE_PRIVATE)
+                .getString(PREF_FCM_TOKEN, "");
 
         if (token != null && !token.isEmpty()) {
             sendFcmTokenToWeb(token);
@@ -334,25 +337,24 @@ public class MainActivity extends Activity {
         webView.post(() -> webView.evaluateJavascript(js, null));
     }
 
-    private String escapeJs(String value) {
-        if (value == null) return "";
+    private void requestIgnoreBatteryOptimization() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
 
-        return value
-                .replace("\\", "\\\\")
-                .replace("'", "\\'")
-                .replace("\n", "")
-                .replace("\r", "");
-    }
+        try {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
 
-    private File createImageFile() throws IOException {
-        String time = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-                .format(new Date());
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            }
 
-        return File.createTempFile(
-                "TRANSIVA_" + time + "_",
-                ".jpg",
-                getExternalCacheDir()
-        );
+        } catch (Exception e) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                startActivity(intent);
+            } catch (Exception ignored) {}
+        }
     }
 
     private void requestAppPermissions() {
@@ -371,6 +373,165 @@ public class MainActivity extends Activity {
         }
 
         requestPermissions(p.toArray(new String[0]), REQ_PERM);
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT < 26) return;
+
+        NotificationManager manager =
+                (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+
+        if (manager == null) return;
+
+        NotificationChannel old = manager.getNotificationChannel(CHANNEL_ID);
+
+        if (old != null) return;
+
+        NotificationChannel ch = new NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH
+        );
+
+        ch.enableVibration(true);
+        ch.setDescription("Notifikasi order dan pesan penting Transiva");
+        ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        ch.enableLights(true);
+        ch.setLightColor(Color.WHITE);
+
+        manager.createNotificationChannel(ch);
+    }
+
+    private void injectNotificationBridge() {
+        String js =
+                "(function(){" +
+                        "if(window.TransivaNotifReady)return;" +
+                        "window.TransivaNotifReady=true;" +
+
+                        "window.transivaNotify=function(t,m){" +
+                        "if(window.Android){" +
+                        "Android.notify(String(t||'Transiva'),String(m||''));" +
+                        "}" +
+                        "};" +
+
+                        "window.transivaVibrate=function(ms){" +
+                        "if(window.Android){" +
+                        "Android.vibrate(parseInt(ms||300));" +
+                        "}" +
+                        "};" +
+
+                        "window.getTransivaFcmToken=function(){" +
+                        "return window.TRANSIVA_FCM_TOKEN||'';" +
+                        "};" +
+
+                        "window.requestTransivaFcmToken=function(){" +
+                        "if(window.Android){" +
+                        "var t=Android.getFcmToken();" +
+                        "window.TRANSIVA_FCM_TOKEN=t||'';" +
+                        "if(typeof window.receiveFcmToken==='function'){" +
+                        "window.receiveFcmToken(window.TRANSIVA_FCM_TOKEN);" +
+                        "}" +
+                        "return t;" +
+                        "}" +
+                        "return '';" +
+                        "};" +
+
+                        "})();";
+
+        webView.evaluateJavascript(js, null);
+    }
+
+    public class AndroidBridge {
+
+        @JavascriptInterface
+        public void vibrate(int ms) {
+            Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
+
+            if (v == null) return;
+
+            if (ms < 50) ms = 300;
+            if (ms > 3000) ms = 3000;
+
+            if (Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(
+                        VibrationEffect.createOneShot(
+                                ms,
+                                VibrationEffect.DEFAULT_AMPLITUDE
+                        )
+                );
+            } else {
+                v.vibrate(ms);
+            }
+        }
+
+        @JavascriptInterface
+        public void notify(String title, String message) {
+            showLocalNotification(title, message);
+        }
+
+        @JavascriptInterface
+        public String getFcmToken() {
+            return getSharedPreferences(PREF_NAME, MODE_PRIVATE)
+                    .getString(PREF_FCM_TOKEN, "");
+        }
+
+        @JavascriptInterface
+        public void openBatterySetting() {
+            requestIgnoreBatteryOptimization();
+        }
+    }
+
+    private void showLocalNotification(String title, String message) {
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ActivityCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED) {
+                return;
+            }
+        }
+
+        if (title == null || title.trim().isEmpty()) {
+            title = "Transiva";
+        }
+
+        if (message == null || message.trim().isEmpty()) {
+            message = "Pesan baru masuk";
+        }
+
+        Intent intent = new Intent(MainActivity.this, MainActivity.class);
+        intent.setAction("OPEN_TRANSIVA");
+        intent.setFlags(
+                Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+        );
+
+        PendingIntent pendingIntent =
+                PendingIntent.getActivity(
+                        MainActivity.this,
+                        1001,
+                        intent,
+                        PendingIntent.FLAG_IMMUTABLE |
+                                PendingIntent.FLAG_UPDATE_CURRENT
+                );
+
+        NotificationCompat.Builder b =
+                new NotificationCompat.Builder(MainActivity.this, CHANNEL_ID)
+                        .setSmallIcon(R.mipmap.ic_launcher)
+                        .setContentTitle(title)
+                        .setContentText(message)
+                        .setStyle(new NotificationCompat.BigTextStyle().bigText(message))
+                        .setPriority(NotificationCompat.PRIORITY_MAX)
+                        .setCategory(NotificationCompat.CATEGORY_ALARM)
+                        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                        .setDefaults(Notification.DEFAULT_ALL)
+                        .setVibrate(new long[]{0, 500, 250, 500, 250, 900})
+                        .setAutoCancel(true)
+                        .setContentIntent(pendingIntent);
+
+        NotificationManagerCompat
+                .from(MainActivity.this)
+                .notify((int) System.currentTimeMillis(), b.build());
     }
 
     private void downloadFile(
@@ -407,7 +568,6 @@ public class MainActivity extends Activity {
         String html =
                 "<html>" +
                         "<body style='background:#06142E;color:white;font-family:sans-serif;text-align:center;padding:35px'>" +
-                        "<img src='file:///android_res/drawable/splash_screen.png' style='width:80%;max-width:360px'>" +
                         "<h2>Koneksi internet terputus</h2>" +
                         "<p>Periksa koneksi Anda lalu coba lagi.</p>" +
                         "<button style='padding:14px 22px;border-radius:14px;border:0;background:#ff8a00;color:white;font-weight:bold' onclick='location.href=\"" + URL + "\"'>" +
@@ -425,137 +585,25 @@ public class MainActivity extends Activity {
         );
     }
 
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID,
-                    "Transiva",
-                    NotificationManager.IMPORTANCE_HIGH
-            );
+    private File createImageFile() throws IOException {
+        String time = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+                .format(new Date());
 
-            ch.enableVibration(true);
-            ch.setDescription("Notifikasi Transiva");
-            ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-
-            NotificationManager manager =
-                    (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-
-            if (manager != null) {
-                manager.createNotificationChannel(ch);
-            }
-        }
-    }
-
-    private void injectNotificationBridge() {
-        String js =
-                "(function(){" +
-                        "if(window.TransivaNotifReady)return;" +
-                        "window.TransivaNotifReady=true;" +
-
-                        "window.transivaNotify=function(t,m){" +
-                        "if(window.Android){" +
-                        "Android.notify(String(t||'Transiva'),String(m||''));" +
-                        "}" +
-                        "};" +
-
-                        "window.transivaVibrate=function(ms){" +
-                        "if(window.Android){" +
-                        "Android.vibrate(parseInt(ms||300));" +
-                        "}" +
-                        "};" +
-
-                        "window.getTransivaFcmToken=function(){" +
-                        "return window.TRANSIVA_FCM_TOKEN||'';" +
-                        "};" +
-                        "})();";
-
-        webView.evaluateJavascript(js, null);
-    }
-
-    public class AndroidBridge {
-
-        @JavascriptInterface
-        public void vibrate(int ms) {
-            Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
-
-            if (v == null) return;
-
-            if (ms < 50) ms = 300;
-            if (ms > 3000) ms = 3000;
-
-            if (Build.VERSION.SDK_INT >= 26) {
-                v.vibrate(
-                        VibrationEffect.createOneShot(
-                                ms,
-                                VibrationEffect.DEFAULT_AMPLITUDE
-                        )
-                );
-            } else {
-                v.vibrate(ms);
-            }
-        }
-
-        @JavascriptInterface
-        public void notify(String title, String message) {
-            showLocalNotification(title, message);
-        }
-
-        @JavascriptInterface
-        public String getFcmToken() {
-            return getSharedPreferences("transiva", MODE_PRIVATE)
-                    .getString("fcm_token", "");
-        }
-    }
-
-    private void showLocalNotification(String title, String message) {
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED) {
-                return;
-            }
-        }
-
-        if (title == null || title.trim().isEmpty()) {
-            title = "Transiva";
-        }
-
-        if (message == null || message.trim().isEmpty()) {
-            message = "Pesan baru masuk";
-        }
-
-        Intent intent = new Intent(MainActivity.this, MainActivity.class);
-        intent.setFlags(
-                Intent.FLAG_ACTIVITY_SINGLE_TOP |
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+        return File.createTempFile(
+                "TRANSIVA_" + time + "_",
+                ".jpg",
+                getExternalCacheDir()
         );
+    }
 
-        PendingIntent pendingIntent =
-                PendingIntent.getActivity(
-                        MainActivity.this,
-                        1001,
-                        intent,
-                        PendingIntent.FLAG_IMMUTABLE |
-                                PendingIntent.FLAG_UPDATE_CURRENT
-                );
+    private String escapeJs(String value) {
+        if (value == null) return "";
 
-        NotificationCompat.Builder b =
-                new NotificationCompat.Builder(MainActivity.this, CHANNEL_ID)
-                        .setSmallIcon(R.mipmap.ic_launcher)
-                        .setContentTitle(title)
-                        .setContentText(message)
-                        .setStyle(new NotificationCompat.BigTextStyle().bigText(message))
-                        .setPriority(NotificationCompat.PRIORITY_MAX)
-                        .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                        .setDefaults(Notification.DEFAULT_ALL)
-                        .setAutoCancel(true)
-                        .setContentIntent(pendingIntent);
-
-        NotificationManagerCompat
-                .from(MainActivity.this)
-                .notify((int) System.currentTimeMillis(), b.build());
+        return value
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\n", "")
+                .replace("\r", "");
     }
 
     @Override
@@ -610,4 +658,4 @@ public class MainActivity extends Activity {
                 Toast.LENGTH_SHORT
         ).show();
     }
-            }
+}
