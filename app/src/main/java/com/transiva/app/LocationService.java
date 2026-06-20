@@ -38,7 +38,7 @@ public class LocationService extends Service {
     private static final int NOTIFICATION_ID = 2026;
 
     private static final String BASE_URL = "https://transiva.my.id/";
-    private static final String DEFAULT_ENDPOINT = "server/update_driver_location.php";
+    private static final String DEFAULT_ENDPOINT = "server/updateDriverLocation.php";
 
     private static final long UPDATE_INTERVAL = 5000L;
     private static final long FASTEST_INTERVAL = 3000L;
@@ -171,10 +171,12 @@ public class LocationService extends Service {
                 String userId = sessionManager.getId();
                 String username = sessionManager.getUsername();
                 String role = sessionManager.getRole();
+                String orderId = sessionManager.get("current_order_id");
 
                 if (userId == null) userId = "";
                 if (username == null) username = "";
                 if (role == null) role = "";
+                if (orderId == null) orderId = "";
 
                 JSONObject body = new JSONObject();
 
@@ -182,6 +184,7 @@ public class LocationService extends Service {
                 body.put("user_id", userId);
                 body.put("username", username);
                 body.put("role", role);
+                body.put("order_id", orderId);
                 body.put("latitude", location.getLatitude());
                 body.put("longitude", location.getLongitude());
                 body.put("lat", location.getLatitude());
@@ -247,22 +250,6 @@ public class LocationService extends Service {
     }
 
     private String resolveEndpoint(String role) {
-        if (role == null) return DEFAULT_ENDPOINT;
-
-        String r = role.toLowerCase();
-
-        if (r.contains("driver")) {
-            return "server/update_driver_location.php";
-        }
-
-        if (r.contains("merchant")) {
-            return "server/update_user_location.php";
-        }
-
-        if (r.contains("customer") || r.contains("user")) {
-            return "server/update_user_location.php";
-        }
-
         return DEFAULT_ENDPOINT;
     }
 
