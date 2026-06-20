@@ -2,10 +2,16 @@
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
 
+    <!-- Gradasi navy premium -->
     <gradient
-        android:startColor="#0F172A"
-        android:centerColor="#2563EB"
-        android:endColor="#38BDF8"
-        android:angle="135" />
+        android:type="linear"
+        android:angle="135"
+        android:startColor="#08111F"
+        android:centerColor="#0B1A2E"
+        android:endColor="#142743"/>
+
+    <!-- Sudut sedikit membulat -->
+    <corners
+        android:radius="24dp"/>
 
 </shape>
