@@ -9,10 +9,11 @@ import android.app.Service;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Build;
-import android.os.Handler;
+import android.os.Bundle;
 import android.os.IBinder;
-import android.os.Looper;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
@@ -28,6 +29,21 @@ import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
+/*
+ * LocationService.java
+ * Versi fix tanpa Google Play Services.
+ * Aman untuk project yang belum punya dependency com.google.android.gms:play-services-location.
+ *
+ * Endpoint sesuai backend Transiva:
+ * https://transiva.my.id/server/updateDriverLocation.php
+ *
+ * JSON yang dikirim:
+ * username
+ * order_id
+ * latitude
+ * longitude
+ */
+
 public class LocationService extends Service {
 
     public static final String ACTION_START = "com.transiva.app.START_LOCATION";
@@ -38,32 +54,60 @@ public class LocationService extends Service {
     private static final int NOTIFICATION_ID = 2026;
 
     private static final String BASE_URL = "https://transiva.my.id/";
-    private static final String DEFAULT_ENDPOINT = "server/updateDriverLocation.php";
+    private static final String ENDPOINT = "server/updateDriverLocation.php";
 
-    private static final long UPDATE_INTERVAL = 5000L;
-    private static final long FASTEST_INTERVAL = 3000L;
+    private static final long MIN_TIME_MS = 5000L;
+    private static final float MIN_DISTANCE_METER = 3f;
+
     private static final int CONNECT_TIMEOUT = 15000;
     private static final int READ_TIMEOUT = 20000;
 
-    private Handler handler;
+    private LocationManager locationManager;
     private SessionManager sessionManager;
-
-    private com.google.android.gms.location.FusedLocationProviderClient fusedClient;
-    private com.google.android.gms.location.LocationRequest locationRequest;
-    private com.google.android.gms.location.LocationCallback locationCallback;
 
     private boolean isRunning = false;
     private long lastSendTime = 0L;
+
+    private final LocationListener gpsListener = new LocationListener() {
+        @Override
+        public void onLocationChanged(Location location) {
+            handleLocation(location);
+        }
+
+        @Override
+        public void onStatusChanged(String provider, int status, Bundle extras) {}
+
+        @Override
+        public void onProviderEnabled(String provider) {}
+
+        @Override
+        public void onProviderDisabled(String provider) {}
+    };
+
+    private final LocationListener networkListener = new LocationListener() {
+        @Override
+        public void onLocationChanged(Location location) {
+            handleLocation(location);
+        }
+
+        @Override
+        public void onStatusChanged(String provider, int status, Bundle extras) {}
+
+        @Override
+        public void onProviderEnabled(String provider) {}
+
+        @Override
+        public void onProviderDisabled(String provider) {}
+    };
 
     @Override
     public void onCreate() {
         super.onCreate();
 
-        handler = new Handler(Looper.getMainLooper());
         sessionManager = new SessionManager(this);
+        locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
 
         createChannel();
-        setupLocationClient();
     }
 
     @Override
@@ -76,44 +120,14 @@ public class LocationService extends Service {
             return START_NOT_STICKY;
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification("Tracking lokasi aktif"));
+        startForeground(
+                NOTIFICATION_ID,
+                buildNotification("Tracking lokasi Transiva aktif")
+        );
+
         startLocationUpdates();
 
         return START_STICKY;
-    }
-
-    private void setupLocationClient() {
-        try {
-            fusedClient =
-                    com.google.android.gms.location.LocationServices
-                            .getFusedLocationProviderClient(this);
-
-            locationRequest =
-                    com.google.android.gms.location.LocationRequest.create()
-                            .setInterval(UPDATE_INTERVAL)
-                            .setFastestInterval(FASTEST_INTERVAL)
-                            .setPriority(
-                                    com.google.android.gms.location.LocationRequest
-                                            .PRIORITY_HIGH_ACCURACY
-                            );
-
-            locationCallback =
-                    new com.google.android.gms.location.LocationCallback() {
-                        @Override
-                        public void onLocationResult(
-                                com.google.android.gms.location.LocationResult result
-                        ) {
-                            if (result == null) return;
-
-                            Location location = result.getLastLocation();
-
-                            if (location != null) {
-                                handleLocation(location);
-                            }
-                        }
-                    };
-
-        } catch (Exception ignored) {}
     }
 
     private void startLocationUpdates() {
@@ -124,14 +138,37 @@ public class LocationService extends Service {
             return;
         }
 
+        if (locationManager == null) {
+            stopSelf();
+            return;
+        }
+
         try {
             isRunning = true;
 
-            fusedClient.requestLocationUpdates(
-                    locationRequest,
-                    locationCallback,
-                    Looper.getMainLooper()
-            );
+            try {
+                locationManager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        MIN_TIME_MS,
+                        MIN_DISTANCE_METER,
+                        gpsListener
+                );
+            } catch (Exception ignored) {}
+
+            try {
+                locationManager.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        MIN_TIME_MS,
+                        MIN_DISTANCE_METER,
+                        networkListener
+                );
+            } catch (Exception ignored) {}
+
+            Location last = getBestLastKnownLocation();
+
+            if (last != null) {
+                handleLocation(last);
+            }
 
         } catch (Exception e) {
             isRunning = false;
@@ -139,10 +176,37 @@ public class LocationService extends Service {
         }
     }
 
+    private Location getBestLastKnownLocation() {
+        if (!hasLocationPermission() || locationManager == null) return null;
+
+        Location gps = null;
+        Location network = null;
+
+        try {
+            gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+        } catch (Exception ignored) {}
+
+        try {
+            network = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+        } catch (Exception ignored) {}
+
+        if (gps != null && network != null) {
+            return gps.getTime() >= network.getTime() ? gps : network;
+        }
+
+        if (gps != null) return gps;
+
+        return network;
+    }
+
     private void handleLocation(Location location) {
         try {
+            if (location == null) return;
+
             double lat = location.getLatitude();
             double lng = location.getLongitude();
+
+            if (!isValidCoordinate(lat, lng)) return;
 
             sessionManager.saveLastLocation(
                     String.valueOf(lat),
@@ -151,53 +215,42 @@ public class LocationService extends Service {
 
             long now = System.currentTimeMillis();
 
-            if (now - lastSendTime < UPDATE_INTERVAL) {
+            if (now - lastSendTime < MIN_TIME_MS) {
                 return;
             }
 
             lastSendTime = now;
 
-            sendLocationToServer(location);
+            sendLocationToServer(lat, lng);
 
         } catch (Exception ignored) {}
     }
 
-    private void sendLocationToServer(Location location) {
+    private void sendLocationToServer(double latitude, double longitude) {
         new Thread(() -> {
 
             HttpURLConnection conn = null;
 
             try {
-                String userId = sessionManager.getId();
                 String username = sessionManager.getUsername();
-                String role = sessionManager.getRole();
                 String orderId = sessionManager.get("current_order_id");
 
-                if (userId == null) userId = "";
                 if (username == null) username = "";
-                if (role == null) role = "";
                 if (orderId == null) orderId = "";
+
+                if (username.trim().isEmpty()) {
+                    sessionManager.put("last_location_error", "Username kosong");
+                    return;
+                }
 
                 JSONObject body = new JSONObject();
 
-                body.put("id", userId);
-                body.put("user_id", userId);
                 body.put("username", username);
-                body.put("role", role);
                 body.put("order_id", orderId);
-                body.put("latitude", location.getLatitude());
-                body.put("longitude", location.getLongitude());
-                body.put("lat", location.getLatitude());
-                body.put("lng", location.getLongitude());
-                body.put("accuracy", location.hasAccuracy() ? location.getAccuracy() : 0);
-                body.put("speed", location.hasSpeed() ? location.getSpeed() : 0);
-                body.put("bearing", location.hasBearing() ? location.getBearing() : 0);
-                body.put("provider", location.getProvider());
-                body.put("timestamp", System.currentTimeMillis());
-                body.put("source", "android_native_location_service");
+                body.put("latitude", latitude);
+                body.put("longitude", longitude);
 
-                String endpoint = resolveEndpoint(role);
-                URL url = new URL(BASE_URL + endpoint);
+                URL url = new URL(BASE_URL + ENDPOINT);
 
                 conn = (HttpURLConnection) url.openConnection();
                 conn.setRequestMethod("POST");
@@ -249,10 +302,6 @@ public class LocationService extends Service {
         }).start();
     }
 
-    private String resolveEndpoint(String role) {
-        return DEFAULT_ENDPOINT;
-    }
-
     private String readStream(InputStream stream) {
         try {
             if (stream == null) return "";
@@ -276,6 +325,15 @@ public class LocationService extends Service {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    private boolean isValidCoordinate(double lat, double lng) {
+        return lat != 0
+                && lng != 0
+                && lat >= -90
+                && lat <= 90
+                && lng >= -180
+                && lng <= 180;
     }
 
     private boolean hasLocationPermission() {
@@ -370,8 +428,14 @@ public class LocationService extends Service {
         try {
             isRunning = false;
 
-            if (fusedClient != null && locationCallback != null) {
-                fusedClient.removeLocationUpdates(locationCallback);
+            if (locationManager != null) {
+                try {
+                    locationManager.removeUpdates(gpsListener);
+                } catch (Exception ignored) {}
+
+                try {
+                    locationManager.removeUpdates(networkListener);
+                } catch (Exception ignored) {}
             }
 
         } catch (Exception ignored) {}
@@ -393,5 +457,26 @@ public class LocationService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    public static void start(android.content.Context context) {
+        try {
+            Intent intent = new Intent(context, LocationService.class);
+            intent.setAction(ACTION_START);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent);
+            } else {
+                context.startService(intent);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    public static void stop(android.content.Context context) {
+        try {
+            Intent intent = new Intent(context, LocationService.class);
+            intent.setAction(ACTION_STOP);
+            context.startService(intent);
+        } catch (Exception ignored) {}
     }
 }
