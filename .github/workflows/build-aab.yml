@@ -20,11 +20,10 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Setup Gradle
+      - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Make Gradle executable
-        run: chmod +x ./gradlew
+        with:
+          gradle-version: 8.9
 
       - name: Decode Keystore
         run: |
@@ -32,7 +31,7 @@ jobs:
 
       - name: Build Release Signed APK and AAB
         run: |
-          ./gradlew clean assembleRelease bundleRelease
+          gradle clean assembleRelease bundleRelease
         env:
           KEYSTORE_FILE: transiva-release.jks
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
