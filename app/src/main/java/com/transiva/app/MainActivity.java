@@ -107,6 +107,8 @@ public class MainActivity extends Activity {
 
         initFirebase();
         handleIntent(getIntent());
+
+        startServicesIfLoggedIn();
     }
 
     @Override
@@ -117,6 +119,8 @@ public class MainActivity extends Activity {
                 webView.onResume();
                 webView.resumeTimers();
             }
+
+            startServicesIfLoggedIn();
         } catch (Exception ignored) {}
     }
 
@@ -244,6 +248,7 @@ public class MainActivity extends Activity {
             webView.addJavascriptInterface(transivaBridge, "AndroidNotif");
             webView.addJavascriptInterface(transivaBridge, "Android");
             webView.addJavascriptInterface(apiClient, "TransivaApi");
+            webView.addJavascriptInterface(new NativeControlBridge(), "TransivaControl");
 
         } catch (Exception e) {
             Log.e("TRANSIVA", "Bridge error", e);
@@ -293,6 +298,7 @@ public class MainActivity extends Activity {
 
                 injectCompatibilityBridge();
                 sendSavedFcmTokenToWeb();
+                syncSessionFromWebAndStartServices();
                 sendNativeReady();
                 handleIntent(getIntent());
             }
@@ -454,6 +460,10 @@ public class MainActivity extends Activity {
 
     private void handleIntent(Intent intent) {
         if (intent == null || webView == null) return;
+
+        try {
+            BackgroundSyncService.syncNow(this);
+        } catch (Exception ignored) {}
 
         final String orderId = intent.getStringExtra("order_id");
         final String type = intent.getStringExtra("type");
@@ -697,7 +707,22 @@ public class MainActivity extends Activity {
                         "if(window.TransivaNative && TransivaNative.saveSession){" +
                         "TransivaNative.saveSession(data);" +
                         "}" +
+                        "if(window.TransivaControl && TransivaControl.saveSessionAndStart){" +
+                        "TransivaControl.saveSessionAndStart(data);" +
+                        "}" +
                         "}catch(e){}" +
+                        "};" +
+
+                        "window.transivaStartNativeServices=function(){" +
+                        "try{if(window.TransivaControl){TransivaControl.startAllServices();}}catch(e){}" +
+                        "};" +
+
+                        "window.transivaStopNativeServices=function(){" +
+                        "try{if(window.TransivaControl){TransivaControl.stopAllServices();}}catch(e){}" +
+                        "};" +
+
+                        "window.transivaLogoutNative=function(){" +
+                        "try{if(window.TransivaControl){TransivaControl.clearSessionAndStop();}}catch(e){}" +
                         "};" +
 
                         "})();";
@@ -736,6 +761,187 @@ public class MainActivity extends Activity {
             return false;
         }
     }
+
+
+    private void startServicesIfLoggedIn() {
+        try {
+            if (sessionManager == null) {
+                sessionManager = new SessionManager(this);
+            }
+
+            if (!sessionManager.isLoggedIn()) {
+                return;
+            }
+
+            startLocationServiceSafe();
+            startBackgroundSyncServiceSafe();
+
+        } catch (Exception ignored) {}
+    }
+
+    private void startLocationServiceSafe() {
+        try {
+            Intent intent = new Intent(this, LocationService.class);
+            intent.setAction(LocationService.ACTION_START);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent);
+            } else {
+                startService(intent);
+            }
+
+        } catch (Exception e) {
+            Log.e("TRANSIVA", "Gagal start LocationService", e);
+        }
+    }
+
+    private void stopLocationServiceSafe() {
+        try {
+            Intent intent = new Intent(this, LocationService.class);
+            intent.setAction(LocationService.ACTION_STOP);
+            startService(intent);
+
+        } catch (Exception e) {
+            Log.e("TRANSIVA", "Gagal stop LocationService", e);
+        }
+    }
+
+    private void startBackgroundSyncServiceSafe() {
+        try {
+            BackgroundSyncService.start(this);
+        } catch (Exception e) {
+            Log.e("TRANSIVA", "Gagal start BackgroundSyncService", e);
+        }
+    }
+
+    private void stopBackgroundSyncServiceSafe() {
+        try {
+            BackgroundSyncService.stop(this);
+        } catch (Exception e) {
+            Log.e("TRANSIVA", "Gagal stop BackgroundSyncService", e);
+        }
+    }
+
+    private void stopAllNativeServices() {
+        try {
+            stopLocationServiceSafe();
+            stopBackgroundSyncServiceSafe();
+        } catch (Exception ignored) {}
+    }
+
+    private void syncNowSafe() {
+        try {
+            BackgroundSyncService.syncNow(this);
+        } catch (Exception ignored) {}
+    }
+
+    private void syncSessionFromWebAndStartServices() {
+        if (webView == null) return;
+
+        try {
+            String js =
+                    "(function(){" +
+                            "try{" +
+                            "var p=localStorage.getItem('player')||" +
+                            "localStorage.getItem('user')||" +
+                            "localStorage.getItem('session')||" +
+                            "localStorage.getItem('transiva_user')||'';" +
+                            "return p||'';" +
+                            "}catch(e){return '';}" +
+                            "})();";
+
+            webView.evaluateJavascript(js, value -> {
+                try {
+                    if (value == null) return;
+
+                    String data = value;
+
+                    if (data.startsWith("\"") && data.endsWith("\"")) {
+                        data = data.substring(1, data.length() - 1)
+                                .replace("\\\"", "\"")
+                                .replace("\\\\", "\\");
+                    }
+
+                    if (data == null || data.trim().isEmpty() || data.equals("null")) {
+                        return;
+                    }
+
+                    sessionManager.saveSession(data);
+
+                    if (sessionManager.isLoggedIn()) {
+                        startServicesIfLoggedIn();
+                    }
+
+                } catch (Exception ignored) {}
+            });
+
+        } catch (Exception ignored) {}
+    }
+
+    public class NativeControlBridge {
+
+        @JavascriptInterface
+        public void startAllServices() {
+            runOnUiThread(() -> startServicesIfLoggedIn());
+        }
+
+        @JavascriptInterface
+        public void stopAllServices() {
+            runOnUiThread(() -> stopAllNativeServices());
+        }
+
+        @JavascriptInterface
+        public void syncNow() {
+            syncNowSafe();
+        }
+
+        @JavascriptInterface
+        public void saveSessionAndStart(String json) {
+            try {
+                if (sessionManager == null) {
+                    sessionManager = new SessionManager(MainActivity.this);
+                }
+
+                sessionManager.saveSession(json);
+
+                runOnUiThread(() -> startServicesIfLoggedIn());
+
+            } catch (Exception ignored) {}
+        }
+
+        @JavascriptInterface
+        public void clearSessionAndStop() {
+            try {
+                if (sessionManager != null) {
+                    sessionManager.clearSession();
+                }
+
+                runOnUiThread(() -> stopAllNativeServices());
+
+            } catch (Exception ignored) {}
+        }
+
+        @JavascriptInterface
+        public String getNativeStatus() {
+            try {
+                JSONObject obj = new JSONObject();
+                obj.put("success", true);
+                obj.put("logged_in", sessionManager != null && sessionManager.isLoggedIn());
+                obj.put("role", sessionManager == null ? "" : sessionManager.getRole());
+                obj.put("username", sessionManager == null ? "" : sessionManager.getUsername());
+                obj.put("background_sync_status", sessionManager == null ? "" : sessionManager.get("background_sync_status"));
+                obj.put("background_sync_message", sessionManager == null ? "" : sessionManager.get("background_sync_message"));
+                obj.put("last_latitude", sessionManager == null ? "" : sessionManager.get("last_latitude"));
+                obj.put("last_longitude", sessionManager == null ? "" : sessionManager.get("last_longitude"));
+                obj.put("time", System.currentTimeMillis());
+                return obj.toString();
+
+            } catch (Exception e) {
+                return "{\"success\":false}";
+            }
+        }
+    }
+
 
     public void showLocalNotification(String title, String message) {
         try {
@@ -908,6 +1114,22 @@ public class MainActivity extends Activity {
                 .replace("\"", "\\\"")
                 .replace("\n", "\\n")
                 .replace("\r", "");
+    }
+
+
+    @Override
+    public void onRequestPermissionsResult(
+            int requestCode,
+            String[] permissions,
+            int[] grantResults
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+
+        if (requestCode == REQ_PERM) {
+            try {
+                startServicesIfLoggedIn();
+            } catch (Exception ignored) {}
+        }
     }
 
     @Override
