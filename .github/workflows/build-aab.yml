@@ -27,7 +27,8 @@ jobs:
 
       - name: Decode Keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/transiva-release.jks
+          printf "%s" "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > app/transiva-release.jks
+          ls -lh app/transiva-release.jks
 
       - name: Build Release Signed APK and AAB
         run: |
