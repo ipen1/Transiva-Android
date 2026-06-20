@@ -1,5 +1,6 @@
 package com.transiva.app;
 
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -9,6 +10,7 @@ import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
 import android.os.PowerManager;
+import android.provider.Settings;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -22,8 +24,13 @@ import java.util.Map;
 public class TransivaFirebaseService extends FirebaseMessagingService {
 
     private static final String TAG = "TRANSIVA_FCM";
-    private static final String CHANNEL_ID = "transiva_order_channel";
-    private static final String CHANNEL_NAME = "Order Transiva";
+
+    public static final String PREF_NAME = "transiva";
+    public static final String PREF_FCM_TOKEN = "fcm_token";
+
+    public static final String CHANNEL_ID = "transiva_order_channel";
+    public static final String CHANNEL_NAME = "Order Transiva";
+
     private static final int NOTIF_ID_ORDER = 1001;
 
     @Override
@@ -32,15 +39,10 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
 
         Log.d(TAG, "FCM Token baru: " + token);
 
-        getSharedPreferences("TRANSIVA_PREF", MODE_PRIVATE)
+        getSharedPreferences(PREF_NAME, MODE_PRIVATE)
                 .edit()
-                .putString("fcm_token", token)
+                .putString(PREF_FCM_TOKEN, token)
                 .apply();
-
-        /*
-         * Token ini sudah disimpan.
-         * MainActivity bisa ambil lagi dan kirim ke web/server.
-         */
     }
 
     @Override
@@ -51,32 +53,34 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
 
         wakeDevice();
 
+        Map<String, String> data = message.getData();
+
         String title = "Transiva";
         String body = "Pesan baru masuk";
 
-        if (message.getNotification() != null) {
-            if (message.getNotification().getTitle() != null) {
-                title = message.getNotification().getTitle();
-            }
+        if(data != null){
 
-            if (message.getNotification().getBody() != null) {
-                body = message.getNotification().getBody();
-            }
-        }
-
-        Map<String, String> data = message.getData();
-
-        if (data != null) {
-            if (data.containsKey("title")) {
+            if(data.containsKey("title") && data.get("title") != null){
                 title = data.get("title");
             }
 
-            if (data.containsKey("body")) {
+            if(data.containsKey("body") && data.get("body") != null){
                 body = data.get("body");
             }
 
-            if (data.containsKey("message")) {
+            if(data.containsKey("message") && data.get("message") != null){
                 body = data.get("message");
+            }
+        }
+
+        if(message.getNotification() != null){
+
+            if(message.getNotification().getTitle() != null && title.equals("Transiva")){
+                title = message.getNotification().getTitle();
+            }
+
+            if(message.getNotification().getBody() != null && body.equals("Pesan baru masuk")){
+                body = message.getNotification().getBody();
             }
         }
 
@@ -87,26 +91,28 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
             String title,
             String body,
             Map<String, String> data
-    ) {
+    ){
 
         createNotificationChannel();
 
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
                 Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                Intent.FLAG_ACTIVITY_SINGLE_TOP |
-                Intent.FLAG_ACTIVITY_NEW_TASK
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
         );
 
-        if (data != null) {
-            for (Map.Entry<String, String> entry : data.entrySet()) {
+        intent.setAction("OPEN_TRANSIVA");
+
+        if(data != null){
+            for(Map.Entry<String, String> entry : data.entrySet()){
                 intent.putExtra(entry.getKey(), entry.getValue());
             }
         }
 
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
-                0,
+                1001,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
@@ -117,33 +123,45 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                         .setContentTitle(title)
                         .setContentText(body)
                         .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                        .setContentIntent(pendingIntent)
                         .setAutoCancel(true)
                         .setOngoing(false)
+                        .setOnlyAlertOnce(false)
                         .setPriority(NotificationCompat.PRIORITY_MAX)
-                        .setCategory(NotificationCompat.CATEGORY_CALL)
+                        .setCategory(NotificationCompat.CATEGORY_ALARM)
                         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                         .setDefaults(NotificationCompat.DEFAULT_ALL)
-                        .setVibrate(new long[]{0, 500, 250, 500, 250, 800})
-                        .setContentIntent(pendingIntent)
+                        .setVibrate(new long[]{0, 500, 250, 500, 250, 900})
+                        .setLights(0xffffffff, 1000, 1000)
                         .setFullScreenIntent(pendingIntent, true);
+
+        Notification notification = builder.build();
+        notification.flags |= Notification.FLAG_SHOW_LIGHTS;
 
         NotificationManager manager =
                 (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-        if (manager != null) {
-            manager.notify(NOTIF_ID_ORDER, builder.build());
+        if(manager != null){
+            manager.notify(NOTIF_ID_ORDER, notification);
         }
     }
 
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+    private void createNotificationChannel(){
+
+        if(Build.VERSION.SDK_INT < Build.VERSION_CODES.O){
             return;
         }
 
         NotificationManager manager =
                 (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-        if (manager == null) {
+        if(manager == null){
+            return;
+        }
+
+        NotificationChannel oldChannel = manager.getNotificationChannel(CHANNEL_ID);
+
+        if(oldChannel != null){
             return;
         }
 
@@ -155,14 +173,16 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
 
         channel.setDescription("Notifikasi order dan pesan penting Transiva");
         channel.enableVibration(true);
-        channel.setVibrationPattern(new long[]{0, 500, 250, 500, 250, 800});
-        channel.setLockscreenVisibility(android.app.Notification.VISIBILITY_PUBLIC);
+        channel.setVibrationPattern(new long[]{0, 500, 250, 500, 250, 900});
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        channel.enableLights(true);
+        channel.setLightColor(0xffffffff);
 
-        Uri soundUri = android.provider.Settings.System.DEFAULT_NOTIFICATION_URI;
+        Uri soundUri = Settings.System.DEFAULT_NOTIFICATION_URI;
 
         AudioAttributes audioAttributes =
                 new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build();
 
@@ -171,12 +191,14 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         manager.createNotificationChannel(channel);
     }
 
-    private void wakeDevice() {
-        try {
+    private void wakeDevice(){
+
+        try{
+
             PowerManager powerManager =
                     (PowerManager) getSystemService(Context.POWER_SERVICE);
 
-            if (powerManager == null) {
+            if(powerManager == null){
                 return;
             }
 
@@ -186,9 +208,9 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                             "Transiva:FCMWakeLock"
                     );
 
-            wakeLock.acquire(10000);
+            wakeLock.acquire(15000);
 
-        } catch (Exception e) {
+        }catch(Exception e){
             Log.e(TAG, "WakeLock gagal: " + e.getMessage());
         }
     }
