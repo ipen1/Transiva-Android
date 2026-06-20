@@ -8,20 +8,27 @@
     <!-- Notification Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- FCM / wake notification -->
+    <!-- FCM / Wake / Vibration -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Foreground service untuk driver online / tracking -->
+    <!-- Fullscreen notification untuk order penting -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- Auto start setelah reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Foreground service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- GPS -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- Hati-hati Play Store: pakai hanya jika benar-benar tracking driver saat app background -->
-    <!-- <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" /> -->
+    <!-- Aktifkan hanya jika driver benar-benar tracking saat app background -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <!-- Camera -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -68,26 +75,24 @@
             </intent-filter>
         </service>
 
-        <!-- Nanti buat file ini jika ingin driver tetap aktif saat online -->
-        <!--
+        <!-- Foreground Service driver online / tracking -->
         <service
             android:name=".TransivaDriverForegroundService"
             android:exported="false"
-            android:foregroundServiceType="location" />
-        -->
+            android:foregroundServiceType="location|dataSync" />
 
-        <!-- Auto start ulang setelah HP reboot, nanti buat receiver-nya -->
-        <!--
+        <!-- Auto start setelah HP reboot -->
         <receiver
             android:name=".TransivaBootReceiver"
             android:enabled="true"
-            android:exported="false">
+            android:exported="false"
+            android:directBootAware="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-        -->
 
         <!-- File Provider -->
         <provider
@@ -126,7 +131,6 @@
 
             <!-- Deep Link -->
             <intent-filter android:autoVerify="true">
-
                 <action android:name="android.intent.action.VIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />
@@ -135,7 +139,12 @@
                 <data
                     android:scheme="https"
                     android:host="transiva.my.id" />
+            </intent-filter>
 
+            <!-- Click action dari FCM -->
+            <intent-filter>
+                <action android:name="OPEN_TRANSIVA" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
         </activity>
