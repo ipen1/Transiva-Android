@@ -10,6 +10,10 @@ public class TransivaBootReceiver extends BroadcastReceiver {
 
     private static final String TAG = "TRANSIVA_BOOT";
 
+    private static final String PREF_NAME = "transiva";
+    private static final String KEY_DRIVER_ONLINE = "driver_online";
+    private static final String KEY_MERCHANT_ONLINE = "merchant_online";
+
     @Override
     public void onReceive(Context context, Intent intent) {
 
@@ -21,30 +25,33 @@ public class TransivaBootReceiver extends BroadcastReceiver {
 
         Log.d(TAG, "Receiver aktif: " + action);
 
-        if (
+        boolean validAction =
                 Intent.ACTION_BOOT_COMPLETED.equals(action) ||
                 Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action) ||
-                Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
-        ) {
+                Intent.ACTION_MY_PACKAGE_REPLACED.equals(action) ||
+                "android.intent.action.QUICKBOOT_POWERON".equals(action);
 
-            /*
-             * Jangan paksa service aktif untuk semua user.
-             * Idealnya hanya aktif jika driver sebelumnya sedang ONLINE.
-             */
-            boolean driverOnline =
-                    context.getSharedPreferences("transiva", Context.MODE_PRIVATE)
-                            .getBoolean("driver_online", false);
-
-            if (!driverOnline) {
-                Log.d(TAG, "Driver tidak online, service tidak dijalankan");
-                return;
-            }
-
-            startDriverService(context);
+        if (!validAction) {
+            return;
         }
+
+        boolean driverOnline =
+                context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                        .getBoolean(KEY_DRIVER_ONLINE, false);
+
+        boolean merchantOnline =
+                context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                        .getBoolean(KEY_MERCHANT_ONLINE, false);
+
+        if (!driverOnline && !merchantOnline) {
+            Log.d(TAG, "User tidak online, service tidak dijalankan");
+            return;
+        }
+
+        startForegroundServiceSafe(context);
     }
 
-    private void startDriverService(Context context) {
+    private void startForegroundServiceSafe(Context context) {
 
         try {
 
@@ -61,12 +68,10 @@ public class TransivaBootReceiver extends BroadcastReceiver {
                 context.startService(serviceIntent);
             }
 
-            Log.d(TAG, "Driver foreground service dijalankan ulang");
+            Log.d(TAG, "Foreground service berhasil dijalankan ulang");
 
         } catch (Exception e) {
-
-            Log.e(TAG, "Gagal menjalankan service: " + e.getMessage());
-
+            Log.e(TAG, "Gagal menjalankan foreground service: " + e.getMessage());
         }
     }
 }
