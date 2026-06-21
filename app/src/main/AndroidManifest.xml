@@ -24,6 +24,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
+    <!-- Exact alarm, opsional untuk reminder/order timeout -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
     <!-- Location -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -67,14 +70,20 @@
         <!-- Firebase Cloud Messaging -->
         <service
             android:name=".TransivaFirebaseService"
-            android:exported="false"
-            android:directBootAware="true">
+            android:directBootAware="true"
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
 
-        <!-- Foreground Service lama Anda, tetap dipertahankan -->
+        <!-- Tombol Terima/Tolak notifikasi -->
+        <receiver
+            android:name=".TransivaNotificationActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Foreground Service Driver -->
         <service
             android:name=".TransivaDriverForegroundService"
             android:enabled="true"
@@ -82,7 +91,7 @@
             android:stopWithTask="false"
             android:foregroundServiceType="location|dataSync" />
 
-        <!-- Native Location Service baru -->
+        <!-- Native Location Service -->
         <service
             android:name=".LocationService"
             android:enabled="true"
@@ -90,7 +99,7 @@
             android:stopWithTask="false"
             android:foregroundServiceType="location" />
 
-        <!-- Background Sync Service baru -->
+        <!-- Background Sync Service -->
         <service
             android:name=".BackgroundSyncService"
             android:enabled="true"
@@ -101,9 +110,9 @@
         <!-- Auto start setelah reboot / update aplikasi -->
         <receiver
             android:name=".TransivaBootReceiver"
+            android:directBootAware="true"
             android:enabled="true"
-            android:exported="true"
-            android:directBootAware="true">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
@@ -149,10 +158,10 @@
         <!-- Main WebView -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
-            android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:windowSoftInputMode="adjustResize">
 
             <!-- Deep Link -->
