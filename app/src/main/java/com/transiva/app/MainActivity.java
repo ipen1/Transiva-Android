@@ -83,6 +83,8 @@ public class MainActivity extends Activity {
 
     private long lastBack = 0L;
     private boolean pageReady = false;
+    private String lastNativeActionKey = "";
+    private long lastNativeActionTime = 0L;
 
     @Override
     protected void onCreate(Bundle b) {
@@ -106,8 +108,9 @@ public class MainActivity extends Activity {
         safeLoadUrl(url);
 
         initFirebase();
-        handleIntent(getIntent());
 
+        // Intent notifikasi diproses setelah WebView selesai load di onPageFinished.
+        // Ini mencegah tombol Terima terkirim dua kali saat aplikasi baru dibuka.
         startServicesIfLoggedIn();
     }
 
@@ -465,33 +468,122 @@ public class MainActivity extends Activity {
             BackgroundSyncService.syncNow(this);
         } catch (Exception ignored) {}
 
-        final String orderId = intent.getStringExtra("order_id");
-        final String type = intent.getStringExtra("type");
-        final String title = intent.getStringExtra("title");
-        final String message = intent.getStringExtra("message");
+        final String fromAction = getIntentString(intent, "from_notification_action");
+        final String openScreen = getIntentString(intent, "open_screen");
+
+        final String orderId = getIntentString(intent, "order_id");
+        final String orderDbId = getIntentString(intent, "order_db_id");
+        final String id = getIntentString(intent, "id");
+
+        final String action = getIntentString(intent, "action");
+        final String actor = getIntentString(intent, "actor");
+        final String username = getIntentString(intent, "username");
+        final String offeredDriver = getIntentString(intent, "offered_driver");
+        final String driverType = getIntentString(intent, "driver_type");
+        final String actionToken = getIntentString(intent, "action_token");
+        final String endpoint = getIntentString(intent, "action_endpoint");
+
+        final String type = getIntentString(intent, "type");
+        final String title = getIntentString(intent, "title");
+        final String message = getIntentString(intent, "message");
+
+        final boolean isNotificationAction = "1".equals(fromAction);
+
+        if (isNotificationAction) {
+            String mainOrderId = !orderDbId.isEmpty() ? orderDbId : (!orderId.isEmpty() ? orderId : id);
+            String currentAction = action.isEmpty() ? "driver_accept" : action;
+            String actionKey = mainOrderId + "|" + currentAction + "|" + actionToken;
+            long now = System.currentTimeMillis();
+
+            if (actionKey.equals(lastNativeActionKey) && (now - lastNativeActionTime) < 6000) {
+                return;
+            }
+
+            lastNativeActionKey = actionKey;
+            lastNativeActionTime = now;
+        }
 
         webView.postDelayed(() -> {
             try {
-                String js =
-                        "(function(){" +
-                                "window.TRANSIVA_PUSH_TYPE='" + escapeJs(type == null ? "" : type) + "';" +
-                                "window.TRANSIVA_PUSH_ORDER_ID='" + escapeJs(orderId == null ? "" : orderId) + "';" +
-                                "window.TRANSIVA_PUSH_TITLE='" + escapeJs(title == null ? "" : title) + "';" +
-                                "window.TRANSIVA_PUSH_MESSAGE='" + escapeJs(message == null ? "" : message) + "';" +
-                                "window.dispatchEvent(new CustomEvent('transiva-native',{detail:{channel:'TransivaNative',event:'push_opened',data:{" +
-                                "type:'" + escapeJs(type == null ? "" : type) + "'," +
-                                "order_id:'" + escapeJs(orderId == null ? "" : orderId) + "'," +
-                                "title:'" + escapeJs(title == null ? "" : title) + "'," +
-                                "message:'" + escapeJs(message == null ? "" : message) + "'" +
-                                "}}}));" +
-                                "if(typeof window.onTransivaPush==='function'){" +
-                                "window.onTransivaPush(window.TRANSIVA_PUSH_TYPE,window.TRANSIVA_PUSH_ORDER_ID);" +
-                                "}" +
-                                "})();";
+                String js;
+
+                if (isNotificationAction) {
+
+                    String fixedOpenScreen = openScreen.isEmpty() ? "driver_trip" : openScreen;
+                    String fixedAction = action.isEmpty() ? "driver_accept" : action;
+                    String fixedDriverType = driverType.isEmpty() ? "bike" : driverType;
+                    String fixedId = !orderDbId.isEmpty() ? orderDbId : (!orderId.isEmpty() ? orderId : id);
+                    String fixedActor = !actor.isEmpty() ? actor : (!username.isEmpty() ? username : offeredDriver);
+                    String fixedOfferedDriver = !offeredDriver.isEmpty() ? offeredDriver : fixedActor;
+
+                    js =
+                            "(function(){" +
+                                    "var payload={" +
+                                    "from_notification_action:'1'," +
+                                    "open_screen:'" + escapeJs(fixedOpenScreen) + "'," +
+                                    "order_db_id:'" + escapeJs(fixedId) + "'," +
+                                    "order_id:'" + escapeJs(fixedId) + "'," +
+                                    "id:'" + escapeJs(fixedId) + "'," +
+                                    "action:'" + escapeJs(fixedAction) + "'," +
+                                    "actor:'" + escapeJs(fixedActor) + "'," +
+                                    "username:'" + escapeJs(fixedActor) + "'," +
+                                    "offered_driver:'" + escapeJs(fixedOfferedDriver) + "'," +
+                                    "driver_type:'" + escapeJs(fixedDriverType) + "'," +
+                                    "action_token:'" + escapeJs(actionToken) + "'," +
+                                    "action_endpoint:'" + escapeJs(endpoint) + "'" +
+                                    "};" +
+
+                                    "window.TRANSIVA_PENDING_NOTIFICATION_ACTION=payload;" +
+                                    "try{localStorage.setItem('pendingNotificationAction',JSON.stringify(payload));}catch(e){}" +
+                                    "try{localStorage.setItem('pendingRoute','driverTrip');}catch(e){}" +
+
+                                    "if(typeof window.onTransivaNotificationAction==='function'){" +
+                                    "window.onTransivaNotificationAction(payload);" +
+                                    "}else if(typeof window.handleNotificationAction==='function'){" +
+                                    "window.handleNotificationAction(payload);" +
+                                    "}else if(typeof window.transivaNotificationAction==='function'){" +
+                                    "window.transivaNotificationAction(payload);" +
+                                    "}else if(window.TransivaNativeAction && typeof window.TransivaNativeAction.handle==='function'){" +
+                                    "window.TransivaNativeAction.handle(payload);" +
+                                    "}" +
+
+                                    "})();";
+
+                } else {
+
+                    js =
+                            "(function(){" +
+                                    "window.TRANSIVA_PUSH_TYPE='" + escapeJs(type) + "';" +
+                                    "window.TRANSIVA_PUSH_ORDER_ID='" + escapeJs(orderId) + "';" +
+                                    "window.TRANSIVA_PUSH_TITLE='" + escapeJs(title) + "';" +
+                                    "window.TRANSIVA_PUSH_MESSAGE='" + escapeJs(message) + "';" +
+                                    "window.dispatchEvent(new CustomEvent('transiva-native',{detail:{channel:'TransivaNative',event:'push_opened',data:{" +
+                                    "type:'" + escapeJs(type) + "'," +
+                                    "order_id:'" + escapeJs(orderId) + "'," +
+                                    "title:'" + escapeJs(title) + "'," +
+                                    "message:'" + escapeJs(message) + "'" +
+                                    "}}}));" +
+                                    "if(typeof window.onTransivaPush==='function'){" +
+                                    "window.onTransivaPush(window.TRANSIVA_PUSH_TYPE,window.TRANSIVA_PUSH_ORDER_ID);" +
+                                    "}" +
+                                    "})();";
+                }
 
                 webView.evaluateJavascript(js, null);
-            } catch (Exception ignored) {}
-        }, pageReady ? 400 : 1200);
+
+            } catch (Exception e) {
+                Log.e("TRANSIVA", "handleIntent JS error", e);
+            }
+        }, pageReady ? 700 : 1800);
+    }
+
+    private String getIntentString(Intent intent, String key) {
+        try {
+            String value = intent.getStringExtra(key);
+            return value == null ? "" : value.trim();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void initFirebase() {
