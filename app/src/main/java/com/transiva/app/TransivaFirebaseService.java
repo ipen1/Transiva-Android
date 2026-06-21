@@ -43,7 +43,7 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
 
         getSharedPreferences(PREF_NAME, MODE_PRIVATE)
                 .edit()
-                .putString(PREF_FCM_TOKEN, token)
+                .putString(PREF_FCM_TOKEN, token == null ? "" : token)
                 .apply();
     }
 
@@ -58,15 +58,17 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         String title = getValue(data, "title", "Transiva");
         String body = getValue(data, "body", "Pesan baru masuk");
 
-        if(data != null && data.get("message") != null && !data.get("message").trim().isEmpty()){
-            body = data.get("message");
+        String msg = getValue(data, "message", "");
+        if (!msg.isEmpty()) {
+            body = msg;
         }
 
-        if(message.getNotification() != null){
-            if(message.getNotification().getTitle() != null && title.equals("Transiva")){
+        if (message.getNotification() != null) {
+            if (message.getNotification().getTitle() != null && title.equals("Transiva")) {
                 title = message.getNotification().getTitle();
             }
-            if(message.getNotification().getBody() != null && body.equals("Pesan baru masuk")){
+
+            if (message.getNotification().getBody() != null && body.equals("Pesan baru masuk")) {
                 body = message.getNotification().getBody();
             }
         }
@@ -74,37 +76,51 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         showHighPriorityNotification(title, body, data);
     }
 
-    private String getValue(Map<String, String> data, String key, String def){
-        if(data == null) return def;
+    private String getValue(Map<String, String> data, String key, String def) {
+        if (data == null || key == null) return def;
+
         String value = data.get(key);
-        if(value == null || value.trim().isEmpty()) return def;
-        return value;
+        if (value == null || value.trim().isEmpty()) return def;
+
+        return value.trim();
     }
 
-    private void showHighPriorityNotification(String title, String body, Map<String, String> data){
+    private void showHighPriorityNotification(String title, String body, Map<String, String> data) {
 
         createNotificationChannel();
 
-        Intent openIntent = new Intent(this, MainActivity.class);
-        openIntent.addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK |
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+        String screen = getValue(data, "screen", "driver_order");
+        String orderDbId = firstNotEmpty(
+                getValue(data, "order_db_id", ""),
+                getValue(data, "order_id", ""),
+                getValue(data, "id", "")
         );
-        openIntent.setAction("OPEN_TRANSIVA");
 
-        if(data != null){
-            for(Map.Entry<String, String> entry : data.entrySet()){
-                openIntent.putExtra(entry.getKey(), entry.getValue());
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.setAction("OPEN_TRANSIVA");
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        if (data != null) {
+            for (Map.Entry<String, String> entry : data.entrySet()) {
+                if (entry != null && entry.getKey() != null && entry.getValue() != null) {
+                    openIntent.putExtra(entry.getKey(), entry.getValue());
+                }
             }
         }
 
-        String screen = getValue(data, "screen", "driver_order");
         openIntent.putExtra("open_screen", screen);
+        openIntent.putExtra("order_db_id", orderDbId);
+        openIntent.putExtra("order_id", orderDbId);
+        openIntent.putExtra("id", orderDbId);
+        openIntent.putExtra("source", "fcm_content_click");
+
+        int contentReq = makeRequestCode(1100, orderDbId, screen);
 
         PendingIntent contentIntent = PendingIntent.getActivity(
                 this,
-                1001,
+                contentReq,
                 openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
@@ -112,9 +128,9 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         NotificationCompat.Builder builder =
                 new NotificationCompat.Builder(this, CHANNEL_ID)
                         .setSmallIcon(R.mipmap.ic_launcher)
-                        .setContentTitle(title)
-                        .setContentText(body)
-                        .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                        .setContentTitle(title == null || title.trim().isEmpty() ? "Transiva" : title)
+                        .setContentText(body == null || body.trim().isEmpty() ? "Pesan baru masuk" : body)
+                        .setStyle(new NotificationCompat.BigTextStyle().bigText(body == null ? "" : body))
                         .setContentIntent(contentIntent)
                         .setAutoCancel(true)
                         .setOngoing(false)
@@ -127,39 +143,64 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                         .setLights(0xffffffff, 1000, 1000)
                         .setFullScreenIntent(contentIntent, true);
 
-        if(data != null && "1".equals(data.get("has_action"))){
+        if (data != null && "1".equals(getValue(data, "has_action", ""))) {
 
-            String orderDbId = getValue(data, "order_db_id", "");
             String endpoint = getValue(data, "action_endpoint", "");
             String token = getValue(data, "action_token", "");
             String acceptAction = getValue(data, "action_accept", "driver_accept");
             String rejectAction = getValue(data, "action_reject", "driver_reject");
-            String actor = getValue(data, "offered_driver", "");
+            String actor = firstNotEmpty(
+                    getValue(data, "offered_driver", ""),
+                    getValue(data, "actor", ""),
+                    getValue(data, "username", ""),
+                    getValue(data, "driver", "")
+            );
             String driverType = getValue(data, "driver_type", "bike");
 
-            if(!orderDbId.isEmpty() && !endpoint.isEmpty() && !token.isEmpty()){
+            if (!orderDbId.isEmpty() && !token.isEmpty()) {
+
+                int acceptReq = makeRequestCode(2001, orderDbId, acceptAction);
+                int rejectReq = makeRequestCode(2002, orderDbId, rejectAction);
+
                 builder.addAction(
                         R.mipmap.ic_launcher,
                         "Terima",
-                        createActionIntent(2001, orderDbId, acceptAction, endpoint, token, actor, driverType)
+                        createActionIntent(
+                                acceptReq,
+                                orderDbId,
+                                acceptAction,
+                                endpoint,
+                                token,
+                                actor,
+                                driverType
+                        )
                 );
 
                 builder.addAction(
                         R.mipmap.ic_launcher,
                         "Tolak",
-                        createActionIntent(2002, orderDbId, rejectAction, endpoint, token, actor, driverType)
+                        createActionIntent(
+                                rejectReq,
+                                orderDbId,
+                                rejectAction,
+                                endpoint,
+                                token,
+                                actor,
+                                driverType
+                        )
                 );
-            }else{
-                Log.e(TAG, "Action tidak dibuat. orderDbId/endpoint/token kosong");
+
+            } else {
+                Log.e(TAG, "Action tidak dibuat. orderDbId/action_token kosong. orderDbId=" + orderDbId);
             }
         }
 
         Notification notification = builder.build();
         notification.flags |= Notification.FLAG_SHOW_LIGHTS;
 
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU){
-            if(ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED){
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
                 Log.e(TAG, "Izin POST_NOTIFICATIONS belum diberikan");
                 return;
             }
@@ -176,23 +217,29 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
             String token,
             String actor,
             String driverType
-    ){
+    ) {
 
         Intent intent = new Intent(this, TransivaNotificationActionReceiver.class);
-        intent.setAction("TRANSIVA_NOTIFICATION_ACTION_" + requestCode + "_" + orderDbId);
+        intent.setAction("TRANSIVA_NOTIFICATION_ACTION_" + action + "_" + orderDbId + "_" + System.currentTimeMillis());
 
-        intent.putExtra("order_db_id", orderDbId);
-        intent.putExtra("order_id", orderDbId);
-        intent.putExtra("id", orderDbId);
+        intent.putExtra("from_notification_action", "1");
+        intent.putExtra("open_screen", "driver_accept".equals(action) ? "driver_trip" : "driver_order");
 
-        intent.putExtra("action", action);
-        intent.putExtra("action_endpoint", endpoint);
-        intent.putExtra("action_token", token);
-        intent.putExtra("actor", actor);
-        intent.putExtra("username", actor);
-        intent.putExtra("offered_driver", actor);
-        intent.putExtra("driver_type", driverType);
+        intent.putExtra("order_db_id", safe(orderDbId));
+        intent.putExtra("order_id", safe(orderDbId));
+        intent.putExtra("id", safe(orderDbId));
+
+        intent.putExtra("action", safe(action));
+        intent.putExtra("action_endpoint", safe(endpoint));
+        intent.putExtra("action_token", safe(token));
+
+        intent.putExtra("actor", safe(actor));
+        intent.putExtra("username", safe(actor));
+        intent.putExtra("offered_driver", safe(actor));
+        intent.putExtra("driver_type", safe(driverType).isEmpty() ? "bike" : safe(driverType));
+
         intent.putExtra("notification_id", NOTIF_ID_ORDER);
+        intent.putExtra("source", "fcm_action_button");
 
         return PendingIntent.getBroadcast(
                 this,
@@ -202,21 +249,21 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         );
     }
 
-    private void createNotificationChannel(){
+    private void createNotificationChannel() {
 
-        if(Build.VERSION.SDK_INT < Build.VERSION_CODES.O){
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return;
         }
 
         NotificationManager manager =
                 (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
-        if(manager == null){
+        if (manager == null) {
             return;
         }
 
         NotificationChannel oldChannel = manager.getNotificationChannel(CHANNEL_ID);
-        if(oldChannel != null){
+        if (oldChannel != null) {
             return;
         }
 
@@ -245,25 +292,48 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         manager.createNotificationChannel(channel);
     }
 
-    private void wakeDevice(){
-        try{
+    private void wakeDevice() {
+        PowerManager.WakeLock wakeLock = null;
+
+        try {
             PowerManager powerManager =
                     (PowerManager) getSystemService(Context.POWER_SERVICE);
 
-            if(powerManager == null){
+            if (powerManager == null) {
                 return;
             }
 
-            PowerManager.WakeLock wakeLock =
-                    powerManager.newWakeLock(
-                            PowerManager.PARTIAL_WAKE_LOCK,
-                            "Transiva:FCMWakeLock"
-                    );
+            wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "Transiva:FCMWakeLock"
+            );
 
             wakeLock.acquire(15000);
 
-        }catch(Exception e){
+        } catch (Exception e) {
             Log.e(TAG, "WakeLock gagal: " + e.getMessage());
         }
+    }
+
+    private int makeRequestCode(int prefix, String orderDbId, String extra) {
+        String raw = prefix + "_" + safe(orderDbId) + "_" + safe(extra);
+        int hash = Math.abs(raw.hashCode());
+        return prefix * 100000 + (hash % 99999);
+    }
+
+    private String firstNotEmpty(String... values) {
+        if (values == null) return "";
+
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+
+        return "";
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }
