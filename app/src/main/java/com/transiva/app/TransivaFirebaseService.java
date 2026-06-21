@@ -37,8 +37,6 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
     public void onNewToken(@NonNull String token) {
         super.onNewToken(token);
 
-        Log.d(TAG, "FCM Token baru: " + token);
-
         getSharedPreferences(PREF_NAME, MODE_PRIVATE)
                 .edit()
                 .putString(PREF_FCM_TOKEN, token)
@@ -48,8 +46,6 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(@NonNull RemoteMessage message) {
         super.onMessageReceived(message);
-
-        Log.d(TAG, "FCM masuk");
 
         wakeDevice();
 
@@ -135,6 +131,42 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                         .setLights(0xffffffff, 1000, 1000)
                         .setFullScreenIntent(pendingIntent, true);
 
+        if(data != null && "1".equals(data.get("has_action"))){
+
+            String orderDbId = data.get("order_db_id");
+            String endpoint = data.get("action_endpoint");
+            String token = data.get("action_token");
+            String acceptAction = data.get("action_accept");
+            String rejectAction = data.get("action_reject");
+
+            if(orderDbId != null && endpoint != null && token != null){
+
+                builder.addAction(
+                        R.mipmap.ic_launcher,
+                        "Terima",
+                        createActionIntent(
+                                2001,
+                                orderDbId,
+                                acceptAction,
+                                endpoint,
+                                token
+                        )
+                );
+
+                builder.addAction(
+                        R.mipmap.ic_launcher,
+                        "Tolak",
+                        createActionIntent(
+                                2002,
+                                orderDbId,
+                                rejectAction,
+                                endpoint,
+                                token
+                        )
+                );
+            }
+        }
+
         Notification notification = builder.build();
         notification.flags |= Notification.FLAG_SHOW_LIGHTS;
 
@@ -144,6 +176,30 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         if(manager != null){
             manager.notify(NOTIF_ID_ORDER, notification);
         }
+    }
+
+    private PendingIntent createActionIntent(
+            int requestCode,
+            String orderDbId,
+            String action,
+            String endpoint,
+            String token
+    ){
+
+        Intent intent = new Intent(this, TransivaNotificationActionReceiver.class);
+        intent.setAction("TRANSIVA_NOTIFICATION_ACTION");
+        intent.putExtra("order_id", orderDbId);
+        intent.putExtra("action", action);
+        intent.putExtra("action_endpoint", endpoint);
+        intent.putExtra("action_token", token);
+        intent.putExtra("notification_id", NOTIF_ID_ORDER);
+
+        return PendingIntent.getBroadcast(
+                this,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
     }
 
     private void createNotificationChannel(){
