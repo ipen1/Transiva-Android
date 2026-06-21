@@ -1,11 +1,13 @@
 package com.transiva.app;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
@@ -14,7 +16,9 @@ import android.provider.Settings;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
@@ -51,30 +55,17 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
 
         Map<String, String> data = message.getData();
 
-        String title = "Transiva";
-        String body = "Pesan baru masuk";
+        String title = getValue(data, "title", "Transiva");
+        String body = getValue(data, "body", "Pesan baru masuk");
 
-        if(data != null){
-
-            if(data.containsKey("title") && data.get("title") != null){
-                title = data.get("title");
-            }
-
-            if(data.containsKey("body") && data.get("body") != null){
-                body = data.get("body");
-            }
-
-            if(data.containsKey("message") && data.get("message") != null){
-                body = data.get("message");
-            }
+        if(data != null && data.get("message") != null && !data.get("message").trim().isEmpty()){
+            body = data.get("message");
         }
 
         if(message.getNotification() != null){
-
             if(message.getNotification().getTitle() != null && title.equals("Transiva")){
                 title = message.getNotification().getTitle();
             }
-
             if(message.getNotification().getBody() != null && body.equals("Pesan baru masuk")){
                 body = message.getNotification().getBody();
             }
@@ -83,33 +74,38 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         showHighPriorityNotification(title, body, data);
     }
 
-    private void showHighPriorityNotification(
-            String title,
-            String body,
-            Map<String, String> data
-    ){
+    private String getValue(Map<String, String> data, String key, String def){
+        if(data == null) return def;
+        String value = data.get(key);
+        if(value == null || value.trim().isEmpty()) return def;
+        return value;
+    }
+
+    private void showHighPriorityNotification(String title, String body, Map<String, String> data){
 
         createNotificationChannel();
 
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK |
-                Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
         );
-
-        intent.setAction("OPEN_TRANSIVA");
+        openIntent.setAction("OPEN_TRANSIVA");
 
         if(data != null){
             for(Map.Entry<String, String> entry : data.entrySet()){
-                intent.putExtra(entry.getKey(), entry.getValue());
+                openIntent.putExtra(entry.getKey(), entry.getValue());
             }
         }
 
-        PendingIntent pendingIntent = PendingIntent.getActivity(
+        String screen = getValue(data, "screen", "driver_order");
+        openIntent.putExtra("open_screen", screen);
+
+        PendingIntent contentIntent = PendingIntent.getActivity(
                 this,
                 1001,
-                intent,
+                openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
@@ -119,7 +115,7 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                         .setContentTitle(title)
                         .setContentText(body)
                         .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-                        .setContentIntent(pendingIntent)
+                        .setContentIntent(contentIntent)
                         .setAutoCancel(true)
                         .setOngoing(false)
                         .setOnlyAlertOnce(false)
@@ -129,53 +125,47 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                         .setDefaults(NotificationCompat.DEFAULT_ALL)
                         .setVibrate(new long[]{0, 500, 250, 500, 250, 900})
                         .setLights(0xffffffff, 1000, 1000)
-                        .setFullScreenIntent(pendingIntent, true);
+                        .setFullScreenIntent(contentIntent, true);
 
         if(data != null && "1".equals(data.get("has_action"))){
 
-            String orderDbId = data.get("order_db_id");
-            String endpoint = data.get("action_endpoint");
-            String token = data.get("action_token");
-            String acceptAction = data.get("action_accept");
-            String rejectAction = data.get("action_reject");
+            String orderDbId = getValue(data, "order_db_id", "");
+            String endpoint = getValue(data, "action_endpoint", "");
+            String token = getValue(data, "action_token", "");
+            String acceptAction = getValue(data, "action_accept", "driver_accept");
+            String rejectAction = getValue(data, "action_reject", "driver_reject");
+            String actor = getValue(data, "offered_driver", "");
+            String driverType = getValue(data, "driver_type", "bike");
 
-            if(orderDbId != null && endpoint != null && token != null){
-
+            if(!orderDbId.isEmpty() && !endpoint.isEmpty() && !token.isEmpty()){
                 builder.addAction(
                         R.mipmap.ic_launcher,
                         "Terima",
-                        createActionIntent(
-                                2001,
-                                orderDbId,
-                                acceptAction,
-                                endpoint,
-                                token
-                        )
+                        createActionIntent(2001, orderDbId, acceptAction, endpoint, token, actor, driverType)
                 );
 
                 builder.addAction(
                         R.mipmap.ic_launcher,
                         "Tolak",
-                        createActionIntent(
-                                2002,
-                                orderDbId,
-                                rejectAction,
-                                endpoint,
-                                token
-                        )
+                        createActionIntent(2002, orderDbId, rejectAction, endpoint, token, actor, driverType)
                 );
+            }else{
+                Log.e(TAG, "Action tidak dibuat. orderDbId/endpoint/token kosong");
             }
         }
 
         Notification notification = builder.build();
         notification.flags |= Notification.FLAG_SHOW_LIGHTS;
 
-        NotificationManager manager =
-                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-
-        if(manager != null){
-            manager.notify(NOTIF_ID_ORDER, notification);
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU){
+            if(ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED){
+                Log.e(TAG, "Izin POST_NOTIFICATIONS belum diberikan");
+                return;
+            }
         }
+
+        NotificationManagerCompat.from(this).notify(NOTIF_ID_ORDER, notification);
     }
 
     private PendingIntent createActionIntent(
@@ -183,15 +173,25 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
             String orderDbId,
             String action,
             String endpoint,
-            String token
+            String token,
+            String actor,
+            String driverType
     ){
 
         Intent intent = new Intent(this, TransivaNotificationActionReceiver.class);
-        intent.setAction("TRANSIVA_NOTIFICATION_ACTION");
+        intent.setAction("TRANSIVA_NOTIFICATION_ACTION_" + requestCode + "_" + orderDbId);
+
+        intent.putExtra("order_db_id", orderDbId);
         intent.putExtra("order_id", orderDbId);
+        intent.putExtra("id", orderDbId);
+
         intent.putExtra("action", action);
         intent.putExtra("action_endpoint", endpoint);
         intent.putExtra("action_token", token);
+        intent.putExtra("actor", actor);
+        intent.putExtra("username", actor);
+        intent.putExtra("offered_driver", actor);
+        intent.putExtra("driver_type", driverType);
         intent.putExtra("notification_id", NOTIF_ID_ORDER);
 
         return PendingIntent.getBroadcast(
@@ -216,7 +216,6 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         }
 
         NotificationChannel oldChannel = manager.getNotificationChannel(CHANNEL_ID);
-
         if(oldChannel != null){
             return;
         }
@@ -243,14 +242,11 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                         .build();
 
         channel.setSound(soundUri, audioAttributes);
-
         manager.createNotificationChannel(channel);
     }
 
     private void wakeDevice(){
-
         try{
-
             PowerManager powerManager =
                     (PowerManager) getSystemService(Context.POWER_SERVICE);
 
