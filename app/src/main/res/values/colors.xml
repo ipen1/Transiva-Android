@@ -1,5 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="transiva_dark">#06142E</color>
-    <color name="transiva_blue">#00A8FF</color>
+    <color name="transiva_blue">#0B6DFF</color>
+    <color name="transiva_blue_dark">#063D91</color>
     <color name="transiva_orange">#FF8A00</color>
+    <color name="transiva_text">#0B367F</color>
+    <color name="transiva_muted">#6E7D96</color>
+    <color name="transiva_stroke">#D9E1EE</color>
+    <color name="transiva_soft">#F3F8FF</color>
 </resources>
