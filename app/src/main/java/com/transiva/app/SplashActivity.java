@@ -2,16 +2,18 @@ package com.transiva.app;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.widget.ImageView;
-import android.widget.FrameLayout;
 import android.view.ViewGroup;
-import android.graphics.Color;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.ImageView.ScaleType;
 
 public class SplashActivity extends Activity {
+
+    private static final int SPLASH_DELAY = 1600;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -21,11 +23,12 @@ public class SplashActivity extends Activity {
         layout.setBackgroundColor(Color.parseColor("#020617"));
 
         ImageView splash = new ImageView(this);
-        splash.setImageResource(getResources().getIdentifier(
-                "splash_screen",
-                "drawable",
-                getPackageName()
-        ));
+        int splashRes = getDrawableId("splash_screen");
+        if (splashRes == 0) splashRes = getDrawableId("transiva_logo");
+        if (splashRes == 0) splashRes = getDrawableId("logo_transiva");
+        if (splashRes == 0) splashRes = getApplicationInfo().icon;
+
+        splash.setImageResource(splashRes);
         splash.setScaleType(ScaleType.CENTER_CROP);
 
         layout.addView(
@@ -38,9 +41,42 @@ public class SplashActivity extends Activity {
 
         setContentView(layout);
 
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            startActivity(new Intent(SplashActivity.this, MainActivity.class));
-            finish();
-        }, 2500);
+        new Handler(Looper.getMainLooper()).postDelayed(this::routeNext, SPLASH_DELAY);
+    }
+
+    private void routeNext() {
+        SessionManager session = new SessionManager(this);
+        Intent intent;
+
+        if (!session.isLoggedIn()) {
+            intent = new Intent(this, LoginActivity.class);
+        } else {
+            intent = dashboardIntent(session.getRole());
+        }
+
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
+        finish();
+    }
+
+    private Intent dashboardIntent(String role) {
+        if ("driver".equals(role)) {
+            return new Intent(this, DriverDashboardActivity.class);
+        }
+        if ("merchant".equals(role)) {
+            return new Intent(this, MerchantDashboardActivity.class);
+        }
+        if ("admin".equals(role)) {
+            return new Intent(this, AdminDashboardActivity.class);
+        }
+        return new Intent(this, CustomerDashboardActivity.class);
+    }
+
+    private int getDrawableId(String name) {
+        try {
+            return getResources().getIdentifier(name, "drawable", getPackageName());
+        } catch (Exception e) {
+            return 0;
+        }
     }
 }
