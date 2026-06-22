@@ -290,8 +290,24 @@ public class LoginActivity extends Activity {
         ) {
             intent = new Intent(this, DriverDashboardActivity.class);
         }
+        else if (
+                role.equals("merchant") ||
+                role.equals("merchen") ||
+                role.equals("resto") ||
+                role.equals("restaurant") ||
+                role.equals("penjual")
+        ) {
+            intent = new Intent(this, MerchantDashboardActivity.class);
+        }
+        else if (
+                role.equals("admin") ||
+                role.equals("administrator") ||
+                role.equals("owner") ||
+                role.equals("superadmin")
+        ) {
+            intent = new Intent(this, AdminDashboardActivity.class);
+        }
         else {
-            // Merchant, admin, atau role lain sementara tetap memakai WebView.
             intent = new Intent(this, MainActivity.class);
             intent.putExtra("url", "https://transiva.my.id/?app=1");
         }
