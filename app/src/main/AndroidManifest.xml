@@ -127,11 +127,9 @@
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
-
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
-
         </provider>
 
         <!-- Splash Screen: launcher utama -->
@@ -140,15 +138,13 @@
             android:exported="true"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme">
-
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-
         </activity>
 
-        <!-- Native Login -->
+        <!-- Native Login / Role Router -->
         <activity
             android:name=".LoginActivity"
             android:exported="false"
@@ -170,7 +166,28 @@
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 
-        <!-- Main WebView -->
+        <!-- Native Driver Dashboard -->
+        <activity
+            android:name=".DriverDashboardActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <!-- Native Merchant Dashboard -->
+        <activity
+            android:name=".MerchantDashboardActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <!-- Native Admin Dashboard -->
+        <activity
+            android:name=".AdminDashboardActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <!-- Main WebView / Web Engine -->
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
@@ -183,10 +200,8 @@
             <!-- Deep Link -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
-
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-
                 <data
                     android:scheme="https"
                     android:host="transiva.my.id" />
