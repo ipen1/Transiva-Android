@@ -464,8 +464,18 @@ public class MainActivity extends Activity {
     private void handleIntent(Intent intent) {
         if (intent == null || webView == null) return;
 
+        /*
+         * FIX STABIL:
+         * Jangan panggil BackgroundSyncService.syncNow() sebelum user login.
+         * Sebelumnya bagian ini membuat notifikasi/status "Sinkronisasi Transiva aktif"
+         * bisa muncul walaupun web belum punya session login.
+         */
         try {
-            BackgroundSyncService.syncNow(this);
+            if (isNativeSessionLoggedIn()) {
+                BackgroundSyncService.syncNow(this);
+            } else {
+                stopAllNativeServices();
+            }
         } catch (Exception ignored) {}
 
         final String fromAction = getIntentString(intent, "from_notification_action");
@@ -861,7 +871,8 @@ public class MainActivity extends Activity {
                 sessionManager = new SessionManager(this);
             }
 
-            if (!sessionManager.isLoggedIn()) {
+            if (!isNativeSessionLoggedIn()) {
+                stopAllNativeServices();
                 return;
             }
 
@@ -869,6 +880,19 @@ public class MainActivity extends Activity {
             startBackgroundSyncServiceSafe();
 
         } catch (Exception ignored) {}
+    }
+
+    private boolean isNativeSessionLoggedIn() {
+        try {
+            if (sessionManager == null) {
+                sessionManager = new SessionManager(this);
+            }
+
+            return sessionManager != null && sessionManager.isLoggedIn();
+
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void startLocationServiceSafe() {
@@ -923,7 +947,11 @@ public class MainActivity extends Activity {
 
     private void syncNowSafe() {
         try {
-            BackgroundSyncService.syncNow(this);
+            if (isNativeSessionLoggedIn()) {
+                BackgroundSyncService.syncNow(this);
+            } else {
+                stopAllNativeServices();
+            }
         } catch (Exception ignored) {}
     }
 
@@ -954,14 +982,20 @@ public class MainActivity extends Activity {
                                 .replace("\\\\", "\\");
                     }
 
-                    if (data == null || data.trim().isEmpty() || data.equals("null")) {
+                    if (data == null || data.trim().isEmpty() || data.equals("null") || data.equals("{}") || data.equals("[]")) {
+                        if (sessionManager != null) {
+                            sessionManager.clearSession();
+                        }
+                        stopAllNativeServices();
                         return;
                     }
 
                     sessionManager.saveSession(data);
 
-                    if (sessionManager.isLoggedIn()) {
+                    if (isNativeSessionLoggedIn()) {
                         startServicesIfLoggedIn();
+                    } else {
+                        stopAllNativeServices();
                     }
 
                 } catch (Exception ignored) {}
@@ -984,7 +1018,13 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void syncNow() {
-            syncNowSafe();
+            try {
+                if (isNativeSessionLoggedIn()) {
+                    syncNowSafe();
+                } else {
+                    runOnUiThread(() -> stopAllNativeServices());
+                }
+            } catch (Exception ignored) {}
         }
 
         @JavascriptInterface
@@ -992,6 +1032,12 @@ public class MainActivity extends Activity {
             try {
                 if (sessionManager == null) {
                     sessionManager = new SessionManager(MainActivity.this);
+                }
+
+                if (json == null || json.trim().isEmpty() || json.trim().equals("null") || json.trim().equals("{}") || json.trim().equals("[]")) {
+                    sessionManager.clearSession();
+                    runOnUiThread(() -> stopAllNativeServices());
+                    return;
                 }
 
                 sessionManager.saveSession(json);
