@@ -13,10 +13,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Anti kill / battery optimization -->
+    <!-- Battery optimization -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- Auto start setelah reboot -->
+    <!-- Boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Foreground service -->
@@ -24,7 +24,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- Exact alarm, opsional untuk reminder/order timeout -->
+    <!-- Alarm optional -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Location -->
@@ -121,7 +121,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- File Provider untuk kamera dan upload file -->
+        <!-- File Provider -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -134,7 +134,7 @@
 
         </provider>
 
-        <!-- Splash Screen -->
+        <!-- Splash Screen: launcher utama -->
         <activity
             android:name=".SplashActivity"
             android:exported="true"
@@ -148,17 +148,27 @@
 
         </activity>
 
-        <!-- Native Home Activity -->
+        <!-- Native Login -->
+        <activity
+            android:name=".LoginActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Native Home lama -->
         <activity
             android:name=".NativeHomeActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 
+        <!-- Native Customer Dashboard -->
         <activity
             android:name=".CustomerDashboardActivity"
+            android:exported="false"
             android:screenOrientation="portrait"
-            android:exported="false" />
+            android:theme="@style/AppTheme" />
 
         <!-- Main WebView -->
         <activity
@@ -167,6 +177,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
+            android:theme="@style/AppTheme"
             android:windowSoftInputMode="adjustResize">
 
             <!-- Deep Link -->
