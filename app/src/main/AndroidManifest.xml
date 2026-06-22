@@ -1,45 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- Notification -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
-    <!-- FCM / Wake / Vibration -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
-    <!-- Battery optimization -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-
-    <!-- Boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Foreground service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
-    <!-- Alarm optional -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- Location -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
-    <!-- Camera -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- Storage Android 13+ -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
 
-    <!-- Storage lama -->
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
@@ -67,7 +55,6 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="false">
 
-        <!-- Firebase Cloud Messaging -->
         <service
             android:name=".TransivaFirebaseService"
             android:directBootAware="true"
@@ -77,13 +64,11 @@
             </intent-filter>
         </service>
 
-        <!-- Tombol Terima/Tolak notifikasi -->
         <receiver
             android:name=".TransivaNotificationActionReceiver"
             android:enabled="true"
             android:exported="false" />
 
-        <!-- Foreground Service Driver -->
         <service
             android:name=".TransivaDriverForegroundService"
             android:enabled="true"
@@ -91,7 +76,6 @@
             android:stopWithTask="false"
             android:foregroundServiceType="location|dataSync" />
 
-        <!-- Native Location Service -->
         <service
             android:name=".LocationService"
             android:enabled="true"
@@ -99,7 +83,6 @@
             android:stopWithTask="false"
             android:foregroundServiceType="location" />
 
-        <!-- Background Sync Service -->
         <service
             android:name=".BackgroundSyncService"
             android:enabled="true"
@@ -107,7 +90,6 @@
             android:stopWithTask="false"
             android:foregroundServiceType="dataSync" />
 
-        <!-- Auto start setelah reboot / update aplikasi -->
         <receiver
             android:name=".TransivaBootReceiver"
             android:directBootAware="true"
@@ -121,7 +103,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- File Provider -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -132,7 +113,6 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Splash Screen: launcher utama -->
         <activity
             android:name=".SplashActivity"
             android:exported="true"
@@ -144,13 +124,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Native Login / Role Router -->
         <activity
             android:name=".LoginActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme"
             android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".RegisterActivity"
             android:exported="false"
@@ -158,42 +138,36 @@
             android:theme="@style/AppTheme"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- Native Home lama -->
         <activity
             android:name=".NativeHomeActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 
-        <!-- Native Customer Dashboard -->
         <activity
             android:name=".CustomerDashboardActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 
-        <!-- Native Driver Dashboard -->
         <activity
             android:name=".DriverDashboardActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 
-        <!-- Native Merchant Dashboard -->
         <activity
             android:name=".MerchantDashboardActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 
-        <!-- Native Admin Dashboard -->
         <activity
             android:name=".AdminDashboardActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 
-        <!-- Main WebView / Web Engine -->
         <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
@@ -203,7 +177,6 @@
             android:theme="@style/AppTheme"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Deep Link -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -213,7 +186,6 @@
                     android:host="transiva.my.id" />
             </intent-filter>
 
-            <!-- Click action dari FCM -->
             <intent-filter>
                 <action android:name="OPEN_TRANSIVA" />
                 <category android:name="android.intent.category.DEFAULT" />
