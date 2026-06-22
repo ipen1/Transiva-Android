@@ -10,16 +10,14 @@ import java.util.Locale;
 /**
  * SessionManager.java - Transiva Clean Native Session Guard
  *
- * Fungsi utama:
- * - Menyimpan session login native.
- * - Mengecek apakah user sudah login.
- * - Routing user berdasarkan role.
- * - Menjaga agar service driver/merchant tidak aktif sebelum login.
- * - Membersihkan flag online saat logout.
+ * Build Fix:
+ * - Mendukung saveSession(String)
+ * - Mendukung saveUser(JSONObject)
+ * - Mendukung markLoggedOut(String)
+ * - Mendukung forceLogout(String)
  *
- * Catatan:
- * - File ini tidak bergantung pada WebView/localStorage.
- * - Cocok dipakai oleh SplashActivity, LoginActivity, Dashboard, BootReceiver, FCM, dan Service.
+ * Jadi aman untuk LoginActivity, SplashActivity, NativeSessionGuard,
+ * BootReceiver, FCM, dan Service lama.
  */
 public class SessionManager {
 
@@ -27,7 +25,7 @@ public class SessionManager {
     private static final String LEGACY_PREF_NAME = "transiva";
 
     private static final long MAX_SESSION_AGE_MS =
-            1000L * 60L * 60L * 24L * 30L; // 30 hari
+            1000L * 60L * 60L * 24L * 30L;
 
     private final Context appContext;
     private final SharedPreferences prefs;
@@ -35,10 +33,12 @@ public class SessionManager {
 
     public SessionManager(Context context) {
         appContext = context.getApplicationContext();
+
         prefs = appContext.getSharedPreferences(
                 PREF_NAME,
                 Context.MODE_PRIVATE
         );
+
         legacyPrefs = appContext.getSharedPreferences(
                 LEGACY_PREF_NAME,
                 Context.MODE_PRIVATE
@@ -47,14 +47,6 @@ public class SessionManager {
         prepareFreshStateIfNeeded();
     }
 
-    /**
-     * Simpan session dari response login.
-     *
-     * Support response:
-     * 1. { success:true, user:{...} }
-     * 2. { success:true, id:"", username:"", role:"" }
-     * 3. object user langsung.
-     */
     public boolean saveSession(String json) {
         try {
             JSONObject root = new JSONObject(
@@ -69,10 +61,24 @@ public class SessionManager {
                 user = root;
             }
 
+            return saveUser(user);
+
+        } catch (Exception e) {
+            markLoggedOut("save_session_error");
+            return false;
+        }
+    }
+
+    /**
+     * Method kompatibel untuk LoginActivity lama:
+     * session.saveUser(user);
+     */
+    public boolean saveUser(JSONObject user) {
+        try {
             JSONObject clean = normalizeUser(user);
 
             if (!isValidUserObject(clean)) {
-                forceLogout("invalid_login_payload");
+                markLoggedOut("invalid_user_payload");
                 return false;
             }
 
@@ -81,10 +87,16 @@ public class SessionManager {
             SharedPreferences.Editor e = prefs.edit();
 
             e.putBoolean("logged_in", true);
+            e.putBoolean("native_logged_in", true);
+
             e.putString("session_state", "active");
+            e.putString("native_session_state", "active");
+
             e.putString("session_message", "Session aktif");
+            e.putString("native_session_message", "Session aktif");
 
             e.putString("raw_user", clean.toString());
+            e.putString("raw_session", clean.toString());
 
             e.putString("id", clean.optString("id", ""));
             e.putString("user_id", clean.optString("user_id", ""));
@@ -100,6 +112,7 @@ public class SessionManager {
             e.putString("driver_photo", clean.optString("driver_photo", ""));
 
             long now = System.currentTimeMillis();
+
             e.putLong("saved_at", now);
             e.putLong("last_seen_at", now);
             e.putLong("logout_at", 0L);
@@ -111,28 +124,31 @@ public class SessionManager {
             return true;
 
         } catch (Exception e) {
-            forceLogout("save_session_error");
+            markLoggedOut("save_user_error");
             return false;
         }
     }
 
-    /**
-     * Dipakai SplashActivity.
-     */
     public boolean isLoggedIn() {
         try {
-            if (!prefs.getBoolean("logged_in", false)) {
+            boolean loggedIn =
+                    prefs.getBoolean("logged_in", false)
+                            || prefs.getBoolean("native_logged_in", false);
+
+            if (!loggedIn) {
                 return false;
             }
 
             long savedAt = prefs.getLong("saved_at", 0L);
+
             if (savedAt <= 0L) {
                 return false;
             }
 
             long age = System.currentTimeMillis() - savedAt;
+
             if (age < 0L || age > MAX_SESSION_AGE_MS) {
-                forceLogout("session_expired");
+                markLoggedOut("session_expired");
                 return false;
             }
 
@@ -151,9 +167,6 @@ public class SessionManager {
         }
     }
 
-    /**
-     * Dipakai oleh BootReceiver, BackgroundSyncService, ForegroundService.
-     */
     public boolean canRunNativeServices() {
         if (!isLoggedIn()) {
             return false;
@@ -167,17 +180,11 @@ public class SessionManager {
                 || role.equals("wisata");
     }
 
-    /**
-     * Khusus lokasi driver.
-     */
     public boolean canRunDriverLocation() {
         return isLoggedIn()
                 && normalizeRole(getRole()).equals("driver");
     }
 
-    /**
-     * Update waktu aktif user.
-     */
     public void touchSession() {
         if (!isLoggedIn()) {
             return;
@@ -186,22 +193,28 @@ public class SessionManager {
         prefs.edit()
                 .putLong("last_seen_at", System.currentTimeMillis())
                 .putString("session_state", "active")
+                .putString("native_session_state", "active")
                 .putString("session_message", "Session aktif")
+                .putString("native_session_message", "Session aktif")
                 .apply();
     }
 
     public void logout() {
-        forceLogout("manual_logout");
+        markLoggedOut("manual_logout");
     }
 
     public void clearSession() {
-        forceLogout("manual_logout");
+        markLoggedOut("manual_logout");
     }
 
     /**
-     * Logout bersih.
-     * FCM token tetap disimpan supaya device masih bisa didaftarkan ulang.
+     * Method kompatibel untuk NativeSessionGuard lama:
+     * sessionManager.markLoggedOut(reason);
      */
+    public void markLoggedOut(String reason) {
+        forceLogout(reason);
+    }
+
     public void forceLogout(String reason) {
         try {
             String fcmToken = prefs.getString("fcm_token", "");
@@ -210,8 +223,14 @@ public class SessionManager {
             SharedPreferences.Editor e = prefs.edit().clear();
 
             e.putBoolean("logged_in", false);
+            e.putBoolean("native_logged_in", false);
+
             e.putString("session_state", "logged_out");
+            e.putString("native_session_state", "logged_out");
+
             e.putString("session_message", safe(reason));
+            e.putString("native_session_message", safe(reason));
+
             e.putLong("logout_at", System.currentTimeMillis());
 
             if (!fcmToken.isEmpty()) {
@@ -231,8 +250,11 @@ public class SessionManager {
         try {
             JSONObject obj = new JSONObject();
 
-            obj.put("success", isLoggedIn());
-            obj.put("logged_in", isLoggedIn());
+            boolean loggedIn = isLoggedIn();
+
+            obj.put("success", loggedIn);
+            obj.put("logged_in", loggedIn);
+            obj.put("native_logged_in", loggedIn);
 
             obj.put("id", getId());
             obj.put("user_id", getUserId());
@@ -265,14 +287,18 @@ public class SessionManager {
     }
 
     private void prepareFreshStateIfNeeded() {
-        if (prefs.contains("logged_in")) {
+        if (prefs.contains("logged_in")
+                || prefs.contains("native_logged_in")) {
             return;
         }
 
         prefs.edit()
                 .putBoolean("logged_in", false)
+                .putBoolean("native_logged_in", false)
                 .putString("session_state", "fresh_install")
+                .putString("native_session_state", "fresh_install")
                 .putString("session_message", "Menunggu login")
+                .putString("native_session_message", "Menunggu login")
                 .apply();
 
         clearLegacyOnlineFlags();
