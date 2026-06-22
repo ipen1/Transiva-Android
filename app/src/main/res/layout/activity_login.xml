@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_login_root"
+    android:fillViewport="true"
+    android:overScrollMode="never">
+
+    <LinearLayout
+        android:id="@+id/loginRoot"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingLeft="28dp"
+        android:paddingTop="34dp"
+        android:paddingRight="28dp"
+        android:paddingBottom="34dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end">
+
+            <LinearLayout
+                android:id="@+id/themeToggleBox"
+                android:layout_width="wrap_content"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_toggle"
+                android:gravity="center"
+                android:orientation="horizontal"
+                android:padding="3dp">
+
+                <TextView
+                    android:id="@+id/normalModeBtn"
+                    android:layout_width="92dp"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/bg_toggle_active"
+                    android:gravity="center"
+                    android:text="☀ Normal"
+                    android:textColor="@color/transiva_blue"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/darkModeBtn"
+                    android:layout_width="78dp"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="☾ Dark"
+                    android:textColor="@color/transiva_muted"
+                    android:textSize="14sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/logoImage"
+            android:layout_width="210dp"
+            android:layout_height="92dp"
+            android:layout_marginTop="38dp"
+            android:adjustViewBounds="true"
+            android:contentDescription="Transiva"
+            android:scaleType="fitCenter"
+            android:src="@drawable/transiva_logo" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center"
+            android:text="Masuk Transiva"
+            android:textColor="@color/transiva_text"
+            android:textSize="32sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:text="Masuk untuk mulai pesan atau menerima order"
+            android:textColor="@color/transiva_muted"
+            android:textSize="16sp" />
+
+        <LinearLayout
+            android:id="@+id/loginCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:background="@drawable/bg_card"
+            android:elevation="8dp"
+            android:orientation="vertical"
+            android:paddingLeft="26dp"
+            android:paddingTop="28dp"
+            android:paddingRight="26dp"
+            android:paddingBottom="26dp">
+
+            <TextView
+                android:id="@+id/loginMessage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:gravity="center"
+                android:textColor="#D32F2F"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Nama Pengguna"
+                android:textColor="@color/transiva_text"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="58dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_input"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:src="@drawable/ic_user" />
+
+                <EditText
+                    android:id="@+id/loginUsername"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginLeft="14dp"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:hint="Masukkan Nama Pengguna"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:textColor="@color/transiva_text"
+                    android:textColorHint="#8994A8"
+                    android:textSize="15sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Kata Sandi"
+                android:textColor="@color/transiva_text"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="58dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_input"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:src="@drawable/ic_lock" />
+
+                <EditText
+                    android:id="@+id/loginPassword"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginLeft="14dp"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:hint="Masukkan Kata Sandi"
+                    android:inputType="textPassword"
+                    android:maxLines="1"
+                    android:textColor="@color/transiva_text"
+                    android:textColorHint="#8994A8"
+                    android:textSize="15sp" />
+
+                <ImageButton
+                    android:id="@+id/togglePasswordBtn"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Lihat kata sandi"
+                    android:src="@drawable/ic_eye" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/loginBtn"
+                android:layout_width="match_parent"
+                android:layout_height="62dp"
+                android:layout_marginTop="28dp"
+                android:background="@drawable/bg_button_blue"
+                android:drawableRight="@drawable/ic_arrow"
+                android:paddingLeft="24dp"
+                android:paddingRight="24dp"
+                android:text="Masuk"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="60dp"
+                    android:layout_height="1dp"
+                    android:background="#DCE4F0" />
+
+                <TextView
+                    android:id="@+id/toRegister"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingLeft="12dp"
+                    android:paddingRight="12dp"
+                    android:text="Belum punya akun? Daftar"
+                    android:textColor="@color/transiva_blue"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="60dp"
+                    android:layout_height="1dp"
+                    android:background="#DCE4F0" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:background="@drawable/bg_version_box"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="14dp">
+
+                <ImageView
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:src="@drawable/ic_shield" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginLeft="10dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/currentVersion"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Versi Aplikasi : 1.0"
+                        android:textColor="@color/transiva_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:text="Aplikasi selalu diperbarui untuk pengalaman terbaik Anda"
+                        android:textColor="@color/transiva_muted"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/checkUpdateBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="44dp"
+                    android:background="@drawable/bg_input"
+                    android:minWidth="0dp"
+                    android:paddingLeft="14dp"
+                    android:paddingRight="14dp"
+                    android:text="Cek Pembaharuan"
+                    android:textAllCaps="false"
+                    android:textColor="@color/transiva_blue"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="22dp"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/privacyBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Kebijakan Privasi"
+                    android:textColor="@color/transiva_blue"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingLeft="18dp"
+                    android:paddingRight="18dp"
+                    android:text="|"
+                    android:textColor="#B7C1D2" />
+
+                <TextView
+                    android:id="@+id/termsBtn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Syarat &amp; Ketentuan"
+                    android:textColor="@color/transiva_blue"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
