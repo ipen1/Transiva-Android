@@ -21,17 +21,18 @@ import android.widget.Toast;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.util.Locale;
 
 public class LoginActivity extends Activity {
 
     private static final String LOGIN_URL = "https://transiva.my.id/server/login.php";
-    private static final String WEB_LOGIN_URL = "https://transiva.my.id/?app=1";
+    private static final String WEB_HOME_URL = "https://transiva.my.id/?app=1";
+
     private static final String PREF_NAME = "transiva_login";
     private static final String PREF_LAST_USERNAME = "last_username";
 
@@ -39,7 +40,7 @@ public class LoginActivity extends Activity {
     private EditText passwordInput;
     private CheckBox showPasswordBox;
     private Button loginBtn;
-    private Button webLoginBtn;
+    private Button webBtn;
     private ProgressBar progressBar;
     private TextView messageText;
 
@@ -47,8 +48,8 @@ public class LoginActivity extends Activity {
     private SharedPreferences prefs;
 
     @Override
-    protected void onCreate(Bundle b) {
-        super.onCreate(b);
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
 
         try {
             getWindow().setStatusBarColor(Color.parseColor("#06142E"));
@@ -58,10 +59,12 @@ public class LoginActivity extends Activity {
         sessionManager = new SessionManager(this);
         prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
 
-        if (sessionManager.isLoggedIn()) {
-            openNextPage();
-            return;
-        }
+        try {
+            if (sessionManager.isLoggedIn()) {
+                openDashboardByRole();
+                return;
+            }
+        } catch (Exception ignored) {}
 
         buildUi();
     }
@@ -85,13 +88,13 @@ public class LoginActivity extends Activity {
         logo.setGravity(Gravity.CENTER);
         root.addView(logo, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView sub = new TextView(this);
-        sub.setText("Masuk ke akun kamu");
-        sub.setTextSize(16);
-        sub.setTextColor(Color.parseColor("#D1D5DB"));
-        sub.setGravity(Gravity.CENTER);
-        sub.setPadding(0, dp(6), 0, dp(26));
-        root.addView(sub, new LinearLayout.LayoutParams(-1, -2));
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Login Native langsung ke API");
+        subtitle.setTextSize(15);
+        subtitle.setTextColor(Color.parseColor("#D1D5DB"));
+        subtitle.setGravity(Gravity.CENTER);
+        subtitle.setPadding(0, dp(6), 0, dp(24));
+        root.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -101,7 +104,7 @@ public class LoginActivity extends Activity {
         cardLp.setMargins(0, 0, 0, dp(18));
         root.addView(card, cardLp);
 
-        usernameInput = input("Username / Nomor HP");
+        usernameInput = input("Username");
         usernameInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_NORMAL);
         usernameInput.setText(prefs.getString(PREF_LAST_USERNAME, ""));
         card.addView(usernameInput);
@@ -111,7 +114,7 @@ public class LoginActivity extends Activity {
         passwordInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
         passwordInput.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                doLogin();
+                doNativeLogin();
                 return true;
             }
             return false;
@@ -120,8 +123,8 @@ public class LoginActivity extends Activity {
 
         showPasswordBox = new CheckBox(this);
         showPasswordBox.setText("Tampilkan password");
-        showPasswordBox.setTextColor(Color.parseColor("#374151"));
         showPasswordBox.setTextSize(14);
+        showPasswordBox.setTextColor(Color.parseColor("#374151"));
         showPasswordBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
             int pos = passwordInput.getSelectionStart();
             if (isChecked) {
@@ -129,7 +132,7 @@ public class LoginActivity extends Activity {
             } else {
                 passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
             }
-            passwordInput.setSelection(Math.max(0, passwordInput.getText().length() < pos ? passwordInput.getText().length() : pos));
+            passwordInput.setSelection(Math.min(Math.max(pos, 0), passwordInput.getText().length()));
         });
         card.addView(showPasswordBox);
 
@@ -138,26 +141,27 @@ public class LoginActivity extends Activity {
         card.addView(progressBar);
 
         messageText = new TextView(this);
-        messageText.setTextColor(Color.parseColor("#DC2626"));
+        messageText.setText("");
         messageText.setTextSize(14);
+        messageText.setTextColor(Color.parseColor("#DC2626"));
         messageText.setGravity(Gravity.CENTER);
-        messageText.setPadding(0, dp(12), 0, dp(8));
+        messageText.setPadding(0, dp(10), 0, dp(8));
         card.addView(messageText, new LinearLayout.LayoutParams(-1, -2));
 
-        loginBtn = button("Masuk Native");
-        loginBtn.setOnClickListener(v -> doLogin());
+        loginBtn = button("Masuk");
+        loginBtn.setOnClickListener(v -> doNativeLogin());
         card.addView(loginBtn);
 
-        webLoginBtn = button("Masuk lewat WebView");
-        webLoginBtn.setOnClickListener(v -> openWebLogin());
-        card.addView(webLoginBtn);
+        webBtn = button("Buka WebView");
+        webBtn.setOnClickListener(v -> openWebFallback());
+        card.addView(webBtn);
 
         TextView note = new TextView(this);
-        note.setText("Login native aktif. Setelah berhasil, aplikasi otomatis membuka dashboard sesuai role akun.");
+        note.setText("Login ini mengirim JSON langsung ke server/login.php. WebView tidak dipakai untuk login.");
         note.setTextSize(12);
         note.setTextColor(Color.parseColor("#9CA3AF"));
         note.setGravity(Gravity.CENTER);
-        note.setPadding(dp(10), 0, dp(10), 0);
+        note.setPadding(dp(8), 0, dp(8), 0);
         root.addView(note, new LinearLayout.LayoutParams(-1, -2));
 
         setContentView(scroll);
@@ -194,7 +198,7 @@ public class LoginActivity extends Activity {
         return b;
     }
 
-    private void doLogin() {
+    private void doNativeLogin() {
         String username = usernameInput.getText().toString().trim();
         String password = passwordInput.getText().toString().trim();
 
@@ -214,35 +218,43 @@ public class LoginActivity extends Activity {
 
         new Thread(() -> {
             try {
-                String response = postLogin(username, password);
-                JSONObject json = new JSONObject(response);
+                String response = postJsonLogin(username, password);
+                JSONObject root = new JSONObject(response);
 
-                boolean success = json.optBoolean("success", false);
+                boolean success = root.optBoolean("success", false);
+                String message = root.optString("message", success ? "Berhasil Masuk" : "Login gagal");
 
                 if (!success) {
-                    String msg = json.optString("message", "Login gagal. Periksa username dan password.");
-                    runOnUiThread(() -> setLoading(false, msg));
+                    runOnUiThread(() -> setLoading(false, message));
                     return;
                 }
 
-                JSONObject player = extractUserObject(json, username);
+                JSONObject user = root.optJSONObject("user");
+                if (user == null) {
+                    runOnUiThread(() -> setLoading(false, "Response login tidak lengkap"));
+                    return;
+                }
+
+                JSONObject sessionUser = normalizeUser(user, username);
 
                 try {
                     if (sessionManager == null) {
                         sessionManager = new SessionManager(this);
                     }
                     sessionManager.clearSession();
-                } catch (Exception ignored) {}
-
-                sessionManager.saveSession(player.toString());
+                    sessionManager.saveSession(sessionUser.toString());
+                } catch (Exception e) {
+                    runOnUiThread(() -> setLoading(false, "Gagal menyimpan session"));
+                    return;
+                }
 
                 prefs.edit()
                         .putString(PREF_LAST_USERNAME, username)
                         .apply();
 
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "Login berhasil", Toast.LENGTH_SHORT).show();
-                    openNextPage();
+                    Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+                    openDashboardByRole();
                 });
 
             } catch (Exception e) {
@@ -251,85 +263,50 @@ public class LoginActivity extends Activity {
         }).start();
     }
 
-    private JSONObject extractUserObject(JSONObject json, String fallbackUsername) throws Exception {
-        JSONObject player = json.optJSONObject("player");
+    private String postJsonLogin(String username, String password) throws Exception {
+        JSONObject payload = new JSONObject();
+        payload.put("username", username);
+        payload.put("password", password);
 
-        if (player == null) {
-            player = json.optJSONObject("user");
-        }
+        byte[] body = payload.toString().getBytes("UTF-8");
 
-        if (player == null) {
-            player = json.optJSONObject("data");
-        }
+        HttpURLConnection conn = (HttpURLConnection) new URL(LOGIN_URL).openConnection();
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(15000);
+        conn.setRequestMethod("POST");
+        conn.setDoInput(true);
+        conn.setDoOutput(true);
+        conn.setUseCaches(false);
+        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+        conn.setRequestProperty("Accept", "application/json");
+        conn.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+        conn.setRequestProperty("User-Agent", "TransivaAndroidNative/1.0");
+        conn.setRequestProperty("Content-Length", String.valueOf(body.length));
 
-        if (player == null) {
-            player = new JSONObject();
-        }
-
-        String username = firstNonEmpty(
-                player.optString("username", ""),
-                player.optString("name", ""),
-                json.optString("username", ""),
-                json.optString("name", ""),
-                fallbackUsername
-        );
-
-        String role = firstNonEmpty(
-                player.optString("role", ""),
-                player.optString("user_role", ""),
-                json.optString("role", ""),
-                json.optString("user_role", ""),
-                "customer"
-        );
-
-        String id = firstNonEmpty(
-                player.optString("id", ""),
-                player.optString("user_id", ""),
-                json.optString("id", ""),
-                json.optString("user_id", "")
-        );
-
-        player.put("username", username);
-        player.put("role", normalizeRole(role));
-
-        if (!id.isEmpty()) {
-            player.put("id", id);
-            player.put("user_id", id);
-        }
-
-        return player;
-    }
-
-    private String postLogin(String username, String password) throws Exception {
-        String body =
-                "username=" + enc(username) +
-                "&password=" + enc(password) +
-                "&app=1" +
-                "&native=1" +
-                "&device=android";
-
-        HttpURLConnection c = (HttpURLConnection) new URL(LOGIN_URL).openConnection();
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(15000);
-        c.setRequestMethod("POST");
-        c.setDoOutput(true);
-        c.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
-        c.setRequestProperty("Accept", "application/json");
-
-        OutputStream os = c.getOutputStream();
-        os.write(body.getBytes("UTF-8"));
+        OutputStream os = conn.getOutputStream();
+        os.write(body);
         os.flush();
         os.close();
 
-        int code = c.getResponseCode();
-        BufferedReader br;
+        int code = conn.getResponseCode();
+        InputStream stream = code >= 200 && code < 300
+                ? conn.getInputStream()
+                : conn.getErrorStream();
 
-        if (code >= 200 && code < 300) {
-            br = new BufferedReader(new InputStreamReader(c.getInputStream()));
-        } else {
-            br = new BufferedReader(new InputStreamReader(c.getErrorStream()));
+        String result = readStream(stream).trim();
+        conn.disconnect();
+
+        if (result.isEmpty()) {
+            throw new Exception("Server tidak mengirim response");
         }
 
+        return result;
+    }
+
+    private String readStream(InputStream stream) throws Exception {
+        if (stream == null) return "";
+
+        BufferedReader br = new BufferedReader(new InputStreamReader(stream, "UTF-8"));
         StringBuilder sb = new StringBuilder();
         String line;
 
@@ -338,28 +315,60 @@ public class LoginActivity extends Activity {
         }
 
         br.close();
-        c.disconnect();
-
-        String result = sb.toString().trim();
-
-        if (result.isEmpty()) {
-            throw new Exception("Server kosong");
-        }
-
-        return result;
+        return sb.toString();
     }
 
-    private void openNextPage() {
-        String role = "";
+    private JSONObject normalizeUser(JSONObject user, String fallbackUsername) throws Exception {
+        JSONObject out = new JSONObject(user.toString());
+
+        String id = firstNonEmpty(
+                out.optString("id", ""),
+                out.optString("user_id", "")
+        );
+
+        String username = firstNonEmpty(
+                out.optString("username", ""),
+                out.optString("name", ""),
+                fallbackUsername
+        );
+
+        String role = normalizeRole(firstNonEmpty(
+                out.optString("role", ""),
+                "customer"
+        ));
+
+        String driverType = firstNonEmpty(
+                out.optString("driver_type", ""),
+                "bike"
+        ).toLowerCase(Locale.US);
+
+        if (!driverType.equals("car")) {
+            driverType = "bike";
+        }
+
+        out.put("id", id);
+        out.put("user_id", id);
+        out.put("username", username);
+        out.put("role", role);
+        out.put("driver_type", driverType);
+
+        if (!out.has("balance")) out.put("balance", 0);
+        if (!out.has("driver_level")) out.put("driver_level", "bronze");
+        if (!out.has("photo")) out.put("photo", out.optString("driver_photo", "assets/default-driver.png"));
+        if (!out.has("driver_photo")) out.put("driver_photo", out.optString("photo", "assets/default-driver.png"));
+
+        return out;
+    }
+
+    private void openDashboardByRole() {
+        String role = "customer";
 
         try {
             if (sessionManager == null) {
                 sessionManager = new SessionManager(this);
             }
-            role = sessionManager.getRole();
+            role = normalizeRole(sessionManager.getRole());
         } catch (Exception ignored) {}
-
-        role = normalizeRole(role);
 
         Intent intent;
 
@@ -373,7 +382,7 @@ public class LoginActivity extends Activity {
             intent = new Intent(this, AdminDashboardActivity.class);
         } else {
             intent = new Intent(this, MainActivity.class);
-            intent.putExtra("url", WEB_LOGIN_URL);
+            intent.putExtra("url", WEB_HOME_URL);
         }
 
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -381,26 +390,14 @@ public class LoginActivity extends Activity {
         finish();
     }
 
-    private void openWebLogin() {
-        Intent i = new Intent(this, MainActivity.class);
-        i.putExtra("url", WEB_LOGIN_URL);
-        startActivity(i);
-    }
-
-    private void setLoading(boolean loading, String msg) {
-        try {
-            progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
-            loginBtn.setEnabled(!loading);
-            webLoginBtn.setEnabled(!loading);
-            usernameInput.setEnabled(!loading);
-            passwordInput.setEnabled(!loading);
-            showPasswordBox.setEnabled(!loading);
-            messageText.setText(msg == null ? "" : msg);
-        } catch (Exception ignored) {}
+    private void openWebFallback() {
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.putExtra("url", WEB_HOME_URL);
+        startActivity(intent);
     }
 
     private String normalizeRole(String role) {
-        if (role == null) return "";
+        if (role == null) return "customer";
 
         String r = role.trim().toLowerCase(Locale.US);
 
@@ -420,30 +417,46 @@ public class LoginActivity extends Activity {
             return "admin";
         }
 
-        return r;
+        if (r.equals("wisata") || r.equals("wisataowner") || r.equals("wisata_owner")) {
+            return "wisata";
+        }
+
+        return r.isEmpty() ? "customer" : r;
     }
 
     private String firstNonEmpty(String... values) {
         if (values == null) return "";
 
-        for (String v : values) {
-            if (v != null && !v.trim().isEmpty()) {
-                return v.trim();
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty() && !value.equals("null")) {
+                return value.trim();
             }
         }
 
         return "";
     }
 
-    private String cleanError(String msg) {
-        if (msg == null || msg.trim().isEmpty()) {
-            return "Koneksi/server bermasalah";
-        }
-        return msg.replace("java.lang.", "");
+    private void setLoading(boolean loading, String message) {
+        try {
+            progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
+            loginBtn.setEnabled(!loading);
+            webBtn.setEnabled(!loading);
+            usernameInput.setEnabled(!loading);
+            passwordInput.setEnabled(!loading);
+            showPasswordBox.setEnabled(!loading);
+            messageText.setText(message == null ? "" : message);
+        } catch (Exception ignored) {}
     }
 
-    private String enc(String s) throws Exception {
-        return URLEncoder.encode(s == null ? "" : s, "UTF-8");
+    private String cleanError(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return "Koneksi/server bermasalah";
+        }
+
+        return message
+                .replace("java.lang.", "")
+                .replace("org.json.", "")
+                .replace("Value ", "Data ");
     }
 
     private int dp(int value) {
