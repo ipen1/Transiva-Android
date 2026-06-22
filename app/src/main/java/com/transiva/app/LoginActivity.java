@@ -1,443 +1,330 @@
 package com.transiva.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
-import java.net.SocketTimeoutException;
 import java.net.URL;
-import java.util.Locale;
+import java.nio.charset.StandardCharsets;
 
 public class LoginActivity extends Activity {
 
-    private static final String LOGIN_URL = "https://transiva.my.id/server/login.php";
-    private static final String WEB_HOME_URL = "https://transiva.my.id/?app=1";
+    private static final String BASE_URL = "https://transiva.my.id/";
+    private static final String LOGIN_URL = BASE_URL + "server/login.php";
+    private static final int TIMEOUT_MS = 25000;
 
-    private static final String PREF_NAME = "transiva_login";
-    private static final String PREF_LAST_USERNAME = "last_username";
-
+    private SessionManager session;
     private EditText usernameInput;
     private EditText passwordInput;
-    private CheckBox showPasswordBox;
-    private Button loginBtn;
-    private Button webBtn;
-    private ProgressBar progressBar;
     private TextView messageText;
-
-    private SessionManager sessionManager;
-    private SharedPreferences prefs;
-    private volatile boolean isLoginRunning = false;
+    private Button loginButton;
+    private ProgressBar progressBar;
+    private boolean passwordVisible = false;
+    private boolean loading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        session = new SessionManager(this);
 
-        try {
-            getWindow().setStatusBarColor(Color.parseColor("#06142E"));
-            getWindow().setNavigationBarColor(Color.parseColor("#06142E"));
-        } catch (Exception ignored) {}
-
-        sessionManager = new SessionManager(this);
-        prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-
-        if (safeIsLoggedIn()) {
-            openDashboardByRole();
+        if (session.isLoggedIn()) {
+            openDashboard(session.getRole());
             return;
         }
 
-        buildUi();
-    }
-
-    private boolean safeIsLoggedIn() {
         try {
-            return sessionManager != null && sessionManager.isLoggedIn();
-        } catch (Exception e) {
-            try {
-                sessionManager.clearSession();
-            } catch (Exception ignored) {}
-            return false;
-        }
+            getWindow().setStatusBarColor(Color.parseColor("#06142E"));
+            getWindow().setNavigationBarColor(Color.parseColor("#020617"));
+        } catch (Exception ignored) {}
+
+        buildLoginView();
     }
 
-    private void buildUi() {
+    private void buildLoginView() {
+        FrameLayout page = new FrameLayout(this);
+        page.setBackgroundColor(Color.parseColor("#F4F7FB"));
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.parseColor("#06142E"));
+        page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setGravity(Gravity.CENTER);
-        root.setPadding(dp(26), dp(36), dp(26), dp(36));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -1));
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.setPadding(dp(22), dp(34), dp(22), dp(26));
+        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
-        TextView logo = new TextView(this);
-        logo.setText("TRANSIVA");
-        logo.setTextSize(34);
-        logo.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        logo.setTextColor(Color.WHITE);
-        logo.setGravity(Gravity.CENTER);
-        root.addView(logo, new LinearLayout.LayoutParams(-1, -2));
+        ImageView logo = new ImageView(this);
+        int logoRes = getDrawableId("transiva_logo");
+        if (logoRes == 0) logoRes = getDrawableId("logo_transiva");
+        if (logoRes == 0) logoRes = getDrawableId("logo");
+        if (logoRes == 0) logoRes = getApplicationInfo().icon;
+        logo.setImageResource(logoRes);
+        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(96), dp(96));
+        logoLp.setMargins(0, 0, 0, dp(14));
+        root.addView(logo, logoLp);
 
-        TextView subtitle = new TextView(this);
-        subtitle.setText("Native Login");
-        subtitle.setTextSize(15);
-        subtitle.setTextColor(Color.parseColor("#D1D5DB"));
+        TextView title = text("Masuk Transiva", 27, "#06142E", true);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title);
+
+        TextView subtitle = text("Masuk untuk mulai pesan atau menerima order", 14, "#64748B", false);
         subtitle.setGravity(Gravity.CENTER);
-        subtitle.setPadding(0, dp(6), 0, dp(24));
-        root.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
+        subtitle.setPadding(0, dp(7), 0, dp(18));
+        root.addView(subtitle);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackgroundColor(Color.WHITE);
-        card.setPadding(dp(20), dp(22), dp(20), dp(18));
+        card.setPadding(dp(20), dp(20), dp(20), dp(18));
+        card.setBackground(round("#FFFFFF", dp(24)));
+        card.setElevation(dp(3));
+        root.addView(card, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
-        cardLp.setMargins(0, 0, 0, dp(18));
-        root.addView(card, cardLp);
+        messageText = text("", 14, "#DC2626", true);
+        messageText.setVisibility(View.GONE);
+        messageText.setPadding(dp(14), dp(12), dp(14), dp(12));
+        messageText.setBackground(round("#FEE2E2", dp(14)));
+        LinearLayout.LayoutParams msgLp = new LinearLayout.LayoutParams(-1, -2);
+        msgLp.setMargins(0, 0, 0, dp(14));
+        card.addView(messageText, msgLp);
 
-        usernameInput = input("Username");
-        usernameInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_NORMAL);
-        usernameInput.setText(prefs.getString(PREF_LAST_USERNAME, ""));
-        card.addView(usernameInput);
+        card.addView(label("Nama Pengguna"));
+        usernameInput = input("Masukkan Nama Pengguna", false);
+        usernameInput.setSingleLine(true);
+        usernameInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        card.addView(usernameInput, fieldLp());
 
-        passwordInput = input("Password");
+        card.addView(label("Kata Sandi"));
+        LinearLayout passwordBox = new LinearLayout(this);
+        passwordBox.setOrientation(LinearLayout.HORIZONTAL);
+        passwordBox.setGravity(Gravity.CENTER_VERTICAL);
+        passwordBox.setPadding(dp(14), 0, dp(7), 0);
+        passwordBox.setBackground(roundStroke("#F8FAFC", "#CBD5E1", dp(16), 1));
+
+        passwordInput = new EditText(this);
+        passwordInput.setHint("Masukkan Kata Sandi");
+        passwordInput.setTextColor(Color.parseColor("#0F172A"));
+        passwordInput.setHintTextColor(Color.parseColor("#94A3B8"));
+        passwordInput.setTextSize(15);
+        passwordInput.setSingleLine(true);
         passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         passwordInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        passwordInput.setBackgroundColor(Color.TRANSPARENT);
+        passwordBox.addView(passwordInput, new LinearLayout.LayoutParams(0, dp(52), 1));
+
+        TextView toggle = text("👁", 22, "#0F766E", false);
+        toggle.setGravity(Gravity.CENTER);
+        toggle.setOnClickListener(v -> togglePassword(toggle));
+        passwordBox.addView(toggle, new LinearLayout.LayoutParams(dp(46), dp(52)));
+        card.addView(passwordBox, fieldLp());
+
+        loginButton = new Button(this);
+        loginButton.setText("Masuk");
+        loginButton.setTextSize(16);
+        loginButton.setTypeface(Typeface.DEFAULT_BOLD);
+        loginButton.setTextColor(Color.WHITE);
+        loginButton.setAllCaps(false);
+        loginButton.setBackground(roundGradient("#0F766E", "#14B8A6", dp(18)));
+        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(-1, dp(54));
+        btnLp.setMargins(0, dp(4), 0, dp(14));
+        card.addView(loginButton, btnLp);
+
+        TextView register = text("Belum punya akun? Daftar", 14, "#0F766E", true);
+        register.setGravity(Gravity.CENTER);
+        register.setPadding(0, dp(8), 0, dp(8));
+        register.setOnClickListener(v -> openRegister());
+        card.addView(register, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout versionBox = new LinearLayout(this);
+        versionBox.setOrientation(LinearLayout.VERTICAL);
+        versionBox.setGravity(Gravity.CENTER);
+        versionBox.setPadding(dp(12), dp(14), dp(12), dp(10));
+        versionBox.setBackground(round("#F8FAFC", dp(16)));
+        LinearLayout.LayoutParams vbLp = new LinearLayout.LayoutParams(-1, -2);
+        vbLp.setMargins(0, dp(12), 0, dp(8));
+        card.addView(versionBox, vbLp);
+
+        versionBox.addView(text("Versi Aplikasi : " + getAppVersion(), 13, "#475569", true));
+
+        Button checkUpdate = miniButton("Cek Pembaharuan");
+        checkUpdate.setOnClickListener(v -> showInfo("Pembaruan Aplikasi", "Untuk versi native, pembaruan dilakukan melalui file APK terbaru Transiva."));
+        versionBox.addView(checkUpdate, new LinearLayout.LayoutParams(-1, dp(44)));
+
+        LinearLayout legal = new LinearLayout(this);
+        legal.setGravity(Gravity.CENTER);
+        legal.setOrientation(LinearLayout.HORIZONTAL);
+        card.addView(legal, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView privacy = legalButton("Kebijakan Privasi");
+        privacy.setOnClickListener(v -> openExternal(BASE_URL + "privacy.html"));
+        legal.addView(privacy);
+
+        TextView dot = text("  •  ", 13, "#94A3B8", false);
+        legal.addView(dot);
+
+        TextView terms = legalButton("Syarat & Ketentuan");
+        terms.setOnClickListener(v -> openExternal(BASE_URL + "terms.html"));
+        legal.addView(terms);
+
+        progressBar = new ProgressBar(this);
+        progressBar.setVisibility(View.GONE);
+        FrameLayout.LayoutParams progressLp = new FrameLayout.LayoutParams(dp(54), dp(54));
+        progressLp.gravity = Gravity.CENTER;
+        page.addView(progressBar, progressLp);
+
+        setContentView(page);
+
+        loginButton.setOnClickListener(v -> submitLogin());
         passwordInput.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                doNativeLogin();
+            boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
+            if (actionId == EditorInfo.IME_ACTION_DONE || enter) {
+                submitLogin();
                 return true;
             }
             return false;
         });
-        card.addView(passwordInput);
-
-        showPasswordBox = new CheckBox(this);
-        showPasswordBox.setText("Tampilkan password");
-        showPasswordBox.setTextSize(14);
-        showPasswordBox.setTextColor(Color.parseColor("#374151"));
-        showPasswordBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            int pos = passwordInput.getSelectionStart();
-
-            if (isChecked) {
-                passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
-            } else {
-                passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-            }
-
-            passwordInput.setSelection(Math.min(Math.max(pos, 0), passwordInput.getText().length()));
-        });
-        card.addView(showPasswordBox);
-
-        progressBar = new ProgressBar(this);
-        progressBar.setVisibility(View.GONE);
-        card.addView(progressBar);
-
-        messageText = new TextView(this);
-        messageText.setText("");
-        messageText.setTextSize(14);
-        messageText.setTextColor(Color.parseColor("#DC2626"));
-        messageText.setGravity(Gravity.CENTER);
-        messageText.setPadding(0, dp(10), 0, dp(8));
-        card.addView(messageText, new LinearLayout.LayoutParams(-1, -2));
-
-        loginBtn = button("Masuk");
-        loginBtn.setOnClickListener(v -> doNativeLogin());
-        card.addView(loginBtn);
-
-        webBtn = button("Buka WebView");
-        webBtn.setOnClickListener(v -> openWebFallback());
-        card.addView(webBtn);
-
-        TextView note = new TextView(this);
-        note.setText("Login ini memakai API langsung. WebView tidak dipakai untuk proses login.");
-        note.setTextSize(12);
-        note.setTextColor(Color.parseColor("#9CA3AF"));
-        note.setGravity(Gravity.CENTER);
-        note.setPadding(dp(8), 0, dp(8), 0);
-        root.addView(note, new LinearLayout.LayoutParams(-1, -2));
-
-        setContentView(scroll);
-
-        if (usernameInput.getText().toString().trim().isEmpty()) {
-            usernameInput.requestFocus();
-        } else {
-            passwordInput.requestFocus();
-        }
     }
 
-    private EditText input(String hint) {
-        EditText e = new EditText(this);
-        e.setHint(hint);
-        e.setSingleLine(true);
-        e.setTextSize(16);
-        e.setTextColor(Color.parseColor("#111827"));
-        e.setHintTextColor(Color.parseColor("#6B7280"));
-        e.setBackgroundColor(Color.parseColor("#F3F4F6"));
-        e.setPadding(dp(16), dp(14), dp(16), dp(14));
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 0, 0, dp(14));
-        e.setLayoutParams(lp);
-
-        return e;
-    }
-
-    private Button button(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(16);
-        b.setGravity(Gravity.CENTER);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, dp(7), 0, dp(7));
-        b.setLayoutParams(lp);
-
-        return b;
-    }
-
-    private void doNativeLogin() {
-        if (isLoginRunning) return;
+    private void submitLogin() {
+        if (loading) return;
 
         String username = usernameInput.getText().toString().trim();
-        String password = passwordInput.getText().toString();
+        String password = passwordInput.getText().toString().trim();
 
-        if (username.isEmpty()) {
-            usernameInput.setError("Username wajib diisi");
-            usernameInput.requestFocus();
+        hideMessage();
+
+        if (username.length() == 0 || password.length() == 0) {
+            showMessage("Lengkapi Nama Pengguna dan Kata Sandi", false);
             return;
         }
 
-        if (password.trim().isEmpty()) {
-            passwordInput.setError("Password wajib diisi");
-            passwordInput.requestFocus();
-            return;
-        }
-
-        isLoginRunning = true;
-        setLoading(true, "Memeriksa akun...");
+        setLoading(true);
 
         new Thread(() -> {
-            try {
-                String response = postLogin(username, password);
-                JSONObject root = parseJson(response);
-
-                boolean success = root.optBoolean("success", false);
-                String message = root.optString("message", success ? "Login berhasil" : "Login gagal");
-
-                if (!success) {
-                    uiLoginFail(message);
-                    return;
-                }
-
-                JSONObject user = root.optJSONObject("user");
-                if (user == null) {
-                    uiLoginFail("Response login tidak lengkap: user kosong");
-                    return;
-                }
-
-                JSONObject sessionUser = normalizeUser(user, username);
-
-                if (sessionManager == null) {
-                    sessionManager = new SessionManager(this);
-                }
-
-                sessionManager.clearSession();
-                sessionManager.saveSession(sessionUser.toString());
-
-                prefs.edit()
-                        .putString(PREF_LAST_USERNAME, username)
-                        .apply();
-
-                runOnUiThread(() -> {
-                    isLoginRunning = false;
-                    setLoading(false, "");
-                    Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
-                    openDashboardByRole();
-                });
-
-            } catch (SocketTimeoutException e) {
-                uiLoginFail("Koneksi lambat. Coba lagi.");
-            } catch (Exception e) {
-                uiLoginFail("Gagal login: " + cleanError(e.getMessage()));
-            }
+            JSONObject result = postLogin(username, password);
+            runOnUiThread(() -> handleLoginResult(result));
         }).start();
     }
 
-    private String postLogin(String username, String password) throws Exception {
-        /*
-         * LoginActivity ini mengirim JSON:
-         * {"username":"...", "password":"..."}
-         *
-         * Jadi server/login.php wajib membaca php://input JSON.
-         */
-
-        JSONObject payload = new JSONObject();
-        payload.put("username", username);
-        payload.put("password", password);
-
-        byte[] body = payload.toString().getBytes("UTF-8");
-
+    private JSONObject postLogin(String username, String password) {
         HttpURLConnection conn = null;
 
         try {
-            conn = (HttpURLConnection) new URL(LOGIN_URL).openConnection();
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(20000);
+            JSONObject body = new JSONObject();
+            body.put("username", username);
+            body.put("password", password);
+
+            URL url = new URL(LOGIN_URL);
+            conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
             conn.setDoInput(true);
             conn.setDoOutput(true);
             conn.setUseCaches(false);
-            conn.setInstanceFollowRedirects(false);
-
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("X-Requested-With", "XMLHttpRequest");
-            conn.setRequestProperty("User-Agent", "TransivaAndroidNative/1.0");
-            conn.setRequestProperty("Content-Length", String.valueOf(body.length));
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
 
             OutputStream os = conn.getOutputStream();
-            os.write(body);
-            os.flush();
+            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
+            writer.write(body.toString());
+            writer.flush();
+            writer.close();
             os.close();
 
             int code = conn.getResponseCode();
+            InputStream stream = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
+            String raw = readStream(stream);
 
-            InputStream stream = code >= 200 && code < 300
-                    ? conn.getInputStream()
-                    : conn.getErrorStream();
-
-            String result = readStream(stream).trim();
-
-            if (result.isEmpty()) {
-                throw new Exception("Server kosong HTTP " + code);
+            if (raw == null || raw.trim().length() == 0) {
+                return error("Response server kosong");
             }
 
-            if (code < 200 || code >= 300) {
-                throw new Exception("HTTP " + code + ": " + limit(result));
+            try {
+                JSONObject json = new JSONObject(raw.trim());
+                if (!json.has("success")) json.put("success", code >= 200 && code < 300);
+                return json;
+            } catch (Exception e) {
+                return error("Server mengirim response bukan JSON");
             }
 
-            return result;
-
+        } catch (Exception e) {
+            String msg = e.getMessage() == null ? "Gagal terhubung ke server" : e.getMessage();
+            return error(msg);
         } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
+            if (conn != null) conn.disconnect();
         }
     }
 
-    private JSONObject parseJson(String response) throws Exception {
-        try {
-            return new JSONObject(response);
-        } catch (JSONException e) {
-            throw new Exception("Response bukan JSON: " + limit(response));
-        }
-    }
+    private void handleLoginResult(JSONObject result) {
+        setLoading(false);
 
-    private String readStream(InputStream stream) throws Exception {
-        if (stream == null) return "";
-
-        BufferedReader br = new BufferedReader(new InputStreamReader(stream, "UTF-8"));
-        StringBuilder sb = new StringBuilder();
-        String line;
-
-        while ((line = br.readLine()) != null) {
-            sb.append(line);
+        if (result == null) {
+            showMessage("Server error", false);
+            return;
         }
 
-        br.close();
-        return sb.toString();
-    }
+        boolean success = result.optBoolean("success", false);
+        String message = result.optString("message", success ? "Login berhasil" : "Login gagal");
 
-    private JSONObject normalizeUser(JSONObject user, String fallbackUsername) throws Exception {
-        JSONObject out = new JSONObject(user.toString());
-
-        String id = firstNonEmpty(
-                out.optString("id", ""),
-                out.optString("user_id", "")
-        );
-
-        String username = firstNonEmpty(
-                out.optString("username", ""),
-                out.optString("name", ""),
-                fallbackUsername
-        );
-
-        String role = normalizeRole(firstNonEmpty(
-                out.optString("role", ""),
-                "customer"
-        ));
-
-        String driverType = firstNonEmpty(
-                out.optString("driver_type", ""),
-                "bike"
-        ).toLowerCase(Locale.US);
-
-        if (!driverType.equals("car")) {
-            driverType = "bike";
+        if (!success) {
+            showMessage(message, false);
+            return;
         }
 
-        out.put("id", id);
-        out.put("user_id", id);
-        out.put("username", username);
-        out.put("role", role);
-        out.put("driver_type", driverType);
+        JSONObject user = result.optJSONObject("user");
+        if (user == null) {
+            showMessage("Data user tidak ditemukan dari server", false);
+            return;
+        }
 
-        if (!out.has("balance")) out.put("balance", 0);
-        if (!out.has("driver_level")) out.put("driver_level", "bronze");
-        if (!out.has("photo")) out.put("photo", out.optString("driver_photo", "assets/default-driver.png"));
-        if (!out.has("driver_photo")) out.put("driver_photo", out.optString("photo", "assets/default-driver.png"));
+        session.saveUser(user);
+        showMessage("Login berhasil", true);
 
-        return out;
+        usernameInput.postDelayed(() -> openDashboard(user.optString("role", "customer")), 500);
     }
 
-    private void openDashboardByRole() {
-        String role = "customer";
-
-        try {
-            if (sessionManager == null) {
-                sessionManager = new SessionManager(this);
-            }
-            role = normalizeRole(sessionManager.getRole());
-        } catch (Exception ignored) {}
-
+    private void openDashboard(String role) {
         Intent intent;
 
-        if (role.equals("customer")) {
-            intent = new Intent(this, CustomerDashboardActivity.class);
-        } else if (role.equals("driver")) {
+        if ("driver".equals(role)) {
             intent = new Intent(this, DriverDashboardActivity.class);
-        } else if (role.equals("merchant")) {
+        } else if ("merchant".equals(role)) {
             intent = new Intent(this, MerchantDashboardActivity.class);
-        } else if (role.equals("admin")) {
+        } else if ("admin".equals(role)) {
             intent = new Intent(this, AdminDashboardActivity.class);
         } else {
-            intent = new Intent(this, MainActivity.class);
-            intent.putExtra("url", WEB_HOME_URL);
+            intent = new Intent(this, CustomerDashboardActivity.class);
         }
 
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -445,91 +332,171 @@ public class LoginActivity extends Activity {
         finish();
     }
 
-    private void openWebFallback() {
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.putExtra("url", WEB_HOME_URL);
-        startActivity(intent);
+    private void openRegister() {
+        try {
+            Class<?> registerClass = Class.forName(getPackageName() + ".RegisterActivity");
+            startActivity(new Intent(this, registerClass));
+        } catch (Exception e) {
+            Toast.makeText(this, "Register native belum dibuat. Lanjutkan upgrade RegisterActivity.", Toast.LENGTH_LONG).show();
+        }
     }
 
-    private void uiLoginFail(String message) {
-        runOnUiThread(() -> {
-            isLoginRunning = false;
-            setLoading(false, message);
-        });
+    private void togglePassword(TextView toggle) {
+        passwordVisible = !passwordVisible;
+
+        int pos = passwordInput.getSelectionStart();
+        if (passwordVisible) {
+            passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+            toggle.setText("🙈");
+        } else {
+            passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            toggle.setText("👁");
+        }
+        passwordInput.setSelection(Math.max(0, pos));
     }
 
-    private String normalizeRole(String role) {
-        if (role == null) return "customer";
-
-        String r = role.trim().toLowerCase(Locale.US);
-
-        if (r.equals("user") || r.equals("pelanggan") || r.equals("costumer") || r.equals("customer")) {
-            return "customer";
-        }
-
-        if (r.equals("driver") || r.equals("kurir") || r.equals("ojek") || r.equals("rider")) {
-            return "driver";
-        }
-
-        if (r.equals("merchant") || r.equals("merchen") || r.equals("resto") || r.equals("restaurant") || r.equals("penjual")) {
-            return "merchant";
-        }
-
-        if (r.equals("admin") || r.equals("administrator") || r.equals("owner") || r.equals("superadmin")) {
-            return "admin";
-        }
-
-        if (r.equals("wisata") || r.equals("wisataowner") || r.equals("wisata_owner")) {
-            return "wisata";
-        }
-
-        return r.isEmpty() ? "customer" : r;
+    private void setLoading(boolean value) {
+        loading = value;
+        progressBar.setVisibility(value ? View.VISIBLE : View.GONE);
+        loginButton.setEnabled(!value);
+        usernameInput.setEnabled(!value);
+        passwordInput.setEnabled(!value);
+        loginButton.setText(value ? "Memuat..." : "Masuk");
+        loginButton.setAlpha(value ? 0.70f : 1f);
     }
 
-    private String firstNonEmpty(String... values) {
-        if (values == null) return "";
-
-        for (String value : values) {
-            if (value != null && !value.trim().isEmpty() && !value.equals("null")) {
-                return value.trim();
-            }
-        }
-
-        return "";
+    private JSONObject error(String message) {
+        JSONObject obj = new JSONObject();
+        try {
+            obj.put("success", false);
+            obj.put("message", message == null || message.length() == 0 ? "Server error" : message);
+        } catch (Exception ignored) {}
+        return obj;
     }
 
-    private void setLoading(boolean loading, String message) {
-        if (progressBar == null) return;
-
-        progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
-        loginBtn.setEnabled(!loading);
-        webBtn.setEnabled(!loading);
-        usernameInput.setEnabled(!loading);
-        passwordInput.setEnabled(!loading);
-        showPasswordBox.setEnabled(!loading);
-        messageText.setText(message == null ? "" : message);
+    private String readStream(InputStream stream) throws Exception {
+        if (stream == null) return "";
+        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        StringBuilder sb = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) sb.append(line);
+        reader.close();
+        return sb.toString();
     }
 
-    private String cleanError(String message) {
-        if (message == null || message.trim().isEmpty()) {
-            return "Koneksi/server bermasalah";
-        }
-
-        return message
-                .replace("java.lang.", "")
-                .replace("org.json.", "")
-                .replace("Value ", "Data ");
+    private void showMessage(String msg, boolean success) {
+        messageText.setText(msg);
+        messageText.setTextColor(Color.parseColor(success ? "#047857" : "#DC2626"));
+        messageText.setBackground(round(success ? "#D1FAE5" : "#FEE2E2", dp(14)));
+        messageText.setVisibility(View.VISIBLE);
     }
 
-    private String limit(String text) {
-        if (text == null) return "";
-        text = text.trim();
+    private void hideMessage() {
+        messageText.setVisibility(View.GONE);
+    }
 
-        if (text.length() <= 180) {
-            return text;
+    private void showInfo(String title, String message) {
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    private void openExternal(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception e) {
+            Toast.makeText(this, "Tidak bisa membuka halaman", Toast.LENGTH_SHORT).show();
         }
+    }
 
-        return text.substring(0, 180) + "...";
+    private TextView label(String value) {
+        TextView tv = text(value, 13, "#334155", true);
+        tv.setPadding(0, dp(7), 0, dp(6));
+        return tv;
+    }
+
+    private EditText input(String hint, boolean password) {
+        EditText et = new EditText(this);
+        et.setHint(hint);
+        et.setTextSize(15);
+        et.setTextColor(Color.parseColor("#0F172A"));
+        et.setHintTextColor(Color.parseColor("#94A3B8"));
+        et.setSingleLine(true);
+        et.setPadding(dp(14), 0, dp(14), 0);
+        et.setBackground(roundStroke("#F8FAFC", "#CBD5E1", dp(16), 1));
+        et.setInputType(password ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_CLASS_TEXT);
+        return et;
+    }
+
+    private LinearLayout.LayoutParams fieldLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(52));
+        lp.setMargins(0, 0, 0, dp(12));
+        return lp;
+    }
+
+    private TextView text(String value, int sp, String color, boolean bold) {
+        TextView tv = new TextView(this);
+        tv.setText(value);
+        tv.setTextSize(sp);
+        tv.setTextColor(Color.parseColor(color));
+        if (bold) tv.setTypeface(Typeface.DEFAULT_BOLD);
+        return tv;
+    }
+
+    private TextView legalButton(String value) {
+        TextView tv = text(value, 13, "#0F766E", true);
+        tv.setPadding(dp(4), dp(10), dp(4), dp(4));
+        return tv;
+    }
+
+    private Button miniButton(String value) {
+        Button btn = new Button(this);
+        btn.setText(value);
+        btn.setAllCaps(false);
+        btn.setTextSize(13);
+        btn.setTextColor(Color.parseColor("#0F766E"));
+        btn.setBackground(roundStroke("#FFFFFF", "#99F6E4", dp(14), 1));
+        return btn;
+    }
+
+    private GradientDrawable round(String color, int radius) {
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(Color.parseColor(color));
+        gd.setCornerRadius(radius);
+        return gd;
+    }
+
+    private GradientDrawable roundStroke(String color, String stroke, int radius, int width) {
+        GradientDrawable gd = round(color, radius);
+        gd.setStroke(dp(width), Color.parseColor(stroke));
+        return gd;
+    }
+
+    private GradientDrawable roundGradient(String start, String end, int radius) {
+        GradientDrawable gd = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{Color.parseColor(start), Color.parseColor(end)}
+        );
+        gd.setCornerRadius(radius);
+        return gd;
+    }
+
+    private int getDrawableId(String name) {
+        try {
+            return getResources().getIdentifier(name, "drawable", getPackageName());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private String getAppVersion() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            return "1.0";
+        }
     }
 
     private int dp(int value) {
