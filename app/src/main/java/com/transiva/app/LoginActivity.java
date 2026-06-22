@@ -41,28 +41,27 @@ public class LoginActivity extends Activity {
     private static final String LOGIN_URL = BASE_URL + "server/login.php";
     private static final int TIMEOUT_MS = 25000;
 
-    /* Warna tema WebView Transiva */
-    private static final String BG_TOP = "#050B1E";
-    private static final String BG_BOTTOM = "#08172F";
-    private static final String CARD_BG = "#101827";
-    private static final String CARD_STROKE = "#263247";
-    private static final String FIELD_BG = "#0D1626";
-    private static final String FIELD_STROKE = "#27324A";
-    private static final String TEXT_MAIN = "#F8FAFC";
-    private static final String TEXT_SOFT = "#94A3B8";
-    private static final String BLUE = "#2F7BFF";
-    private static final String ORANGE = "#FF7A21";
-    private static final String GREEN = "#29B765";
-    private static final String LINK_BLUE = "#2E8CFF";
+    private boolean darkMode = false;
+    private boolean passwordVisible = false;
+    private boolean loading = false;
 
     private SessionManager session;
+    private FrameLayout page;
+    private LinearLayout root;
+    private LinearLayout card;
     private EditText usernameInput;
     private EditText passwordInput;
     private TextView messageText;
+    private TextView normalTab;
+    private TextView darkTab;
     private Button loginButton;
     private ProgressBar progressBar;
-    private boolean passwordVisible = false;
-    private boolean loading = false;
+
+    private final String BLUE = "#1478FF";
+    private final String BLUE_DARK = "#053B91";
+    private final String ORANGE = "#FF7A00";
+    private final String TEXT_BLUE = "#063B86";
+    private final String TEXT_SOFT = "#66758E";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,28 +73,72 @@ public class LoginActivity extends Activity {
             return;
         }
 
-        try {
-            getWindow().setStatusBarColor(Color.parseColor("#07162F"));
-            getWindow().setNavigationBarColor(Color.parseColor("#020817"));
-        } catch (Exception ignored) {}
-
         buildLoginView();
     }
 
     private void buildLoginView() {
-        FrameLayout page = new FrameLayout(this);
-        page.setBackground(roundGradientVertical(BG_TOP, BG_BOTTOM, 0));
+        setBars(false);
+
+        page = new FrameLayout(this);
+        page.setBackground(pageBg(false));
+
+        addDecoration(page, false);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout root = new LinearLayout(this);
+        root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(14), dp(34), dp(14), dp(34));
+        root.setPadding(dp(26), dp(28), dp(26), dp(28));
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
+        buildThemeSwitch(root);
+        buildLogo(root);
+        buildTitle(root);
+        buildCard(root);
+
+        progressBar = new ProgressBar(this);
+        progressBar.setVisibility(View.GONE);
+        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(dp(54), dp(54));
+        plp.gravity = Gravity.CENTER;
+        page.addView(progressBar, plp);
+
+        setContentView(page);
+    }
+
+    private void buildThemeSwitch(LinearLayout parent) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER);
+        box.setPadding(dp(4), dp(4), dp(4), dp(4));
+        box.setBackground(roundStroke("#F8FBFF", "#CBD8EA", dp(28), 1));
+        box.setElevation(dp(4));
+
+        normalTab = switchTab("☀ Normal", true);
+        darkTab = switchTab("☾ Dark", false);
+        box.addView(normalTab, new LinearLayout.LayoutParams(dp(116), dp(44)));
+        box.addView(darkTab, new LinearLayout.LayoutParams(dp(92), dp(44)));
+
+        normalTab.setOnClickListener(v -> applyTheme(false));
+        darkTab.setOnClickListener(v -> applyTheme(true));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.gravity = Gravity.RIGHT;
+        lp.setMargins(0, 0, 0, dp(54));
+        parent.addView(box, lp);
+    }
+
+    private TextView switchTab(String text, boolean active) {
+        TextView tv = text(text, 15, active ? BLUE : "#728095", true);
+        tv.setGravity(Gravity.CENTER);
+        tv.setBackground(active ? roundStroke("#FFFFFF", "#9DC7FF", dp(23), 1) : round("#00000000", dp(23)));
+        return tv;
+    }
+
+    private void buildLogo(LinearLayout parent) {
         ImageView logo = new ImageView(this);
         int logoRes = getDrawableId("transiva_logo");
         if (logoRes == 0) logoRes = getDrawableId("logo_transiva");
@@ -103,138 +146,68 @@ public class LoginActivity extends Activity {
         if (logoRes == 0) logoRes = getApplicationInfo().icon;
         logo.setImageResource(logoRes);
         logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(132), dp(70));
-        logoLp.setMargins(0, dp(8), 0, dp(12));
-        root.addView(logo, logoLp);
 
-        View glowLine = new View(this);
-        glowLine.setBackground(roundGradient(BLUE, "#0B1730", dp(1)));
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(dp(230), dp(1));
-        glp.setMargins(0, 0, 0, dp(26));
-        root.addView(glowLine, glp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(250), dp(95));
+        lp.setMargins(0, 0, 0, dp(26));
+        parent.addView(logo, lp);
+    }
 
-        LinearLayout card = new LinearLayout(this);
+    private void buildTitle(LinearLayout parent) {
+        TextView title = text("Masuk Transiva", 31, TEXT_BLUE, true);
+        title.setGravity(Gravity.CENTER);
+        parent.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView sub = text("Masuk untuk mulai pesan atau menerima order", 17, TEXT_SOFT, false);
+        sub.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, dp(8), 0, dp(34));
+        parent.addView(sub, lp);
+    }
+
+    private void buildCard(LinearLayout parent) {
+        card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(20), dp(24), dp(20), dp(18));
-        card.setBackground(roundStroke(CARD_BG, CARD_STROKE, dp(28), 1));
-        card.setElevation(dp(6));
+        card.setPadding(dp(24), dp(28), dp(24), dp(22));
+        card.setBackground(round("#FFFFFF", dp(24)));
+        card.setElevation(dp(10));
+
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
-        cardLp.setMargins(0, 0, 0, dp(20));
-        root.addView(card, cardLp);
+        parent.addView(card, cardLp);
 
-        TextView subtitle = text("Masuk untuk mulai pesan atau menerima\norder", 19, TEXT_SOFT, false);
-        subtitle.setGravity(Gravity.CENTER);
-        subtitle.setLineSpacing(dp(4), 1.0f);
-        subtitle.setPadding(0, 0, 0, dp(22));
-        card.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
-
-        messageText = text("", 14, "#FFFFFF", true);
+        messageText = text("", 14, "#B91C1C", true);
         messageText.setVisibility(View.GONE);
         messageText.setPadding(dp(14), dp(12), dp(14), dp(12));
-        messageText.setBackground(roundStroke("#3A1620", "#7F1D1D", dp(14), 1));
-        LinearLayout.LayoutParams msgLp = new LinearLayout.LayoutParams(-1, -2);
-        msgLp.setMargins(0, 0, 0, dp(14));
-        card.addView(messageText, msgLp);
+        messageText.setBackground(roundStroke("#FFF1F2", "#FCA5A5", dp(14), 1));
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, -2);
+        mlp.setMargins(0, 0, 0, dp(14));
+        card.addView(messageText, mlp);
 
         card.addView(label("Nama Pengguna"));
-        usernameInput = input("Masukkan Nama Pengguna", false);
-        usernameInput.setSingleLine(true);
+        usernameInput = input("Masukkan Nama Pengguna", "👤", false);
         usernameInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         card.addView(usernameInput, fieldLp());
 
         card.addView(label("Kata Sandi"));
-
-        LinearLayout passwordBox = new LinearLayout(this);
-        passwordBox.setOrientation(LinearLayout.HORIZONTAL);
-        passwordBox.setGravity(Gravity.CENTER_VERTICAL);
-        passwordBox.setPadding(dp(16), 0, dp(8), 0);
-        passwordBox.setBackground(roundStroke(FIELD_BG, FIELD_STROKE, dp(19), 1));
-
-        passwordInput = new EditText(this);
-        passwordInput.setHint("Masukkan Kata Sandi");
-        passwordInput.setTextColor(Color.parseColor(TEXT_MAIN));
-        passwordInput.setHintTextColor(Color.parseColor("#64748B"));
-        passwordInput.setTextSize(16);
-        passwordInput.setSingleLine(true);
-        passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        passwordInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
-        passwordInput.setBackgroundColor(Color.TRANSPARENT);
-        passwordBox.addView(passwordInput, new LinearLayout.LayoutParams(0, dp(58), 1));
-
-        TextView toggle = text("👁", 22, "#D1D5DB", false);
-        toggle.setGravity(Gravity.CENTER);
-        toggle.setOnClickListener(v -> togglePassword(toggle));
-        passwordBox.addView(toggle, new LinearLayout.LayoutParams(dp(46), dp(58)));
+        LinearLayout passwordBox = passwordInputBox();
         card.addView(passwordBox, fieldLp());
 
         loginButton = new Button(this);
-        loginButton.setText("Masuk");
-        loginButton.setTextSize(16);
+        loginButton.setText("Masuk        →");
+        loginButton.setTextSize(18);
         loginButton.setTypeface(Typeface.DEFAULT_BOLD);
         loginButton.setTextColor(Color.WHITE);
         loginButton.setAllCaps(false);
-        loginButton.setBackground(roundGradient(BLUE, ORANGE, dp(20)));
-        LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(-1, dp(58));
-        btnLp.setMargins(0, dp(6), 0, dp(18));
-        card.addView(loginButton, btnLp);
-
-        TextView register = text("Belum punya akun? Daftar", 16, LINK_BLUE, true);
-        register.setGravity(Gravity.CENTER);
-        register.setPadding(0, dp(8), 0, dp(18));
-        register.setOnClickListener(v -> openRegister());
-        card.addView(register, new LinearLayout.LayoutParams(-1, -2));
-
-        View divider = new View(this);
-        divider.setBackgroundColor(Color.parseColor("#263247"));
-        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(-1, dp(1));
-        divLp.setMargins(0, 0, 0, dp(16));
-        card.addView(divider, divLp);
-
-        LinearLayout versionRow = new LinearLayout(this);
-        versionRow.setOrientation(LinearLayout.HORIZONTAL);
-        versionRow.setGravity(Gravity.CENTER_VERTICAL);
-        card.addView(versionRow, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView version = text("Versi Aplikasi : " + getAppVersion(), 14, "#D1D5DB", false);
-        versionRow.addView(version, new LinearLayout.LayoutParams(0, dp(50), 1));
-
-        Button checkUpdate = new Button(this);
-        checkUpdate.setText("Cek Pembaharuan");
-        checkUpdate.setAllCaps(false);
-        checkUpdate.setTextSize(13);
-        checkUpdate.setTypeface(Typeface.DEFAULT_BOLD);
-        checkUpdate.setTextColor(Color.WHITE);
-        checkUpdate.setBackground(round(GREEN, dp(14)));
-        checkUpdate.setOnClickListener(v -> showInfo("Pembaruan Aplikasi", "Untuk versi native, pembaruan dilakukan melalui file APK terbaru Transiva."));
-        versionRow.addView(checkUpdate, new LinearLayout.LayoutParams(dp(146), dp(44)));
-
-        LinearLayout legal = new LinearLayout(this);
-        legal.setGravity(Gravity.CENTER);
-        legal.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams legalLp = new LinearLayout.LayoutParams(-1, -2);
-        legalLp.setMargins(0, dp(14), 0, 0);
-        card.addView(legal, legalLp);
-
-        TextView privacy = legalButton("Kebijakan Privasi");
-        privacy.setOnClickListener(v -> openExternal(BASE_URL + "privacy.html"));
-        legal.addView(privacy);
-
-        TextView dot = text("  •  ", 15, TEXT_SOFT, false);
-        legal.addView(dot);
-
-        TextView terms = legalButton("Syarat & Ketentuan");
-        terms.setOnClickListener(v -> openExternal(BASE_URL + "terms.html"));
-        legal.addView(terms);
-
-        progressBar = new ProgressBar(this);
-        progressBar.setVisibility(View.GONE);
-        FrameLayout.LayoutParams progressLp = new FrameLayout.LayoutParams(dp(54), dp(54));
-        progressLp.gravity = Gravity.CENTER;
-        page.addView(progressBar, progressLp);
-
-        setContentView(page);
-
+        loginButton.setBackground(roundGradient(BLUE_DARK, "#3296FF", dp(18)));
+        loginButton.setElevation(dp(7));
         loginButton.setOnClickListener(v -> submitLogin());
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, dp(62));
+        blp.setMargins(0, dp(8), 0, dp(22));
+        card.addView(loginButton, blp);
+
+        buildRegisterLine(card);
+        buildVersionBox(card);
+        buildLegal(card);
+
         passwordInput.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
             if (actionId == EditorInfo.IME_ACTION_DONE || enter) {
@@ -245,12 +218,170 @@ public class LoginActivity extends Activity {
         });
     }
 
+    private TextView label(String value) {
+        TextView tv = text(value, 16, TEXT_BLUE, true);
+        tv.setPadding(0, dp(6), 0, dp(10));
+        return tv;
+    }
+
+    private EditText input(String hint, String icon, boolean password) {
+        EditText et = new EditText(this);
+        et.setHint(icon + "     " + hint);
+        et.setTextSize(16);
+        et.setTextColor(Color.parseColor("#0F2A4F"));
+        et.setHintTextColor(Color.parseColor("#7B879A"));
+        et.setSingleLine(true);
+        et.setPadding(dp(18), 0, dp(18), 0);
+        et.setBackground(roundStroke("#FFFFFF", "#D9DFEA", dp(17), 1));
+        et.setInputType(password ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_CLASS_TEXT);
+        return et;
+    }
+
+    private LinearLayout passwordInputBox() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(dp(18), 0, dp(8), 0);
+        box.setBackground(roundStroke("#FFFFFF", "#D9DFEA", dp(17), 1));
+
+        TextView lock = text("🔒", 22, BLUE, false);
+        lock.setGravity(Gravity.CENTER);
+        box.addView(lock, new LinearLayout.LayoutParams(dp(42), dp(58)));
+
+        passwordInput = new EditText(this);
+        passwordInput.setHint("Masukkan Kata Sandi");
+        passwordInput.setTextColor(Color.parseColor("#0F2A4F"));
+        passwordInput.setHintTextColor(Color.parseColor("#7B879A"));
+        passwordInput.setTextSize(16);
+        passwordInput.setSingleLine(true);
+        passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        passwordInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        passwordInput.setBackgroundColor(Color.TRANSPARENT);
+        box.addView(passwordInput, new LinearLayout.LayoutParams(0, dp(58), 1));
+
+        TextView eye = text("●", 24, BLUE, true);
+        eye.setGravity(Gravity.CENTER);
+        eye.setOnClickListener(v -> togglePassword(eye));
+        box.addView(eye, new LinearLayout.LayoutParams(dp(48), dp(58)));
+        return box;
+    }
+
+    private LinearLayout.LayoutParams fieldLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(58));
+        lp.setMargins(0, 0, 0, dp(18));
+        return lp;
+    }
+
+    private void buildRegisterLine(LinearLayout parent) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(line(), new LinearLayout.LayoutParams(0, dp(1), 1));
+        TextView reg = text("  Belum punya akun? ", 15, TEXT_SOFT, false);
+        row.addView(reg);
+        TextView daftar = text("Daftar  ", 15, BLUE, true);
+        daftar.setOnClickListener(v -> openRegister());
+        row.addView(daftar);
+        row.addView(line(), new LinearLayout.LayoutParams(0, dp(1), 1));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(20));
+        parent.addView(row, lp);
+    }
+
+    private View line() {
+        View v = new View(this);
+        v.setBackgroundColor(Color.parseColor("#DDE5F0"));
+        return v;
+    }
+
+    private void buildVersionBox(LinearLayout parent) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(dp(16), dp(14), dp(14), dp(14));
+        box.setBackground(round("#F1F7FF", dp(14)));
+
+        TextView shield = text("✓", 26, "#FFFFFF", true);
+        shield.setGravity(Gravity.CENTER);
+        shield.setBackground(round(BLUE, dp(28)));
+        box.addView(shield, new LinearLayout.LayoutParams(dp(54), dp(54)));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding(dp(14), 0, dp(8), 0);
+        texts.addView(text("Versi Aplikasi : " + getAppVersion(), 14, BLUE_DARK, true));
+        TextView desc = text("Aplikasi selalu diperbarui untuk\npengalaman terbaik Anda", 13, TEXT_SOFT, false);
+        desc.setLineSpacing(dp(3), 1f);
+        texts.addView(desc);
+        box.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView update = text("Cek Pembaharuan", 13, BLUE, true);
+        update.setGravity(Gravity.CENTER);
+        update.setBackground(roundStroke("#FFFFFF", "#7DB5FF", dp(14), 1));
+        update.setOnClickListener(v -> showInfo("Pembaruan Aplikasi", "Untuk versi native, gunakan APK Transiva terbaru."));
+        box.addView(update, new LinearLayout.LayoutParams(dp(128), dp(48)));
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(20));
+        parent.addView(box, lp);
+    }
+
+    private void buildLegal(LinearLayout parent) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        TextView privacy = text("▱  Kebijakan Privasi", 14, BLUE, true);
+        privacy.setOnClickListener(v -> openExternal(BASE_URL + "privacy.html"));
+        TextView mid = text("     |     ", 14, "#CBD5E1", false);
+        TextView terms = text("▤  Syarat & Ketentuan", 14, BLUE, true);
+        terms.setOnClickListener(v -> openExternal(BASE_URL + "terms.html"));
+        row.addView(privacy);
+        row.addView(mid);
+        row.addView(terms);
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private void addDecoration(FrameLayout parent, boolean dark) {
+        View top = new View(this);
+        top.setBackground(roundGradient("#E9F4FF", "#FFFFFF00", dp(220)));
+        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(dp(300), dp(230));
+        tlp.gravity = Gravity.LEFT | Gravity.TOP;
+        tlp.setMargins(dp(-80), dp(42), 0, 0);
+        parent.addView(top, tlp);
+
+        View bottom = new View(this);
+        bottom.setBackground(roundGradient("#D8EAFF", "#FFFFFF00", dp(230)));
+        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(dp(320), dp(210));
+        blp.gravity = Gravity.LEFT | Gravity.BOTTOM;
+        blp.setMargins(dp(-110), 0, 0, dp(-60));
+        parent.addView(bottom, blp);
+    }
+
+    private void applyTheme(boolean dark) {
+        darkMode = dark;
+        setBars(dark);
+        page.setBackground(pageBg(dark));
+        normalTab.setTextColor(Color.parseColor(dark ? "#93A4BA" : BLUE));
+        darkTab.setTextColor(Color.parseColor(dark ? "#FFFFFF" : "#728095"));
+        normalTab.setBackground(dark ? round("#00000000", dp(23)) : roundStroke("#FFFFFF", "#9DC7FF", dp(23), 1));
+        darkTab.setBackground(dark ? roundStroke("#0F2B55", "#3B82F6", dp(23), 1) : round("#00000000", dp(23)));
+    }
+
+    private void setBars(boolean dark) {
+        try {
+            getWindow().setStatusBarColor(Color.parseColor(dark ? "#06142A" : "#0A7BFF"));
+            getWindow().setNavigationBarColor(Color.parseColor(dark ? "#06142A" : "#FFFFFF"));
+        } catch (Exception ignored) {}
+    }
+
+    private GradientDrawable pageBg(boolean dark) {
+        return roundGradientVertical(dark ? "#06142A" : "#F8FCFF", dark ? "#0B1F3D" : "#EAF4FF", 0);
+    }
+
     private void submitLogin() {
         if (loading) return;
-
         String username = usernameInput.getText().toString().trim();
         String password = passwordInput.getText().toString().trim();
-
         hideMessage();
 
         if (username.length() == 0 || password.length() == 0) {
@@ -259,7 +390,6 @@ public class LoginActivity extends Activity {
         }
 
         setLoading(true);
-
         new Thread(() -> {
             JSONObject result = postLogin(username, password);
             runOnUiThread(() -> handleLoginResult(result));
@@ -268,7 +398,6 @@ public class LoginActivity extends Activity {
 
     private JSONObject postLogin(String username, String password) {
         HttpURLConnection conn = null;
-
         try {
             JSONObject body = new JSONObject();
             body.put("username", username);
@@ -295,22 +424,13 @@ public class LoginActivity extends Activity {
             int code = conn.getResponseCode();
             InputStream stream = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
             String raw = readStream(stream);
+            if (raw == null || raw.trim().length() == 0) return error("Response server kosong");
 
-            if (raw == null || raw.trim().length() == 0) {
-                return error("Response server kosong");
-            }
-
-            try {
-                JSONObject json = new JSONObject(raw.trim());
-                if (!json.has("success")) json.put("success", code >= 200 && code < 300);
-                return json;
-            } catch (Exception e) {
-                return error("Server mengirim response bukan JSON");
-            }
-
+            JSONObject json = new JSONObject(raw.trim());
+            if (!json.has("success")) json.put("success", code >= 200 && code < 300);
+            return json;
         } catch (Exception e) {
-            String msg = e.getMessage() == null ? "Gagal terhubung ke server" : e.getMessage();
-            return error(msg);
+            return error(e.getMessage() == null ? "Gagal terhubung ke server" : e.getMessage());
         } finally {
             if (conn != null) conn.disconnect();
         }
@@ -318,7 +438,6 @@ public class LoginActivity extends Activity {
 
     private void handleLoginResult(JSONObject result) {
         setLoading(false);
-
         if (result == null) {
             showMessage("Server error", false);
             return;
@@ -326,7 +445,6 @@ public class LoginActivity extends Activity {
 
         boolean success = result.optBoolean("success", false);
         String message = result.optString("message", success ? "Login berhasil" : "Login gagal");
-
         if (!success) {
             showMessage(message, false);
             return;
@@ -340,23 +458,15 @@ public class LoginActivity extends Activity {
 
         session.saveUser(user);
         showMessage("Login berhasil", true);
-
         usernameInput.postDelayed(() -> openDashboard(user.optString("role", "customer")), 500);
     }
 
     private void openDashboard(String role) {
         Intent intent;
-
-        if ("driver".equals(role)) {
-            intent = new Intent(this, DriverDashboardActivity.class);
-        } else if ("merchant".equals(role)) {
-            intent = new Intent(this, MerchantDashboardActivity.class);
-        } else if ("admin".equals(role)) {
-            intent = new Intent(this, AdminDashboardActivity.class);
-        } else {
-            intent = new Intent(this, CustomerDashboardActivity.class);
-        }
-
+        if ("driver".equals(role)) intent = new Intent(this, DriverDashboardActivity.class);
+        else if ("merchant".equals(role)) intent = new Intent(this, MerchantDashboardActivity.class);
+        else if ("admin".equals(role)) intent = new Intent(this, AdminDashboardActivity.class);
+        else intent = new Intent(this, CustomerDashboardActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
         finish();
@@ -367,20 +477,19 @@ public class LoginActivity extends Activity {
             Class<?> registerClass = Class.forName(getPackageName() + ".RegisterActivity");
             startActivity(new Intent(this, registerClass));
         } catch (Exception e) {
-            Toast.makeText(this, "Register native belum dibuat. Lanjutkan upgrade RegisterActivity.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Register native belum dibuat", Toast.LENGTH_LONG).show();
         }
     }
 
     private void togglePassword(TextView toggle) {
         passwordVisible = !passwordVisible;
-
         int pos = passwordInput.getSelectionStart();
         if (passwordVisible) {
             passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
-            toggle.setText("🙈");
+            toggle.setText("○");
         } else {
             passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-            toggle.setText("👁");
+            toggle.setText("●");
         }
         passwordInput.setSelection(Math.max(0, pos));
     }
@@ -391,8 +500,8 @@ public class LoginActivity extends Activity {
         loginButton.setEnabled(!value);
         usernameInput.setEnabled(!value);
         passwordInput.setEnabled(!value);
-        loginButton.setText(value ? "Memuat..." : "Masuk");
-        loginButton.setAlpha(value ? 0.70f : 1f);
+        loginButton.setText(value ? "Memuat..." : "Masuk        →");
+        loginButton.setAlpha(value ? 0.72f : 1f);
     }
 
     private JSONObject error(String message) {
@@ -416,8 +525,8 @@ public class LoginActivity extends Activity {
 
     private void showMessage(String msg, boolean success) {
         messageText.setText(msg);
-        messageText.setTextColor(Color.parseColor(success ? "#D1FAE5" : "#FECACA"));
-        messageText.setBackground(roundStroke(success ? "#123826" : "#3A1620", success ? "#22C55E" : "#7F1D1D", dp(14), 1));
+        messageText.setTextColor(Color.parseColor(success ? "#047857" : "#B91C1C"));
+        messageText.setBackground(roundStroke(success ? "#ECFDF5" : "#FFF1F2", success ? "#86EFAC" : "#FCA5A5", dp(14), 1));
         messageText.setVisibility(View.VISIBLE);
     }
 
@@ -426,11 +535,7 @@ public class LoginActivity extends Activity {
     }
 
     private void showInfo(String title, String message) {
-        new AlertDialog.Builder(this)
-                .setTitle(title)
-                .setMessage(message)
-                .setPositiveButton("OK", null)
-                .show();
+        new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show();
     }
 
     private void openExternal(String url) {
@@ -441,45 +546,12 @@ public class LoginActivity extends Activity {
         }
     }
 
-    private TextView label(String value) {
-        TextView tv = text(value, 16, TEXT_MAIN, true);
-        tv.setPadding(0, dp(8), 0, dp(8));
-        return tv;
-    }
-
-    private EditText input(String hint, boolean password) {
-        EditText et = new EditText(this);
-        et.setHint(hint);
-        et.setTextSize(16);
-        et.setTextColor(Color.parseColor(TEXT_MAIN));
-        et.setHintTextColor(Color.parseColor("#64748B"));
-        et.setSingleLine(true);
-        et.setPadding(dp(16), 0, dp(16), 0);
-        et.setBackground(roundStroke(FIELD_BG, FIELD_STROKE, dp(19), 1));
-        et.setInputType(password ? InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD : InputType.TYPE_CLASS_TEXT);
-        return et;
-    }
-
-    private LinearLayout.LayoutParams fieldLp() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(58));
-        lp.setMargins(0, 0, 0, dp(14));
-        return lp;
-    }
-
     private TextView text(String value, int sp, String color, boolean bold) {
         TextView tv = new TextView(this);
         tv.setText(value);
         tv.setTextSize(sp);
         tv.setTextColor(Color.parseColor(color));
         if (bold) tv.setTypeface(Typeface.DEFAULT_BOLD);
-        return tv;
-    }
-
-    private TextView legalButton(String value) {
-        TextView tv = text(value, 13, LINK_BLUE, true);
-        tv.setGravity(Gravity.CENTER);
-        tv.setPadding(dp(14), dp(9), dp(14), dp(9));
-        tv.setBackground(round("#0B2B48", dp(18)));
         return tv;
     }
 
@@ -497,37 +569,25 @@ public class LoginActivity extends Activity {
     }
 
     private GradientDrawable roundGradient(String start, String end, int radius) {
-        GradientDrawable gd = new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{Color.parseColor(start), Color.parseColor(end)}
-        );
+        GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.parseColor(start), Color.parseColor(end)});
         gd.setCornerRadius(radius);
         return gd;
     }
 
     private GradientDrawable roundGradientVertical(String start, String end, int radius) {
-        GradientDrawable gd = new GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.parseColor(start), Color.parseColor(end)}
-        );
+        GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{Color.parseColor(start), Color.parseColor(end)});
         gd.setCornerRadius(radius);
         return gd;
     }
 
     private int getDrawableId(String name) {
-        try {
-            return getResources().getIdentifier(name, "drawable", getPackageName());
-        } catch (Exception e) {
-            return 0;
-        }
+        try { return getResources().getIdentifier(name, "drawable", getPackageName()); }
+        catch (Exception e) { return 0; }
     }
 
     private String getAppVersion() {
-        try {
-            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (Exception e) {
-            return "1.0";
-        }
+        try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; }
+        catch (Exception e) { return "1.0"; }
     }
 
     private int dp(int value) {
