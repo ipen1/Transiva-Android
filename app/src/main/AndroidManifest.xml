@@ -155,6 +155,11 @@
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
 
+        <activity
+            android:name=".CustomerDashboardActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
         <!-- Main WebView -->
         <activity
             android:name=".MainActivity"
