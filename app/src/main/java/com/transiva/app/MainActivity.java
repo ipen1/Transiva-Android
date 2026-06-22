@@ -871,6 +871,68 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
+    private void openCustomerNativeIfNeeded(boolean forceOpen) {
+        try {
+            if (sessionManager == null) {
+                sessionManager = new SessionManager(this);
+            }
+
+            if (!sessionManager.isLoggedIn()) {
+                return;
+            }
+
+            String role = sessionManager.getRole();
+            if (role == null) role = "";
+
+            role = role.trim().toLowerCase(Locale.US);
+
+            boolean isCustomer =
+                    role.equals("customer") ||
+                    role.equals("user") ||
+                    role.equals("pelanggan") ||
+                    role.equals("costumer");
+
+            if (!isCustomer) {
+                return;
+            }
+
+            /*
+             * Jangan paksa balik ke native dashboard saat customer sedang membuka
+             * halaman fitur web seperti #food, #kurir, #pickup, dan lainnya.
+             */
+            if (!forceOpen && webView != null) {
+                String currentUrl = webView.getUrl();
+                if (currentUrl != null) {
+                    if (currentUrl.contains("#")) {
+                        return;
+                    }
+
+                    Uri uri = Uri.parse(currentUrl);
+                    String path = uri.getPath() == null ? "" : uri.getPath();
+
+                    boolean isHome =
+                            path.isEmpty() ||
+                            path.equals("/") ||
+                            currentUrl.equals(HOME_URL) ||
+                            currentUrl.equals("https://transiva.my.id/") ||
+                            currentUrl.equals("https://transiva.my.id/?app=1");
+
+                    if (!isHome) {
+                        return;
+                    }
+                }
+            }
+
+            Intent i = new Intent(MainActivity.this, CustomerDashboardActivity.class);
+            i.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(i);
+
+        } catch (Exception e) {
+            Log.e("TRANSIVA", "Gagal buka CustomerDashboardActivity", e);
+        }
+    }
+
+
     private void startLocationServiceSafe() {
         try {
             Intent intent = new Intent(this, LocationService.class);
@@ -962,6 +1024,7 @@ public class MainActivity extends Activity {
 
                     if (sessionManager.isLoggedIn()) {
                         startServicesIfLoggedIn();
+                        openCustomerNativeIfNeeded(false);
                     }
 
                 } catch (Exception ignored) {}
@@ -996,7 +1059,10 @@ public class MainActivity extends Activity {
 
                 sessionManager.saveSession(json);
 
-                runOnUiThread(() -> startServicesIfLoggedIn());
+                runOnUiThread(() -> {
+                    startServicesIfLoggedIn();
+                    openCustomerNativeIfNeeded(true);
+                });
 
             } catch (Exception ignored) {}
         }
