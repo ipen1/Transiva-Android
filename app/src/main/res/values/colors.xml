@@ -1,52 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="transparent">#00000000</color>
 
-    <color name="purple_200">#BB86FC</color>
-    <color name="purple_500">#6200EE</color>
-    <color name="purple_700">#3700B3</color>
-    <color name="teal_200">#03DAC5</color>
-    <color name="teal_700">#018786</color>
-
-    <!-- Transiva Primary -->
     <color name="transiva_blue">#1677FF</color>
     <color name="transiva_blue_dark">#0057D9</color>
     <color name="transiva_blue_light">#5AA8FF</color>
     <color name="transiva_orange">#FF8A00</color>
 
-    <!-- Transiva Background -->
-    <color name="transiva_bg">#F5F9FF</color>
-    <color name="transiva_bg_dark">#0F172A</color>
-    <color name="transiva_card">#FFFFFF</color>
-    <color name="transiva_card_dark">#1E293B</color>
+    <color name="transiva_bg">#F7FBFF</color>
+    <color name="transiva_soft_blue">#EAF4FF</color>
+    <color name="transiva_card">#FFFFFFFF</color>
+    <color name="transiva_version_bg">#F2F7FF</color>
 
-    <!-- Transiva Text -->
-    <color name="transiva_text">#143A78</color>
-    <color name="transiva_text_dark">#F8FAFC</color>
-    <color name="transiva_subtitle">#667085</color>
+    <color name="transiva_text">#123D7C</color>
+    <color name="transiva_title">#0B3675</color>
+    <color name="transiva_subtitle">#68758A</color>
     <color name="transiva_muted">#64748B</color>
-    <color name="transiva_hint">#9AA6B2</color>
+    <color name="transiva_hint">#8A96A8</color>
 
-    <!-- Transiva UI -->
-    <color name="transiva_border">#D7E3F4</color>
-    <color name="transiva_divider">#E8EDF5</color>
-    <color name="transiva_input">#FFFFFF</color>
-    <color name="transiva_button">#1677FF</color>
-    <color name="transiva_button_dark">#0057D9</color>
+    <color name="transiva_border">#D9E2EE</color>
+    <color name="transiva_divider">#E3EAF4</color>
+    <color name="transiva_shadow">#18000000</color>
 
-    <!-- Dark Mode -->
     <color name="transiva_dark">#081423</color>
-    <color name="transiva_surface_dark">#111827</color>
+    <color name="transiva_bg_dark">#0F172A</color>
+    <color name="transiva_card_dark">#1E293B</color>
+    <color name="transiva_text_dark">#F8FAFC</color>
 
-    <!-- Status -->
     <color name="success">#2ECC71</color>
     <color name="warning">#F59E0B</color>
     <color name="error">#EF4444</color>
     <color name="info">#2196F3</color>
-
-    <color name="shadow">#22000000</color>
-
 </resources>
