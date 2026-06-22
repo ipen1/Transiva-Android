@@ -6,6 +6,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.Location;
@@ -33,35 +34,50 @@ import java.net.URL;
 /*
  * BackgroundSyncService.java
  *
- * Fungsi:
- * - Menjaga sinkronisasi ringan Transiva di background.
- * - Mengirim lokasi terakhir yang tersimpan oleh LocationService.
- * - Mengirim status online driver ke endpoint updateDriverLocation.php.
- * - Retry otomatis saat gagal / internet kembali.
- * - Tidak crash walaupun session kosong, endpoint error, atau internet putus.
+ * CLEAN FIX TRANSIVA
+ *
+ * Tujuan fix:
+ * - Sinkronisasi TIDAK berjalan jika user belum login.
+ * - Notification "Sinkronisasi Transiva aktif" TIDAK tampil jika belum login.
+ * - Service langsung berhenti diam-diam jika session kosong / logout / expired.
+ * - syncNow(), start(), dan loop background semuanya dilindungi cek session.
+ * - Aman untuk Android 8+ karena service dihentikan sebelum startForeground saat belum login.
  *
  * Cocok dengan:
- * - https://transiva.my.id
- * - server/updateDriverLocation.php
+ * - MainActivity.java fix login/session
  * - SessionManager.java
  * - LocationService.java
+ * - server/updateDriverLocation.php
  */
 
 public class BackgroundSyncService extends Service {
 
-    public static final String ACTION_START = "com.transiva.app.START_BACKGROUND_SYNC";
-    public static final String ACTION_STOP = "com.transiva.app.STOP_BACKGROUND_SYNC";
-    public static final String ACTION_SYNC_NOW = "com.transiva.app.SYNC_NOW";
+    public static final String ACTION_START =
+            "com.transiva.app.START_BACKGROUND_SYNC";
 
-    private static final String CHANNEL_ID = "transiva_background_sync_channel";
-    private static final String CHANNEL_NAME = "Sinkronisasi Transiva";
+    public static final String ACTION_STOP =
+            "com.transiva.app.STOP_BACKGROUND_SYNC";
+
+    public static final String ACTION_SYNC_NOW =
+            "com.transiva.app.SYNC_NOW";
+
+    private static final String CHANNEL_ID =
+            "transiva_background_sync_channel";
+
+    private static final String CHANNEL_NAME =
+            "Sinkronisasi Transiva";
+
     private static final int NOTIFICATION_ID = 3030;
 
-    private static final String BASE_URL = "https://transiva.my.id/";
-    private static final String UPDATE_DRIVER_LOCATION_ENDPOINT = "server/updateDriverLocation.php";
+    private static final String BASE_URL =
+            "https://transiva.my.id/";
+
+    private static final String UPDATE_DRIVER_LOCATION_ENDPOINT =
+            "server/updateDriverLocation.php";
 
     private static final long NORMAL_SYNC_INTERVAL = 15000L;
     private static final long FAST_RETRY_INTERVAL = 7000L;
+
     private static final int CONNECT_TIMEOUT = 15000;
     private static final int READ_TIMEOUT = 20000;
 
@@ -69,21 +85,34 @@ public class BackgroundSyncService extends Service {
     private SessionManager sessionManager;
 
     private boolean isRunning = false;
+    private boolean foregroundStarted = false;
     private int failCount = 0;
 
     private final Runnable syncRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!isRunning) return;
+            if (!isRunning) {
+                return;
+            }
+
+            if (!hasValidLoginSession()) {
+                stopSyncServiceSilent("Belum login");
+                return;
+            }
 
             try {
                 doSync();
             } catch (Exception ignored) {}
 
-            long nextDelay = failCount > 0 ? FAST_RETRY_INTERVAL : NORMAL_SYNC_INTERVAL;
+            long nextDelay =
+                    failCount > 0
+                            ? FAST_RETRY_INTERVAL
+                            : NORMAL_SYNC_INTERVAL;
 
             try {
-                handler.postDelayed(this, nextDelay);
+                if (handler != null && isRunning) {
+                    handler.postDelayed(this, nextDelay);
+                }
             } catch (Exception ignored) {}
         }
     };
@@ -99,112 +128,245 @@ public class BackgroundSyncService extends Service {
     }
 
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-
-        String action = intent == null ? ACTION_START : intent.getAction();
+    public int onStartCommand(
+            Intent intent,
+            int flags,
+            int startId
+    ) {
+        String action =
+                intent == null || intent.getAction() == null
+                        ? ACTION_START
+                        : intent.getAction();
 
         if (ACTION_STOP.equals(action)) {
-            stopSyncService();
+            stopSyncService("Service dihentikan");
             return START_NOT_STICKY;
         }
 
-        startForeground(
-                NOTIFICATION_ID,
-                buildNotification("Sinkronisasi Transiva aktif")
-        );
-
-        if (ACTION_SYNC_NOW.equals(action)) {
-            new Thread(() -> {
-                try {
-                    doSync();
-                } catch (Exception ignored) {}
-            }).start();
+        /*
+         * FIX TERPENTING:
+         * Jangan startForeground sebelum session valid.
+         * Dengan ini status "Sinkronisasi Transiva aktif" tidak muncul
+         * saat user belum login / session kosong.
+         */
+        if (!hasValidLoginSession()) {
+            stopSyncServiceSilent("Belum login");
+            return START_NOT_STICKY;
         }
 
-        startLoop();
+        ensureForeground();
+
+        if (ACTION_SYNC_NOW.equals(action)) {
+            runSyncOnce();
+        } else {
+            startLoop();
+        }
 
         return START_STICKY;
     }
 
+    private void ensureForeground() {
+        if (foregroundStarted) {
+            return;
+        }
+
+        try {
+            startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification("Sinkronisasi Transiva aktif")
+            );
+
+            foregroundStarted = true;
+
+        } catch (Exception ignored) {}
+    }
+
     private void startLoop() {
-        if (isRunning) return;
+        if (isRunning) {
+            return;
+        }
+
+        if (!hasValidLoginSession()) {
+            stopSyncServiceSilent("Belum login");
+            return;
+        }
 
         isRunning = true;
 
         try {
-            handler.removeCallbacks(syncRunnable);
-            handler.post(syncRunnable);
+            if (handler != null) {
+                handler.removeCallbacks(syncRunnable);
+                handler.post(syncRunnable);
+            }
         } catch (Exception ignored) {}
     }
 
+    private void runSyncOnce() {
+        new Thread(() -> {
+            try {
+                if (!hasValidLoginSession()) {
+                    stopSyncServiceSilent("Belum login");
+                    return;
+                }
+
+                doSync();
+
+                /*
+                 * ACTION_SYNC_NOW hanya sync sekali.
+                 * Kalau sebelumnya service belum running, tidak perlu loop.
+                 */
+                if (!isRunning) {
+                    stopSyncServiceSilent("Sync sekali selesai");
+                }
+
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
     private void doSync() {
+        if (!hasValidLoginSession()) {
+            stopSyncServiceSilent("Belum login");
+            return;
+        }
+
         try {
-            sessionManager.put("background_sync_running", "1");
-            sessionManager.put("background_sync_last_attempt", String.valueOf(System.currentTimeMillis()));
+            sessionManager.put(
+                    "background_sync_running",
+                    "1"
+            );
+
+            sessionManager.put(
+                    "background_sync_last_attempt",
+                    String.valueOf(System.currentTimeMillis())
+            );
 
             if (!isOnline()) {
                 failCount++;
-                sessionManager.put("background_sync_status", "offline");
-                sessionManager.put("background_sync_message", "Internet offline");
+
+                sessionManager.put(
+                        "background_sync_status",
+                        "offline"
+                );
+
+                sessionManager.put(
+                        "background_sync_message",
+                        "Internet offline"
+                );
+
                 return;
             }
 
-            if (!sessionManager.isLoggedIn()) {
-                failCount = 0;
-                sessionManager.put("background_sync_status", "idle");
-                sessionManager.put("background_sync_message", "Belum login");
-                return;
-            }
-
-            String role = safe(sessionManager.getRole()).toLowerCase();
+            String role =
+                    safe(sessionManager.getRole())
+                            .toLowerCase();
 
             if (role.contains("driver")) {
                 syncDriverLocation();
-            } else {
-                sessionManager.put("background_sync_status", "idle");
-                sessionManager.put("background_sync_message", "Role bukan driver");
-                failCount = 0;
+                return;
             }
+
+            /*
+             * Untuk role customer / merchant / admin,
+             * background sync driver tidak perlu berjalan.
+             */
+            failCount = 0;
+
+            sessionManager.put(
+                    "background_sync_status",
+                    "idle"
+            );
+
+            sessionManager.put(
+                    "background_sync_message",
+                    "Role bukan driver"
+            );
+
+            stopSyncServiceSilent("Role bukan driver");
 
         } catch (Exception e) {
             failCount++;
-            sessionManager.put("background_sync_status", "error");
-            sessionManager.put("background_sync_message", safe(e.getMessage()));
-            sessionManager.put("background_sync_error_at", String.valueOf(System.currentTimeMillis()));
+
+            try {
+                sessionManager.put(
+                        "background_sync_status",
+                        "error"
+                );
+
+                sessionManager.put(
+                        "background_sync_message",
+                        safe(e.getMessage())
+                );
+
+                sessionManager.put(
+                        "background_sync_error_at",
+                        String.valueOf(System.currentTimeMillis())
+                );
+            } catch (Exception ignored) {}
         }
     }
 
     private void syncDriverLocation() {
+        if (!hasValidLoginSession()) {
+            stopSyncServiceSilent("Belum login");
+            return;
+        }
+
         try {
-            String latitude = sessionManager.get("last_latitude");
-            String longitude = sessionManager.get("last_longitude");
+            String username = safe(sessionManager.getUsername());
+
+            if (username.isEmpty()) {
+                stopSyncServiceSilent("Username kosong");
+                return;
+            }
+
+            String latitude =
+                    safe(sessionManager.get("last_latitude"));
+
+            String longitude =
+                    safe(sessionManager.get("last_longitude"));
 
             if (latitude.isEmpty() || longitude.isEmpty()) {
                 Location lastKnown = getQuickLastKnownLocation();
 
                 if (lastKnown != null) {
-                    latitude = String.valueOf(lastKnown.getLatitude());
-                    longitude = String.valueOf(lastKnown.getLongitude());
+                    latitude =
+                            String.valueOf(lastKnown.getLatitude());
 
-                    sessionManager.saveLastLocation(latitude, longitude);
+                    longitude =
+                            String.valueOf(lastKnown.getLongitude());
+
+                    sessionManager.saveLastLocation(
+                            latitude,
+                            longitude
+                    );
                 }
             }
 
             if (latitude.isEmpty() || longitude.isEmpty()) {
                 failCount++;
-                sessionManager.put("background_sync_status", "waiting_location");
-                sessionManager.put("background_sync_message", "Lokasi terakhir belum tersedia");
+
+                sessionManager.put(
+                        "background_sync_status",
+                        "waiting_location"
+                );
+
+                sessionManager.put(
+                        "background_sync_message",
+                        "Lokasi terakhir belum tersedia"
+                );
+
                 return;
             }
 
             JSONObject body = new JSONObject();
 
-            body.put("username", sessionManager.getUsername());
+            body.put("username", username);
             body.put("order_id", sessionManager.get("current_order_id"));
             body.put("latitude", latitude);
             body.put("longitude", longitude);
 
             JSONObject extra = new JSONObject();
+
             extra.put("id", sessionManager.getId());
             extra.put("user_id", sessionManager.getUserId());
             extra.put("role", sessionManager.getRole());
@@ -213,58 +375,143 @@ public class BackgroundSyncService extends Service {
 
             body.put("extra", extra);
 
-            JSONObject response = postJson(
-                    UPDATE_DRIVER_LOCATION_ENDPOINT,
-                    body
-            );
+            JSONObject response =
+                    postJson(
+                            UPDATE_DRIVER_LOCATION_ENDPOINT,
+                            body
+                    );
 
-            boolean ok = response.optBoolean("success", false);
+            boolean ok =
+                    response.optBoolean("success", false);
 
             if (ok) {
                 failCount = 0;
-                sessionManager.put("background_sync_status", "success");
-                sessionManager.put("background_sync_message", response.optString("message", "Sinkron berhasil"));
-                sessionManager.put("background_sync_last_success", String.valueOf(System.currentTimeMillis()));
-                sessionManager.put("background_sync_last_response", response.toString());
+
+                sessionManager.put(
+                        "background_sync_status",
+                        "success"
+                );
+
+                sessionManager.put(
+                        "background_sync_message",
+                        response.optString(
+                                "message",
+                                "Sinkron berhasil"
+                        )
+                );
+
+                sessionManager.put(
+                        "background_sync_last_success",
+                        String.valueOf(System.currentTimeMillis())
+                );
+
+                sessionManager.put(
+                        "background_sync_last_response",
+                        response.toString()
+                );
+
             } else {
                 failCount++;
-                sessionManager.put("background_sync_status", "server_failed");
-                sessionManager.put("background_sync_message", response.optString("message", "Server menolak sync"));
-                sessionManager.put("background_sync_last_response", response.toString());
+
+                sessionManager.put(
+                        "background_sync_status",
+                        "server_failed"
+                );
+
+                sessionManager.put(
+                        "background_sync_message",
+                        response.optString(
+                                "message",
+                                "Server menolak sync"
+                        )
+                );
+
+                sessionManager.put(
+                        "background_sync_last_response",
+                        response.toString()
+                );
             }
 
         } catch (Exception e) {
             failCount++;
-            sessionManager.put("background_sync_status", "error");
-            sessionManager.put("background_sync_message", safe(e.getMessage()));
+
+            try {
+                sessionManager.put(
+                        "background_sync_status",
+                        "error"
+                );
+
+                sessionManager.put(
+                        "background_sync_message",
+                        safe(e.getMessage())
+                );
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private boolean hasValidLoginSession() {
+        try {
+            if (sessionManager == null) {
+                sessionManager = new SessionManager(this);
+            }
+
+            if (!sessionManager.isLoggedIn()) {
+                return false;
+            }
+
+            String username =
+                    safe(sessionManager.getUsername());
+
+            String role =
+                    safe(sessionManager.getRole());
+
+            return !username.isEmpty()
+                    && !role.isEmpty();
+
+        } catch (Exception e) {
+            return false;
         }
     }
 
     private Location getQuickLastKnownLocation() {
         try {
-            if (!hasLocationPermission()) return null;
+            if (!hasLocationPermission()) {
+                return null;
+            }
 
             android.location.LocationManager lm =
-                    (android.location.LocationManager) getSystemService(LOCATION_SERVICE);
+                    (android.location.LocationManager)
+                            getSystemService(LOCATION_SERVICE);
 
-            if (lm == null) return null;
+            if (lm == null) {
+                return null;
+            }
 
             Location gps = null;
             Location network = null;
 
             try {
-                gps = lm.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER);
+                gps = lm.getLastKnownLocation(
+                        android.location.LocationManager.GPS_PROVIDER
+                );
             } catch (Exception ignored) {}
 
             try {
-                network = lm.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER);
+                network = lm.getLastKnownLocation(
+                        android.location.LocationManager.NETWORK_PROVIDER
+                );
             } catch (Exception ignored) {}
 
             if (gps != null && network != null) {
-                return gps.getTime() >= network.getTime() ? gps : network;
+                return gps.getTime() >= network.getTime()
+                        ? gps
+                        : network;
             }
 
-            if (gps != null) return gps;
+            if (gps != null) {
+                return gps;
+            }
+
             return network;
 
         } catch (Exception e) {
@@ -272,13 +519,18 @@ public class BackgroundSyncService extends Service {
         }
     }
 
-    private JSONObject postJson(String endpoint, JSONObject body) {
+    private JSONObject postJson(
+            String endpoint,
+            JSONObject body
+    ) {
         HttpURLConnection conn = null;
 
         try {
-            URL url = new URL(BASE_URL + cleanEndpoint(endpoint));
+            URL url =
+                    new URL(BASE_URL + cleanEndpoint(endpoint));
 
-            conn = (HttpURLConnection) url.openConnection();
+            conn =
+                    (HttpURLConnection) url.openConnection();
 
             conn.setRequestMethod("POST");
             conn.setConnectTimeout(CONNECT_TIMEOUT);
@@ -287,10 +539,25 @@ public class BackgroundSyncService extends Service {
             conn.setDoInput(true);
             conn.setDoOutput(true);
 
-            conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            conn.setRequestProperty("X-Transiva-Channel", "TransivaNative");
-            conn.setRequestProperty("X-Transiva-Client", "Android-BackgroundSync");
+            conn.setRequestProperty(
+                    "Accept",
+                    "application/json"
+            );
+
+            conn.setRequestProperty(
+                    "Content-Type",
+                    "application/json; charset=UTF-8"
+            );
+
+            conn.setRequestProperty(
+                    "X-Transiva-Channel",
+                    "TransivaNative"
+            );
+
+            conn.setRequestProperty(
+                    "X-Transiva-Client",
+                    "Android-BackgroundSync"
+            );
 
             BufferedWriter writer =
                     new BufferedWriter(
@@ -300,18 +567,23 @@ public class BackgroundSyncService extends Service {
                             )
                     );
 
-            writer.write(body == null ? "{}" : body.toString());
+            writer.write(
+                    body == null ? "{}" : body.toString()
+            );
+
             writer.flush();
             writer.close();
 
-            int status = conn.getResponseCode();
+            int status =
+                    conn.getResponseCode();
 
             InputStream stream =
                     status >= 200 && status < 400
                             ? conn.getInputStream()
                             : conn.getErrorStream();
 
-            String raw = readStream(stream);
+            String raw =
+                    readStream(stream);
 
             JSONObject result;
 
@@ -319,8 +591,18 @@ public class BackgroundSyncService extends Service {
                 result = new JSONObject(raw);
             } catch (Exception e) {
                 result = new JSONObject();
-                result.put("success", false);
-                result.put("message", raw == null || raw.isEmpty() ? "Response kosong" : raw);
+
+                result.put(
+                        "success",
+                        false
+                );
+
+                result.put(
+                        "message",
+                        raw == null || raw.isEmpty()
+                                ? "Response kosong"
+                                : raw
+                );
             }
 
             result.put("http_status", status);
@@ -331,30 +613,43 @@ public class BackgroundSyncService extends Service {
         } catch (Exception e) {
             try {
                 JSONObject error = new JSONObject();
+
                 error.put("success", false);
                 error.put("message", safe(e.getMessage()));
                 error.put("endpoint", endpoint);
+
                 return error;
+
             } catch (Exception ignored) {
                 return new JSONObject();
             }
+
         } finally {
             try {
-                if (conn != null) conn.disconnect();
+                if (conn != null) {
+                    conn.disconnect();
+                }
             } catch (Exception ignored) {}
         }
     }
 
     private String readStream(InputStream stream) {
         try {
-            if (stream == null) return "";
+            if (stream == null) {
+                return "";
+            }
 
             BufferedReader reader =
                     new BufferedReader(
-                            new InputStreamReader(stream, "UTF-8")
+                            new InputStreamReader(
+                                    stream,
+                                    "UTF-8"
+                            )
                     );
 
-            StringBuilder builder = new StringBuilder();
+            StringBuilder builder =
+                    new StringBuilder();
+
             String line;
 
             while ((line = reader.readLine()) != null) {
@@ -373,11 +668,15 @@ public class BackgroundSyncService extends Service {
     private boolean isOnline() {
         try {
             ConnectivityManager cm =
-                    (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+                    (ConnectivityManager)
+                            getSystemService(CONNECTIVITY_SERVICE);
 
-            if (cm == null) return false;
+            if (cm == null) {
+                return false;
+            }
 
-            NetworkInfo info = cm.getActiveNetworkInfo();
+            NetworkInfo info =
+                    cm.getActiveNetworkInfo();
 
             return info != null && info.isConnected();
 
@@ -397,19 +696,10 @@ public class BackgroundSyncService extends Service {
         ) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private String cleanEndpoint(String endpoint) {
-        String e = safe(endpoint).trim();
-
-        while (e.startsWith("/")) {
-            e = e.substring(1);
-        }
-
-        return e;
-    }
-
     private Notification buildNotification(String message) {
+        Intent openIntent =
+                new Intent(this, MainActivity.class);
 
-        Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.setFlags(
                 Intent.FLAG_ACTIVITY_SINGLE_TOP |
                         Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -424,7 +714,9 @@ public class BackgroundSyncService extends Service {
                                 PendingIntent.FLAG_UPDATE_CURRENT
                 );
 
-        Intent stopIntent = new Intent(this, BackgroundSyncService.class);
+        Intent stopIntent =
+                new Intent(this, BackgroundSyncService.class);
+
         stopIntent.setAction(ACTION_STOP);
 
         PendingIntent stopPendingIntent =
@@ -436,15 +728,22 @@ public class BackgroundSyncService extends Service {
                                 PendingIntent.FLAG_UPDATE_CURRENT
                 );
 
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
+        return new NotificationCompat.Builder(
+                this,
+                CHANNEL_ID
+        )
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("Transiva")
                 .setContentText(message)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(message))
+                .setStyle(
+                        new NotificationCompat.BigTextStyle()
+                                .bigText(message)
+                )
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .setContentIntent(openPendingIntent)
                 .addAction(
                         R.mipmap.ic_launcher,
@@ -455,17 +754,25 @@ public class BackgroundSyncService extends Service {
     }
 
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < 26) return;
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
 
         try {
             NotificationManager manager =
-                    (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    (NotificationManager)
+                            getSystemService(NOTIFICATION_SERVICE);
 
-            if (manager == null) return;
+            if (manager == null) {
+                return;
+            }
 
-            NotificationChannel old = manager.getNotificationChannel(CHANNEL_ID);
+            NotificationChannel old =
+                    manager.getNotificationChannel(CHANNEL_ID);
 
-            if (old != null) return;
+            if (old != null) {
+                return;
+            }
 
             NotificationChannel channel =
                     new NotificationChannel(
@@ -474,8 +781,14 @@ public class BackgroundSyncService extends Service {
                             NotificationManager.IMPORTANCE_LOW
                     );
 
-            channel.setDescription("Sinkronisasi background untuk Transiva");
-            channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+            channel.setDescription(
+                    "Sinkronisasi background Transiva hanya saat user login"
+            );
+
+            channel.setLockscreenVisibility(
+                    Notification.VISIBILITY_PRIVATE
+            );
+
             channel.enableVibration(false);
             channel.enableLights(false);
 
@@ -484,32 +797,130 @@ public class BackgroundSyncService extends Service {
         } catch (Exception ignored) {}
     }
 
-    private void stopSyncService() {
+    private void stopSyncService(String message) {
+        shutdownLoop();
+
+        try {
+            if (sessionManager != null) {
+                sessionManager.put(
+                        "background_sync_running",
+                        "0"
+                );
+
+                sessionManager.put(
+                        "background_sync_status",
+                        "stopped"
+                );
+
+                sessionManager.put(
+                        "background_sync_message",
+                        safe(message).isEmpty()
+                                ? "Service dihentikan"
+                                : message
+                );
+            }
+        } catch (Exception ignored) {}
+
+        stopForegroundAndSelf();
+    }
+
+    private void stopSyncServiceSilent(String message) {
+        shutdownLoop();
+
+        try {
+            if (sessionManager != null) {
+                sessionManager.put(
+                        "background_sync_running",
+                        "0"
+                );
+
+                sessionManager.put(
+                        "background_sync_status",
+                        "idle"
+                );
+
+                sessionManager.put(
+                        "background_sync_message",
+                        safe(message).isEmpty()
+                                ? "Service tidak aktif"
+                                : message
+                );
+            }
+        } catch (Exception ignored) {}
+
+        stopForegroundAndSelf();
+    }
+
+    private void shutdownLoop() {
         try {
             isRunning = false;
 
             if (handler != null) {
                 handler.removeCallbacks(syncRunnable);
             }
-
-            if (sessionManager != null) {
-                sessionManager.put("background_sync_running", "0");
-                sessionManager.put("background_sync_status", "stopped");
-                sessionManager.put("background_sync_message", "Service dihentikan");
-            }
-
         } catch (Exception ignored) {}
+    }
+
+    private void stopForegroundAndSelf() {
+        try {
+            if (foregroundStarted) {
+                if (Build.VERSION.SDK_INT >= 24) {
+                    stopForeground(STOP_FOREGROUND_REMOVE);
+                } else {
+                    stopForeground(true);
+                }
+            } else {
+                /*
+                 * Aman dipanggil walau startForeground belum pernah jalan.
+                 * Tujuannya memastikan tidak ada notification lama tertinggal.
+                 */
+                stopForeground(true);
+            }
+        } catch (Exception ignored) {}
+
+        foregroundStarted = false;
 
         try {
-            stopForeground(true);
+            stopSelf();
         } catch (Exception ignored) {}
+    }
 
-        stopSelf();
+    private String cleanEndpoint(String endpoint) {
+        String e =
+                safe(endpoint).trim();
+
+        while (e.startsWith("/")) {
+            e = e.substring(1);
+        }
+
+        return e;
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 
     @Override
     public void onDestroy() {
-        stopSyncService();
+        shutdownLoop();
+
+        try {
+            if (sessionManager != null) {
+                sessionManager.put(
+                        "background_sync_running",
+                        "0"
+                );
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            if (foregroundStarted) {
+                stopForeground(true);
+            }
+        } catch (Exception ignored) {}
+
+        foregroundStarted = false;
+
         super.onDestroy();
     }
 
@@ -519,9 +930,19 @@ public class BackgroundSyncService extends Service {
         return null;
     }
 
-    public static void start(android.content.Context context) {
+    public static void start(Context context) {
         try {
-            Intent intent = new Intent(context, BackgroundSyncService.class);
+            if (!isLoggedIn(context)) {
+                stop(context);
+                return;
+            }
+
+            Intent intent =
+                    new Intent(
+                            context,
+                            BackgroundSyncService.class
+                    );
+
             intent.setAction(ACTION_START);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -529,20 +950,38 @@ public class BackgroundSyncService extends Service {
             } else {
                 context.startService(intent);
             }
+
         } catch (Exception ignored) {}
     }
 
-    public static void stop(android.content.Context context) {
+    public static void stop(Context context) {
         try {
-            Intent intent = new Intent(context, BackgroundSyncService.class);
+            Intent intent =
+                    new Intent(
+                            context,
+                            BackgroundSyncService.class
+                    );
+
             intent.setAction(ACTION_STOP);
+
             context.startService(intent);
+
         } catch (Exception ignored) {}
     }
 
-    public static void syncNow(android.content.Context context) {
+    public static void syncNow(Context context) {
         try {
-            Intent intent = new Intent(context, BackgroundSyncService.class);
+            if (!isLoggedIn(context)) {
+                stop(context);
+                return;
+            }
+
+            Intent intent =
+                    new Intent(
+                            context,
+                            BackgroundSyncService.class
+                    );
+
             intent.setAction(ACTION_SYNC_NOW);
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -550,10 +989,34 @@ public class BackgroundSyncService extends Service {
             } else {
                 context.startService(intent);
             }
+
         } catch (Exception ignored) {}
     }
 
-    private String safe(String value) {
-        return value == null ? "" : value;
+    private static boolean isLoggedIn(Context context) {
+        try {
+            SessionManager manager =
+                    new SessionManager(context);
+
+            if (!manager.isLoggedIn()) {
+                return false;
+            }
+
+            String username =
+                    manager.getUsername() == null
+                            ? ""
+                            : manager.getUsername().trim();
+
+            String role =
+                    manager.getRole() == null
+                            ? ""
+                            : manager.getRole().trim();
+
+            return !username.isEmpty()
+                    && !role.isEmpty();
+
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
