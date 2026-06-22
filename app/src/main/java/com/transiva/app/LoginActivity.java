@@ -263,15 +263,37 @@ public class LoginActivity extends Activity {
         String role = "";
 
         try {
+            if (sessionManager == null) {
+                sessionManager = new SessionManager(this);
+            }
             role = sessionManager.getRole();
         } catch (Exception ignored) {}
 
+        if (role == null) role = "";
+        role = role.trim().toLowerCase();
+
         Intent intent;
 
-        if (role.equalsIgnoreCase("customer") || role.equalsIgnoreCase("user") || role.equalsIgnoreCase("pelanggan")) {
+        if (
+                role.equals("customer") ||
+                role.equals("user") ||
+                role.equals("pelanggan") ||
+                role.equals("costumer")
+        ) {
             intent = new Intent(this, CustomerDashboardActivity.class);
-        } else {
+        }
+        else if (
+                role.equals("driver") ||
+                role.equals("kurir") ||
+                role.equals("ojek") ||
+                role.equals("rider")
+        ) {
+            intent = new Intent(this, DriverDashboardActivity.class);
+        }
+        else {
+            // Merchant, admin, atau role lain sementara tetap memakai WebView.
             intent = new Intent(this, MainActivity.class);
+            intent.putExtra("url", "https://transiva.my.id/?app=1");
         }
 
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
