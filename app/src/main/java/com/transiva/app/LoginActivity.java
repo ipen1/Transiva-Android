@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
@@ -18,6 +19,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -25,6 +27,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.util.Locale;
 
@@ -46,6 +49,7 @@ public class LoginActivity extends Activity {
 
     private SessionManager sessionManager;
     private SharedPreferences prefs;
+    private volatile boolean isLoginRunning = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,14 +63,23 @@ public class LoginActivity extends Activity {
         sessionManager = new SessionManager(this);
         prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
 
-        try {
-            if (sessionManager.isLoggedIn()) {
-                openDashboardByRole();
-                return;
-            }
-        } catch (Exception ignored) {}
+        if (safeIsLoggedIn()) {
+            openDashboardByRole();
+            return;
+        }
 
         buildUi();
+    }
+
+    private boolean safeIsLoggedIn() {
+        try {
+            return sessionManager != null && sessionManager.isLoggedIn();
+        } catch (Exception e) {
+            try {
+                sessionManager.clearSession();
+            } catch (Exception ignored) {}
+            return false;
+        }
     }
 
     private void buildUi() {
@@ -83,13 +96,13 @@ public class LoginActivity extends Activity {
         TextView logo = new TextView(this);
         logo.setText("TRANSIVA");
         logo.setTextSize(34);
-        logo.setTypeface(null, 1);
+        logo.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         logo.setTextColor(Color.WHITE);
         logo.setGravity(Gravity.CENTER);
         root.addView(logo, new LinearLayout.LayoutParams(-1, -2));
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Login Native langsung ke API");
+        subtitle.setText("Native Login");
         subtitle.setTextSize(15);
         subtitle.setTextColor(Color.parseColor("#D1D5DB"));
         subtitle.setGravity(Gravity.CENTER);
@@ -100,6 +113,7 @@ public class LoginActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundColor(Color.WHITE);
         card.setPadding(dp(20), dp(22), dp(20), dp(18));
+
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
         cardLp.setMargins(0, 0, 0, dp(18));
         root.addView(card, cardLp);
@@ -127,11 +141,13 @@ public class LoginActivity extends Activity {
         showPasswordBox.setTextColor(Color.parseColor("#374151"));
         showPasswordBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
             int pos = passwordInput.getSelectionStart();
+
             if (isChecked) {
                 passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
             } else {
                 passwordInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
             }
+
             passwordInput.setSelection(Math.min(Math.max(pos, 0), passwordInput.getText().length()));
         });
         card.addView(showPasswordBox);
@@ -157,7 +173,7 @@ public class LoginActivity extends Activity {
         card.addView(webBtn);
 
         TextView note = new TextView(this);
-        note.setText("Login ini mengirim JSON langsung ke server/login.php. WebView tidak dipakai untuk login.");
+        note.setText("Login ini memakai API langsung. WebView tidak dipakai untuk proses login.");
         note.setTextSize(12);
         note.setTextColor(Color.parseColor("#9CA3AF"));
         note.setGravity(Gravity.CENTER);
@@ -165,6 +181,12 @@ public class LoginActivity extends Activity {
         root.addView(note, new LinearLayout.LayoutParams(-1, -2));
 
         setContentView(scroll);
+
+        if (usernameInput.getText().toString().trim().isEmpty()) {
+            usernameInput.requestFocus();
+        } else {
+            passwordInput.requestFocus();
+        }
     }
 
     private EditText input(String hint) {
@@ -199,8 +221,10 @@ public class LoginActivity extends Activity {
     }
 
     private void doNativeLogin() {
+        if (isLoginRunning) return;
+
         String username = usernameInput.getText().toString().trim();
-        String password = passwordInput.getText().toString().trim();
+        String password = passwordInput.getText().toString();
 
         if (username.isEmpty()) {
             usernameInput.setError("Username wajib diisi");
@@ -208,99 +232,130 @@ public class LoginActivity extends Activity {
             return;
         }
 
-        if (password.isEmpty()) {
+        if (password.trim().isEmpty()) {
             passwordInput.setError("Password wajib diisi");
             passwordInput.requestFocus();
             return;
         }
 
+        isLoginRunning = true;
         setLoading(true, "Memeriksa akun...");
 
         new Thread(() -> {
             try {
-                String response = postJsonLogin(username, password);
-                JSONObject root = new JSONObject(response);
+                String response = postLogin(username, password);
+                JSONObject root = parseJson(response);
 
                 boolean success = root.optBoolean("success", false);
-                String message = root.optString("message", success ? "Berhasil Masuk" : "Login gagal");
+                String message = root.optString("message", success ? "Login berhasil" : "Login gagal");
 
                 if (!success) {
-                    runOnUiThread(() -> setLoading(false, message));
+                    uiLoginFail(message);
                     return;
                 }
 
                 JSONObject user = root.optJSONObject("user");
                 if (user == null) {
-                    runOnUiThread(() -> setLoading(false, "Response login tidak lengkap"));
+                    uiLoginFail("Response login tidak lengkap: user kosong");
                     return;
                 }
 
                 JSONObject sessionUser = normalizeUser(user, username);
 
-                try {
-                    if (sessionManager == null) {
-                        sessionManager = new SessionManager(this);
-                    }
-                    sessionManager.clearSession();
-                    sessionManager.saveSession(sessionUser.toString());
-                } catch (Exception e) {
-                    runOnUiThread(() -> setLoading(false, "Gagal menyimpan session"));
-                    return;
+                if (sessionManager == null) {
+                    sessionManager = new SessionManager(this);
                 }
+
+                sessionManager.clearSession();
+                sessionManager.saveSession(sessionUser.toString());
 
                 prefs.edit()
                         .putString(PREF_LAST_USERNAME, username)
                         .apply();
 
                 runOnUiThread(() -> {
+                    isLoginRunning = false;
+                    setLoading(false, "");
                     Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
                     openDashboardByRole();
                 });
 
+            } catch (SocketTimeoutException e) {
+                uiLoginFail("Koneksi lambat. Coba lagi.");
             } catch (Exception e) {
-                runOnUiThread(() -> setLoading(false, "Gagal login: " + cleanError(e.getMessage())));
+                uiLoginFail("Gagal login: " + cleanError(e.getMessage()));
             }
         }).start();
     }
 
-    private String postJsonLogin(String username, String password) throws Exception {
+    private String postLogin(String username, String password) throws Exception {
+        /*
+         * LoginActivity ini mengirim JSON:
+         * {"username":"...", "password":"..."}
+         *
+         * Jadi server/login.php wajib membaca php://input JSON.
+         */
+
         JSONObject payload = new JSONObject();
         payload.put("username", username);
         payload.put("password", password);
 
         byte[] body = payload.toString().getBytes("UTF-8");
 
-        HttpURLConnection conn = (HttpURLConnection) new URL(LOGIN_URL).openConnection();
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(15000);
-        conn.setRequestMethod("POST");
-        conn.setDoInput(true);
-        conn.setDoOutput(true);
-        conn.setUseCaches(false);
-        conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-        conn.setRequestProperty("Accept", "application/json");
-        conn.setRequestProperty("X-Requested-With", "XMLHttpRequest");
-        conn.setRequestProperty("User-Agent", "TransivaAndroidNative/1.0");
-        conn.setRequestProperty("Content-Length", String.valueOf(body.length));
+        HttpURLConnection conn = null;
 
-        OutputStream os = conn.getOutputStream();
-        os.write(body);
-        os.flush();
-        os.close();
+        try {
+            conn = (HttpURLConnection) new URL(LOGIN_URL).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(20000);
+            conn.setRequestMethod("POST");
+            conn.setDoInput(true);
+            conn.setDoOutput(true);
+            conn.setUseCaches(false);
+            conn.setInstanceFollowRedirects(false);
 
-        int code = conn.getResponseCode();
-        InputStream stream = code >= 200 && code < 300
-                ? conn.getInputStream()
-                : conn.getErrorStream();
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("X-Requested-With", "XMLHttpRequest");
+            conn.setRequestProperty("User-Agent", "TransivaAndroidNative/1.0");
+            conn.setRequestProperty("Content-Length", String.valueOf(body.length));
 
-        String result = readStream(stream).trim();
-        conn.disconnect();
+            OutputStream os = conn.getOutputStream();
+            os.write(body);
+            os.flush();
+            os.close();
 
-        if (result.isEmpty()) {
-            throw new Exception("Server tidak mengirim response");
+            int code = conn.getResponseCode();
+
+            InputStream stream = code >= 200 && code < 300
+                    ? conn.getInputStream()
+                    : conn.getErrorStream();
+
+            String result = readStream(stream).trim();
+
+            if (result.isEmpty()) {
+                throw new Exception("Server kosong HTTP " + code);
+            }
+
+            if (code < 200 || code >= 300) {
+                throw new Exception("HTTP " + code + ": " + limit(result));
+            }
+
+            return result;
+
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
         }
+    }
 
-        return result;
+    private JSONObject parseJson(String response) throws Exception {
+        try {
+            return new JSONObject(response);
+        } catch (JSONException e) {
+            throw new Exception("Response bukan JSON: " + limit(response));
+        }
     }
 
     private String readStream(InputStream stream) throws Exception {
@@ -396,6 +451,13 @@ public class LoginActivity extends Activity {
         startActivity(intent);
     }
 
+    private void uiLoginFail(String message) {
+        runOnUiThread(() -> {
+            isLoginRunning = false;
+            setLoading(false, message);
+        });
+    }
+
     private String normalizeRole(String role) {
         if (role == null) return "customer";
 
@@ -437,15 +499,15 @@ public class LoginActivity extends Activity {
     }
 
     private void setLoading(boolean loading, String message) {
-        try {
-            progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
-            loginBtn.setEnabled(!loading);
-            webBtn.setEnabled(!loading);
-            usernameInput.setEnabled(!loading);
-            passwordInput.setEnabled(!loading);
-            showPasswordBox.setEnabled(!loading);
-            messageText.setText(message == null ? "" : message);
-        } catch (Exception ignored) {}
+        if (progressBar == null) return;
+
+        progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
+        loginBtn.setEnabled(!loading);
+        webBtn.setEnabled(!loading);
+        usernameInput.setEnabled(!loading);
+        passwordInput.setEnabled(!loading);
+        showPasswordBox.setEnabled(!loading);
+        messageText.setText(message == null ? "" : message);
     }
 
     private String cleanError(String message) {
@@ -457,6 +519,17 @@ public class LoginActivity extends Activity {
                 .replace("java.lang.", "")
                 .replace("org.json.", "")
                 .replace("Value ", "Data ");
+    }
+
+    private String limit(String text) {
+        if (text == null) return "";
+        text = text.trim();
+
+        if (text.length() <= 180) {
+            return text;
+        }
+
+        return text.substring(0, 180) + "...";
     }
 
     private int dp(int value) {
