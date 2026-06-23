@@ -71,7 +71,17 @@ public class CustomerDashboardActivity extends Activity {
     private String username = "User";
     private int userId = 0;
     private boolean loading = false;
+    private boolean orderStatusLoading = false;
+    private boolean statusPollingActive = false;
     private LocationManager locationManager;
+
+    private final Runnable orderStatusRunnable = new Runnable() {
+        @Override public void run() {
+            if (!statusPollingActive) return;
+            loadOrderStatus();
+            mainHandler.postDelayed(this, 5000);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -85,8 +95,39 @@ public class CustomerDashboardActivity extends Activity {
         loadSession();
         buildLayout();
         loadBalance();
-        loadOrderStatus();
+        startOrderStatusPolling();
         loadActualLocation();
+    }
+
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        startOrderStatusPolling();
+    }
+
+    @Override
+    protected void onPause() {
+        stopOrderStatusPolling();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        stopOrderStatusPolling();
+        super.onDestroy();
+    }
+
+    private void startOrderStatusPolling() {
+        statusPollingActive = true;
+        mainHandler.removeCallbacks(orderStatusRunnable);
+        loadOrderStatus();
+        mainHandler.postDelayed(orderStatusRunnable, 5000);
+    }
+
+    private void stopOrderStatusPolling() {
+        statusPollingActive = false;
+        mainHandler.removeCallbacks(orderStatusRunnable);
     }
 
     private void loadSession() {
@@ -535,13 +576,27 @@ public class CustomerDashboardActivity extends Activity {
     }
 
     private void loadOrderStatus() {
+        if (orderStatusLoading) return;
+
+        orderStatusLoading = true;
+
         new Thread(() -> {
             JSONObject activeOrder = null;
             String text = "Belum ada pesanan aktif";
 
             try {
+                if (userId <= 0) {
+                    loadSession();
+                }
+
                 if (userId > 0) {
-                    JSONObject json = getJson(BASE_URL + "server/get_user_orders.php?user_id=" + userId);
+                    String url = BASE_URL
+                            + "server/get_user_orders.php?user_id="
+                            + userId
+                            + "&_="
+                            + System.currentTimeMillis();
+
+                    JSONObject json = getJson(url);
                     JSONArray orders = json.optJSONArray("orders");
 
                     if (json.optBoolean("success", false) && orders != null && orders.length() > 0) {
@@ -549,8 +604,7 @@ public class CustomerDashboardActivity extends Activity {
                             JSONObject o = orders.optJSONObject(i);
                             if (o == null) continue;
 
-                            String status = o.optString("status", "").toLowerCase(Locale.US).trim();
-
+                            String status = firstNonEmpty(o.optString("status"), "").toLowerCase(Locale.US).trim();
                             if (!isFinishedOrCanceled(status)) {
                                 activeOrder = o;
                                 break;
@@ -558,19 +612,148 @@ public class CustomerDashboardActivity extends Activity {
                         }
                     }
                 }
+
+                String activeOrderId = firstNonEmpty(
+                        getStringPref("active_order_id"),
+                        activeOrder != null ? firstNonEmpty(activeOrder.optString("order_id"), activeOrder.optString("id")) : ""
+                );
+
+                if (activeOrderId.length() > 0) {
+                    JSONObject fresh = fetchFreshOrderStatus(activeOrderId);
+                    if (fresh != null) {
+                        activeOrder = mergeOrder(activeOrder, fresh);
+                    }
+                }
+
+                if (activeOrder != null) {
+                    String status = firstNonEmpty(activeOrder.optString("status"), "").toLowerCase(Locale.US).trim();
+                    if (isFinishedOrCanceled(status)) {
+                        clearActiveOrderPrefs();
+                        activeOrder = null;
+                    } else {
+                        saveActiveOrderToPrefs(activeOrder);
+                        text = buildNativeStatusText(activeOrder);
+                    }
+                }
+
             } catch (Exception ignored) {}
 
             JSONObject finalOrder = activeOrder;
-            if (finalOrder != null) {
-                text = buildNativeStatusText(finalOrder);
-            }
-
             String finalText = text;
+
             mainHandler.post(() -> {
-                statusText.setText(finalText);
+                orderStatusLoading = false;
+                if (statusText != null) statusText.setText(finalText);
                 buildOrderActionButtons(finalOrder);
             });
         }).start();
+    }
+
+    private JSONObject fetchFreshOrderStatus(String orderId) {
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("order_id", orderId);
+
+            JSONObject res = postJson(BASE_URL + "server/check_order_status.php", payload);
+            if (!res.optBoolean("success", false)) return null;
+
+            JSONObject order = res.optJSONObject("order");
+            if (order == null) order = new JSONObject();
+
+            order.put("order_id", firstNonEmpty(
+                    order.optString("order_id"),
+                    order.optString("id"),
+                    res.optString("order_id"),
+                    res.optString("id"),
+                    orderId
+            ));
+
+            order.put("status", firstNonEmpty(
+                    res.optString("status"),
+                    order.optString("status"),
+                    "pending"
+            ));
+
+            JSONObject driver = res.optJSONObject("driver");
+            if (driver != null) {
+                order.put("driver", firstNonEmpty(
+                        order.optString("driver"),
+                        order.optString("driver_username"),
+                        driver.optString("name"),
+                        driver.optString("username"),
+                        res.optString("driver_username")
+                ));
+
+                order.put("driver_username", firstNonEmpty(
+                        order.optString("driver_username"),
+                        driver.optString("username"),
+                        driver.optString("name"),
+                        res.optString("driver_username")
+                ));
+            } else {
+                order.put("driver", firstNonEmpty(
+                        order.optString("driver"),
+                        order.optString("driver_username"),
+                        res.optString("driver_username")
+                ));
+            }
+
+            copyIfExists(res, order, "pickup_lat");
+            copyIfExists(res, order, "pickup_lng");
+            copyIfExists(res, order, "delivery_lat");
+            copyIfExists(res, order, "delivery_lng");
+            copyIfExists(res, order, "driver_type");
+            copyIfExists(res, order, "order_type");
+
+            return order;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private JSONObject mergeOrder(JSONObject oldOrder, JSONObject freshOrder) {
+        if (oldOrder == null) return freshOrder;
+        if (freshOrder == null) return oldOrder;
+
+        try {
+            java.util.Iterator<String> keys = freshOrder.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                Object value = freshOrder.opt(key);
+                if (value == null || String.valueOf(value).trim().length() == 0 || "null".equalsIgnoreCase(String.valueOf(value))) {
+                    continue;
+                }
+                oldOrder.put(key, value);
+            }
+        } catch (Exception ignored) {}
+
+        return oldOrder;
+    }
+
+    private void copyIfExists(JSONObject from, JSONObject to, String key) {
+        try {
+            String value = from.optString(key, "");
+            if (value != null && value.trim().length() > 0 && !"null".equalsIgnoreCase(value.trim())) {
+                to.put(key, value);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void saveActiveOrderToPrefs(JSONObject order) {
+        if (order == null) return;
+
+        String orderId = firstNonEmpty(order.optString("order_id"), order.optString("id"));
+        if (orderId.length() == 0) return;
+
+        SharedPreferences.Editor e = getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit();
+        e.putString("active_order_id", orderId);
+        e.putString("order_status", firstNonEmpty(order.optString("status"), ""));
+        e.putString("pickup_lat", firstNonEmpty(order.optString("pickup_lat"), order.optString("user_lat"), getStringPref("pickup_lat")));
+        e.putString("pickup_lng", firstNonEmpty(order.optString("pickup_lng"), order.optString("user_lng"), getStringPref("pickup_lng")));
+        e.putString("delivery_lat", firstNonEmpty(order.optString("delivery_lat"), getStringPref("delivery_lat")));
+        e.putString("delivery_lng", firstNonEmpty(order.optString("delivery_lng"), getStringPref("delivery_lng")));
+        e.putString("active_driver_type", detectDriverType(order));
+        e.apply();
     }
 
     private boolean isFinishedOrCanceled(String status) {
@@ -818,6 +1001,14 @@ public class CustomerDashboardActivity extends Activity {
                 .remove("active_chat_order_id")
                 .remove("active_chat_room_id")
                 .apply();
+    }
+
+    private String getStringPref(String key) {
+        try {
+            return getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString(key, "");
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void setLoading(boolean value) {
