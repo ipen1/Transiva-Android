@@ -29,6 +29,7 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -65,11 +66,9 @@ public class TransRideActivity extends Activity {
     private TextView deliveryText;
     private TextView estimateText;
     private TextView modeBadge;
-    private TextView centerMarker;
+    private ImageView centerMarker;
     private EditText googleLinkInput;
     private EditText noteInput;
-    private Button pickupModeBtn;
-    private Button deliveryModeBtn;
     private Button linkBtn;
     private Button gpsBtn;
     private Button orderBtn;
@@ -175,27 +174,24 @@ public class TransRideActivity extends Activity {
         head.addView(close, closeLp);
         close.setOnClickListener(v -> finish());
 
-        LinearLayout modeRow = new LinearLayout(this);
-        modeRow.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams modeLp = new LinearLayout.LayoutParams(-1, dp(44));
-        modeLp.setMargins(0, dp(10), 0, dp(10));
-        top.addView(modeRow, modeLp);
-
-        pickupModeBtn = smallButton("Jemput", "#0B7CFF", "#FFFFFF", "#0B7CFF");
-        deliveryModeBtn = smallButton("Tujuan", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        modeRow.addView(pickupModeBtn, new LinearLayout.LayoutParams(0, -1, 1));
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(0, -1, 1);
-        dlp.setMargins(dp(8), 0, 0, 0);
-        modeRow.addView(deliveryModeBtn, dlp);
-        pickupModeBtn.setOnClickListener(v -> setMode("pickup"));
-        deliveryModeBtn.setOnClickListener(v -> setMode("delivery"));
+        TextView hint = text("Klik kolom alamat, lalu geser peta", 11, "#64748B", false);
+        hint.setPadding(dp(2), dp(8), dp(2), dp(8));
+        top.addView(hint, new LinearLayout.LayoutParams(-1, -2));
 
         pickupText = compactLocationText("👤 Lokasi Jemput", "Geser peta atau tekan GPS");
+        pickupText.setClickable(true);
+        pickupText.setFocusable(true);
+        pickupText.setOnClickListener(v -> setMode("pickup"));
         top.addView(pickupText);
+
         deliveryText = compactLocationText("📍 Lokasi Tujuan", "Belum dipilih");
+        deliveryText.setClickable(true);
+        deliveryText.setFocusable(true);
+        deliveryText.setOnClickListener(v -> setMode("delivery"));
         LinearLayout.LayoutParams delLp = new LinearLayout.LayoutParams(-1, -2);
         delLp.setMargins(0, dp(6), 0, 0);
         top.addView(deliveryText, delLp);
+        updateModeUI();
 
         FrameLayout.LayoutParams topLp = new FrameLayout.LayoutParams(-1, -2);
         topLp.gravity = Gravity.TOP;
@@ -212,29 +208,47 @@ public class TransRideActivity extends Activity {
     }
 
     private void buildCenterMarker(FrameLayout page) {
-        centerMarker = text("📍", 42, "#EF4444", true);
-        centerMarker.setGravity(Gravity.CENTER);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(72), dp(72));
+        centerMarker = new ImageView(this);
+        centerMarker.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        setCenterMarkerIcon("pickup");
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(58), dp(58));
         lp.gravity = Gravity.CENTER;
-        lp.topMargin = -dp(36);
+        lp.topMargin = -dp(29);
         page.addView(centerMarker, lp);
+    }
+
+    private void setCenterMarkerIcon(String mode) {
+        if (centerMarker == null) return;
+        int res;
+        if ("delivery".equals(mode)) {
+            res = firstDrawableId("marker_delivery", "point_delivery", "ic_delivery_marker", "ic_transride_delivery");
+        } else {
+            res = firstDrawableId("marker_pickup", "point_pickup", "ic_pickup_marker", "ic_transride_pickup");
+        }
+        if (res != 0) {
+            centerMarker.setImageResource(res);
+            centerMarker.clearColorFilter();
+        } else {
+            centerMarker.setImageResource(android.R.drawable.ic_menu_mylocation);
+            centerMarker.setColorFilter(Color.parseColor("#0B7CFF"));
+        }
     }
 
     private void buildBottomPanel(FrameLayout page) {
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.VERTICAL);
-        bottom.setPadding(dp(14), dp(14), dp(14), dp(14));
+        bottom.setPadding(dp(12), dp(10), dp(12), dp(10));
         bottom.setBackground(roundStroke("#FAFCFF", "#D7E6F8", dp(24), 1));
         bottom.setElevation(dp(8));
 
         LinearLayout linkRow = new LinearLayout(this);
         linkRow.setOrientation(LinearLayout.HORIZONTAL);
         linkRow.setGravity(Gravity.CENTER_VERTICAL);
-        bottom.addView(linkRow, new LinearLayout.LayoutParams(-1, dp(48)));
+        bottom.addView(linkRow, new LinearLayout.LayoutParams(-1, dp(42)));
 
         googleLinkInput = new EditText(this);
         googleLinkInput.setSingleLine(true);
-        googleLinkInput.setTextSize(13);
+        googleLinkInput.setTextSize(12);
         googleLinkInput.setHint("Paste link Google Maps tujuan...");
         googleLinkInput.setHintTextColor(Color.parseColor("#94A3B8"));
         googleLinkInput.setTextColor(Color.parseColor("#0F172A"));
@@ -245,30 +259,30 @@ public class TransRideActivity extends Activity {
 
         linkBtn = smallButton("Pakai", "#0B7CFF", "#FFFFFF", "#0B7CFF");
         LinearLayout.LayoutParams linkLp = new LinearLayout.LayoutParams(dp(76), -1);
-        linkLp.setMargins(dp(8), 0, 0, 0);
+        linkLp.setMargins(dp(6), 0, 0, 0);
         linkRow.addView(linkBtn, linkLp);
         linkBtn.setOnClickListener(v -> useGoogleMapsLink());
 
         noteInput = new EditText(this);
         noteInput.setSingleLine(true);
-        noteInput.setTextSize(13);
+        noteInput.setTextSize(12);
         noteInput.setHint("Pesan untuk kurir...");
         noteInput.setHintTextColor(Color.parseColor("#94A3B8"));
         noteInput.setTextColor(Color.parseColor("#0F172A"));
         noteInput.setPadding(dp(14), 0, dp(14), 0);
         noteInput.setBackground(roundStroke("#F8FBFF", "#D8E4F2", dp(16), 1));
-        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, dp(48));
-        noteLp.setMargins(0, dp(10), 0, 0);
+        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, dp(42));
+        noteLp.setMargins(0, dp(7), 0, 0);
         bottom.addView(noteInput, noteLp);
 
-        estimateText = text("Geser peta untuk memilih jemput/tujuan", 12, "#64748B", false);
-        estimateText.setPadding(dp(10), dp(8), dp(10), dp(2));
+        estimateText = text("Klik kolom Jemput/Tujuan lalu geser peta", 11, "#64748B", false);
+        estimateText.setPadding(dp(8), dp(6), dp(8), 0);
         bottom.addView(estimateText, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams actLp = new LinearLayout.LayoutParams(-1, dp(52));
-        actLp.setMargins(0, dp(8), 0, 0);
+        LinearLayout.LayoutParams actLp = new LinearLayout.LayoutParams(-1, dp(46));
+        actLp.setMargins(0, dp(6), 0, 0);
         bottom.addView(actions, actLp);
 
         Button back = outlineButton("Kembali");
@@ -288,7 +302,7 @@ public class TransRideActivity extends Activity {
 
         FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(-1, -2);
         bottomLp.gravity = Gravity.BOTTOM;
-        bottomLp.setMargins(dp(14), 0, dp(14), dp(14));
+        bottomLp.setMargins(dp(14), 0, dp(14), dp(10));
         page.addView(bottom, bottomLp);
     }
 
@@ -334,20 +348,18 @@ public class TransRideActivity extends Activity {
     }
 
     private void updateModeUI() {
+        if (pickupText == null || deliveryText == null) return;
+
         if ("delivery".equals(pickingMode)) {
-            pickupModeBtn.setTextColor(Color.parseColor("#0B7CFF"));
-            pickupModeBtn.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(16), 1));
-            deliveryModeBtn.setTextColor(Color.WHITE);
-            deliveryModeBtn.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(16)));
             modeBadge.setText("Geser peta: Tujuan");
-            centerMarker.setText("📍");
+            pickupText.setBackground(roundStroke("#FFFFFF", "#E2E8F0", dp(16), 1));
+            deliveryText.setBackground(roundStroke("#EAF4FF", "#0B7CFF", dp(16), 2));
+            setCenterMarkerIcon("delivery");
         } else {
-            pickupModeBtn.setTextColor(Color.WHITE);
-            pickupModeBtn.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(16)));
-            deliveryModeBtn.setTextColor(Color.parseColor("#0B7CFF"));
-            deliveryModeBtn.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(16), 1));
             modeBadge.setText("Geser peta: Jemput");
-            centerMarker.setText("👤");
+            pickupText.setBackground(roundStroke("#EAF4FF", "#0B7CFF", dp(16), 2));
+            deliveryText.setBackground(roundStroke("#FFFFFF", "#E2E8F0", dp(16), 1));
+            setCenterMarkerIcon("pickup");
         }
     }
 
