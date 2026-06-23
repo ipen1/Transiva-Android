@@ -623,9 +623,11 @@ public class TransRideActivity extends Activity {
         setLoading(true, "Order...");
         new Thread(() -> {
             try {
+                String generatedOrderId = "ORD-" + System.currentTimeMillis();
+
                 JSONObject payload = new JSONObject();
                 payload.put("user_id", userId);
-                payload.put("id", "ORD-" + System.currentTimeMillis());
+                payload.put("id", generatedOrderId);
                 payload.put("order_type", "Transbike");
                 payload.put("driver_type", "bike");
                 payload.put("service_name", "Transbike");
@@ -661,8 +663,13 @@ public class TransRideActivity extends Activity {
                 mainHandler.post(() -> {
                     setLoading(false, null);
                     if (save.optBoolean("success", false)) {
-                        String orderId = firstNonEmpty(save.optString("order_id", ""), save.optString("id", ""));
-                        showSuccessOrder(orderId, rupiah(save.optDouble("price", 0)));
+                        String orderId = firstNonEmpty(
+                                save.optString("order_id", ""),
+                                save.optString("id", ""),
+                                generatedOrderId
+                        );
+                        saveActiveOrder(orderId);
+                        openSearchDriver(orderId);
                     } else {
                         showInfo("Order Gagal", firstNonEmpty(save.optString("message", ""), "Gagal membuat order."));
                     }
@@ -717,6 +724,15 @@ public class TransRideActivity extends Activity {
         return "Lokasi dipilih";
     }
 
+    private void saveActiveOrder(String orderId) {
+        try {
+            getSharedPreferences("transiva", MODE_PRIVATE)
+                    .edit()
+                    .putString("active_order_id", firstNonEmpty(orderId, ""))
+                    .apply();
+        } catch (Exception ignored) {}
+    }
+
     private void showSuccessOrder(String orderId, String price) {
         new AlertDialog.Builder(this)
                 .setTitle("Order Berhasil")
@@ -728,14 +744,14 @@ public class TransRideActivity extends Activity {
 
     private void openSearchDriver(String orderId) {
         try {
-            Intent intent = new Intent(this, MainActivity.class);
-            intent.putExtra("native_route", "?route=searchDriver");
-            intent.putExtra("url", BASE_URL + "?route=searchDriver");
+            Intent intent = new Intent(this, SearchDriverActivity.class);
+            intent.putExtra("order_id", orderId);
             intent.putExtra("active_order_id", orderId);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
             startActivity(intent);
             finish();
         } catch (Exception e) {
-            finish();
+            showInfo("Search Driver", "Halaman pencarian driver belum tersedia.");
         }
     }
 
