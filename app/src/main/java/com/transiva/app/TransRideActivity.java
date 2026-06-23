@@ -314,12 +314,20 @@ public class TransRideActivity extends Activity {
 
     private void updateMapPoint(String type, double lat, double lng, String label) {
         if (mapView == null || lat == 0 || lng == 0) return;
-        String safeLabel = label == null ? "" : label.replace("\", "\\").replace("'", "\'").replace("
-", " ");
+        String safeLabel = escapeJs(label);
         String js = "javascript:setPoint('" + type + "'," + lat + "," + lng + ",'" + safeLabel + "')";
         mainHandler.postDelayed(() -> {
             try { mapView.evaluateJavascript(js, null); } catch (Exception ignored) {}
         }, 350);
+    }
+
+    private String escapeJs(String value) {
+        if (value == null) return "";
+        return value
+                .replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\r", " ")
+                .replace("\n", " ");
     }
 
     private TextView locationRow(LinearLayout parent, String emoji, String title, String subtitle) {
