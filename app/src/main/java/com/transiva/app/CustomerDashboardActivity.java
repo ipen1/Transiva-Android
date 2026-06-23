@@ -1,16 +1,25 @@
 package com.transiva.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -34,6 +43,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
+import java.util.List;
 import java.util.Locale;
 
 public class CustomerDashboardActivity extends Activity {
@@ -41,8 +51,10 @@ public class CustomerDashboardActivity extends Activity {
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String PREF_NAME = "transiva";
     private static final int TIMEOUT_MS = 20000;
+    private static final int REQ_LOCATION = 1201;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     private LinearLayout root;
     private TextView usernameText;
     private TextView verifiedText;
@@ -55,21 +67,42 @@ public class CustomerDashboardActivity extends Activity {
     private String username = "User";
     private int userId = 0;
     private boolean loading = false;
+    private LocationManager locationManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         try {
             getWindow().setStatusBarColor(Color.parseColor("#071426"));
             getWindow().setNavigationBarColor(Color.parseColor("#071426"));
         } catch (Exception ignored) {}
+
         loadSession();
         buildLayout();
         loadBalance();
         loadOrderStatus();
+        loadActualLocation();
     }
 
     private void loadSession() {
+        try {
+            SessionManager session = new SessionManager(this);
+            if (session.isLoggedIn()) {
+                username = firstNonEmpty(
+                        session.getUsername(),
+                        session.getName(),
+                        "User"
+                );
+                try {
+                    userId = Integer.parseInt(firstNonEmpty(session.getId(), session.getUserId(), "0"));
+                } catch (Exception ignored) {
+                    userId = 0;
+                }
+                return;
+            }
+        } catch (Exception ignored) {}
+
         try {
             SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
             username = firstNonEmpty(
@@ -137,10 +170,12 @@ public class CustomerDashboardActivity extends Activity {
         vLp.setMargins(0, dp(4), 0, 0);
         left.addView(verifiedText, vLp);
 
-        locationText = text("📍 Lokasi Kamu", 12, "#0B3A78", true);
+        locationText = text("📍 Mengambil lokasi...", 12, "#0B3A78", true);
         locationText.setGravity(Gravity.CENTER);
+        locationText.setSingleLine(true);
         locationText.setPadding(dp(10), dp(8), dp(10), dp(8));
         locationText.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(20), 1));
+        locationText.setOnClickListener(v -> loadActualLocation());
         header.addView(locationText, new LinearLayout.LayoutParams(-2, -2));
     }
 
@@ -159,11 +194,8 @@ public class CustomerDashboardActivity extends Activity {
         root.addView(searchInput, lp);
         searchInput.setOnEditorActionListener((v, actionId, event) -> {
             String q = searchInput.getText().toString().trim();
-            if (q.length() == 0) {
-                showInfo("Pencarian", "Masukkan kata kunci terlebih dahulu.");
-            } else {
-                openWeb("?route=searchFood&keyword=" + Uri.encode(q));
-            }
+            if (q.length() == 0) showInfo("Pencarian", "Masukkan kata kunci terlebih dahulu.");
+            else openWeb("?route=searchFood&keyword=" + Uri.encode(q));
             return true;
         });
     }
@@ -186,8 +218,7 @@ public class CustomerDashboardActivity extends Activity {
         col.setOrientation(LinearLayout.VERTICAL);
         row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
 
-        TextView label = text("💳 Transiva Pay", 13, "#EAF4FF", true);
-        col.addView(label);
+        col.addView(text("💳 Transiva Pay", 13, "#EAF4FF", true));
 
         balanceText = text("Memuat saldo...", 24, "#FFFFFF", true);
         LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(-1, -2);
@@ -262,17 +293,17 @@ public class CustomerDashboardActivity extends Activity {
             else openWeb(route);
         });
 
+        ImageView icon = new ImageView(this);
         int iconRes = getDrawableId(iconName);
         if (iconRes != 0) {
-            ImageView icon = new ImageView(this);
             icon.setImageResource(iconRes);
-            icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-            item.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+            icon.setColorFilter(Color.parseColor("#0B7CFF"));
         } else {
-            TextView fallback = text("●", 28, "#0B7CFF", true);
-            fallback.setGravity(Gravity.CENTER);
-            item.addView(fallback, new LinearLayout.LayoutParams(dp(42), dp(42)));
+            icon.setImageResource(android.R.drawable.star_big_on);
+            icon.setColorFilter(Color.parseColor("#0B7CFF"));
         }
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        item.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
 
         TextView label = text(title, 12, "#0B3A78", true);
         label.setGravity(Gravity.CENTER);
@@ -295,8 +326,7 @@ public class CustomerDashboardActivity extends Activity {
         lp.setMargins(0, 0, 0, dp(14));
         root.addView(card, lp);
 
-        TextView title = text("Status Pesanan", 17, "#0B3A78", true);
-        card.addView(title);
+        card.addView(text("Status Pesanan", 17, "#0B3A78", true));
         statusText = text("Memuat status pesanan...", 13, "#64748B", false);
         statusText.setPadding(0, dp(8), 0, 0);
         card.addView(statusText);
@@ -314,6 +344,111 @@ public class CustomerDashboardActivity extends Activity {
         row.addView(profile, pLp);
         history.setOnClickListener(v -> openWeb("?route=history"));
         profile.setOnClickListener(v -> openWeb("?route=profile"));
+    }
+
+    private void loadActualLocation() {
+        if (locationText != null) locationText.setText("📍 Mengambil lokasi...");
+
+        if (checkSelfPermissionSafe(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && checkSelfPermissionSafe(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+            return;
+        }
+
+        try {
+            locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+            if (locationManager == null) {
+                locationText.setText("📍 Lokasi tidak tersedia");
+                return;
+            }
+
+            boolean gps = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+            boolean network = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+            if (!gps && !network) {
+                locationText.setText("📍 Aktifkan GPS");
+                locationText.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)));
+                return;
+            }
+
+            Location best = null;
+            try { best = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER); } catch (Exception ignored) {}
+            if (best == null) {
+                try { best = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER); } catch (Exception ignored) {}
+            }
+
+            if (best != null) {
+                updateLocationName(best);
+            }
+
+            String provider = gps ? LocationManager.GPS_PROVIDER : LocationManager.NETWORK_PROVIDER;
+            locationManager.requestSingleUpdate(provider, new LocationListener() {
+                @Override public void onLocationChanged(Location location) { updateLocationName(location); }
+                @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
+                @Override public void onProviderEnabled(String provider) {}
+                @Override public void onProviderDisabled(String provider) {}
+            }, Looper.getMainLooper());
+
+        } catch (Exception e) {
+            locationText.setText("📍 Lokasi gagal");
+        }
+    }
+
+    private int checkSelfPermissionSafe(String permission) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 23) return checkSelfPermission(permission);
+            return PackageManager.PERMISSION_GRANTED;
+        } catch (Exception e) {
+            return PackageManager.PERMISSION_DENIED;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_LOCATION) {
+            boolean ok = false;
+            if (grantResults != null) {
+                for (int g : grantResults) if (g == PackageManager.PERMISSION_GRANTED) ok = true;
+            }
+            if (ok) loadActualLocation();
+            else locationText.setText("📍 Izin lokasi ditolak");
+        }
+    }
+
+    private void updateLocationName(Location location) {
+        if (location == null) return;
+
+        try {
+            new SessionManager(this).saveLastLocation(
+                    String.valueOf(location.getLatitude()),
+                    String.valueOf(location.getLongitude())
+            );
+        } catch (Exception ignored) {}
+
+        new Thread(() -> {
+            String result = "📍 " + String.format(Locale.US, "%.5f, %.5f", location.getLatitude(), location.getLongitude());
+            try {
+                Geocoder geocoder = new Geocoder(CustomerDashboardActivity.this, new Locale("id", "ID"));
+                List<Address> list = geocoder.getFromLocation(location.getLatitude(), location.getLongitude(), 1);
+                if (list != null && list.size() > 0) {
+                    Address a = list.get(0);
+                    String subAdmin = firstNonEmpty(a.getSubAdminArea(), a.getLocality(), a.getAdminArea());
+                    String locality = firstNonEmpty(a.getLocality(), a.getSubLocality(), a.getFeatureName());
+                    String province = firstNonEmpty(a.getAdminArea(), "");
+
+                    String clean = firstNonEmpty(subAdmin, locality, province);
+                    if (clean.length() > 0) {
+                        if (province.length() > 0 && !clean.toLowerCase(Locale.US).contains(province.toLowerCase(Locale.US))) {
+                            clean = clean + ", " + province;
+                        }
+                        result = "📍 " + clean;
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            String finalResult = result;
+            mainHandler.post(() -> locationText.setText(finalResult));
+        }).start();
     }
 
     private void loadBalance() {
@@ -344,9 +479,7 @@ public class CustomerDashboardActivity extends Activity {
                     JSONArray orders = json.optJSONArray("orders");
                     if (json.optBoolean("success", false) && orders != null && orders.length() > 0) {
                         JSONObject o = orders.optJSONObject(0);
-                        if (o != null) {
-                            text = "Order #" + firstNonEmpty(o.optString("order_id"), o.optString("id"), "-") + "\nStatus: " + o.optString("status", "-");
-                        }
+                        if (o != null) text = "Order #" + firstNonEmpty(o.optString("order_id"), o.optString("id"), "-") + "\nStatus: " + o.optString("status", "-");
                     }
                 }
             } catch (Exception ignored) {}
@@ -467,7 +600,8 @@ public class CustomerDashboardActivity extends Activity {
     }
 
     private String firstNonEmpty(String... values) {
-        for (String v : values) if (v != null && v.trim().length() > 0) return v.trim();
+        if (values == null) return "";
+        for (String v : values) if (v != null && v.trim().length() > 0 && !v.trim().equalsIgnoreCase("null")) return v.trim();
         return "";
     }
 
