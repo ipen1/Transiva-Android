@@ -1,21 +1,28 @@
 package com.transiva.app;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -25,508 +32,450 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.util.Locale;
 
 public class CustomerDashboardActivity extends Activity {
 
-    private static final String TAG = "TRANSIVA_NATIVE_HOME";
-    private static final String BASE = "https://transiva.my.id/server/";
-    private static final String WEB_HOME = "https://transiva.my.id/?app=1";
+    private static final String BASE_URL = "https://transiva.my.id/";
+    private static final String PREF_NAME = "transiva";
+    private static final int TIMEOUT_MS = 20000;
 
-    private SessionManager session;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private LinearLayout root;
-    private TextView nameText;
-    private TextView locationText;
+    private TextView usernameText;
+    private TextView verifiedText;
     private TextView balanceText;
-    private TextView weatherText;
     private TextView statusText;
-    private LinearLayout orderBox;
+    private TextView locationText;
+    private EditText searchInput;
     private ProgressBar progressBar;
+
+    private String username = "User";
+    private int userId = 0;
+    private boolean loading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         try {
-            getWindow().setStatusBarColor(Color.parseColor("#06142E"));
-            getWindow().setNavigationBarColor(Color.parseColor("#06142E"));
+            getWindow().setStatusBarColor(Color.parseColor("#071426"));
+            getWindow().setNavigationBarColor(Color.parseColor("#071426"));
         } catch (Exception ignored) {}
-
-        session = new SessionManager(this);
-
-        if (!safeLoggedIn()) {
-            Intent intent = new Intent(this, LoginActivity.class);
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(intent);
-            finish();
-            return;
-        }
-
-        buildNativeHome();
-        loadDashboard();
+        loadSession();
+        buildLayout();
+        loadBalance();
+        loadOrderStatus();
     }
 
-    private boolean safeLoggedIn() {
+    private void loadSession() {
         try {
-            return session != null && session.isLoggedIn();
-        } catch (Exception e) {
-            return false;
-        }
+            SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+            username = firstNonEmpty(
+                    sp.getString("username", ""),
+                    sp.getString("player_username", ""),
+                    sp.getString("user_username", ""),
+                    "User"
+            );
+            userId = sp.getInt("id", sp.getInt("user_id", 0));
+        } catch (Exception ignored) {}
     }
 
-    private void buildNativeHome() {
+    private void buildLayout() {
+        FrameLayout page = new FrameLayout(this);
+        page.setBackgroundColor(Color.parseColor("#F3F8FF"));
+
         ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(Color.parseColor("#F4F7FB"));
+        scroll.setFillViewport(false);
+        page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(22), dp(18), dp(28));
+        root.setPadding(dp(16), dp(22), dp(16), dp(28));
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
-        setContentView(scroll);
+        buildHeader();
+        buildSearch();
+        buildPayCard();
+        buildWeatherCard();
+        buildMenuGrid();
+        buildStatusCard();
+        buildBottomActions();
 
-        root.addView(headerCard());
-        root.addView(searchBox());
-        root.addView(payCard());
-        root.addView(weatherCard());
-        root.addView(serviceGrid());
-        root.addView(orderStatusCard());
-        root.addView(bottomActions());
+        progressBar = new ProgressBar(this);
+        progressBar.setVisibility(View.GONE);
+        FrameLayout.LayoutParams pLp = new FrameLayout.LayoutParams(dp(50), dp(50));
+        pLp.gravity = Gravity.CENTER;
+        page.addView(progressBar, pLp);
+
+        setContentView(page);
     }
 
-    private View headerCard() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(18), dp(16), dp(18), dp(16));
-        card.setBackground(roundGradient("#06142E", "#0F766E", dp(22)));
-        card.setLayoutParams(margin(-1, -2, 0, 0, 0, dp(14)));
+    private void buildHeader() {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout left = new LinearLayout(this);
         left.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(0, -2, 1);
-        card.addView(left, leftLp);
+        header.addView(left, leftLp);
 
-        TextView welcome = text("Selamat Datang 👋", 14, "#D1FAE5", false);
+        TextView welcome = text("Selamat Datang 👋", 13, "#64748B", false);
         left.addView(welcome);
 
-        nameText = text("Memuat akun...", 24, "#FFFFFF", true);
-        nameText.setPadding(0, dp(4), 0, dp(6));
-        left.addView(nameText);
+        usernameText = text(username, 23, "#0B3A78", true);
+        usernameText.setSingleLine(true);
+        left.addView(usernameText);
 
-        locationText = pill("📍 Parigi / lokasi aktif");
-        left.addView(locationText);
+        verifiedText = text("Verified", 11, "#0B7CFF", true);
+        verifiedText.setPadding(dp(10), dp(4), dp(10), dp(4));
+        verifiedText.setBackground(roundStroke("#EAF4FF", "#B9DBFF", dp(20), 1));
+        LinearLayout.LayoutParams vLp = new LinearLayout.LayoutParams(-2, -2);
+        vLp.setMargins(0, dp(4), 0, 0);
+        left.addView(verifiedText, vLp);
 
-        ImageView logo = new ImageView(this);
-        logo.setImageResource(getDrawableId("transiva_logo"));
-        logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        card.addView(logo, new LinearLayout.LayoutParams(dp(78), dp(78)));
-
-        return card;
+        locationText = text("📍 Lokasi Kamu", 12, "#0B3A78", true);
+        locationText.setGravity(Gravity.CENTER);
+        locationText.setPadding(dp(10), dp(8), dp(10), dp(8));
+        locationText.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(20), 1));
+        header.addView(locationText, new LinearLayout.LayoutParams(-2, -2));
     }
 
-    private View searchBox() {
-        TextView box = text("🔎 Cari makanan, toko, kurir, wisata...", 15, "#6B7280", false);
-        box.setPadding(dp(18), dp(15), dp(18), dp(15));
-        box.setBackground(round("#FFFFFF", dp(18)));
-        box.setLayoutParams(margin(-1, -2, 0, 0, 0, dp(14)));
-        box.setOnClickListener(v -> openWeb(WEB_HOME + "#search"));
-        return box;
+    private void buildSearch() {
+        searchInput = new EditText(this);
+        searchInput.setSingleLine(true);
+        searchInput.setTextSize(14);
+        searchInput.setTextColor(Color.parseColor("#0F172A"));
+        searchInput.setHintTextColor(Color.parseColor("#94A3B8"));
+        searchInput.setHint("Cari makanan, toko, kurir...");
+        searchInput.setPadding(dp(16), 0, dp(16), 0);
+        searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        searchInput.setBackground(roundStroke("#FFFFFF", "#D8E4F2", dp(22), 1));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(48));
+        lp.setMargins(0, dp(16), 0, dp(14));
+        root.addView(searchInput, lp);
+        searchInput.setOnEditorActionListener((v, actionId, event) -> {
+            String q = searchInput.getText().toString().trim();
+            if (q.length() == 0) {
+                showInfo("Pencarian", "Masukkan kata kunci terlebih dahulu.");
+            } else {
+                openWeb("?route=searchFood&keyword=" + Uri.encode(q));
+            }
+            return true;
+        });
     }
 
-    private View payCard() {
+    private void buildPayCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(18), dp(18), dp(18), dp(16));
-        card.setBackground(roundGradient("#111827", "#2563EB", dp(22)));
-        card.setLayoutParams(margin(-1, -2, 0, 0, 0, dp(14)));
+        card.setPadding(dp(18), dp(16), dp(18), dp(16));
+        card.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(24)));
+        card.setElevation(dp(4));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
+        cardLp.setMargins(0, 0, 0, dp(14));
+        root.addView(card, cardLp);
 
-        LinearLayout top = new LinearLayout(this);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        card.addView(top);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout textWrap = new LinearLayout(this);
-        textWrap.setOrientation(LinearLayout.VERTICAL);
-        top.addView(textWrap, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
 
-        textWrap.addView(text("💳 Transiva Pay", 14, "#DBEAFE", true));
-        balanceText = text("Memuat saldo...", 25, "#FFFFFF", true);
-        balanceText.setPadding(0, dp(5), 0, 0);
-        textWrap.addView(balanceText);
+        TextView label = text("💳 Transiva Pay", 13, "#EAF4FF", true);
+        col.addView(label);
 
-        TextView badge = text("T", 26, "#FFFFFF", true);
-        badge.setGravity(Gravity.CENTER);
-        badge.setBackground(roundStroke("#2563EB", "#93C5FD", dp(18), 2));
-        top.addView(badge, new LinearLayout.LayoutParams(dp(58), dp(58)));
+        balanceText = text("Memuat saldo...", 24, "#FFFFFF", true);
+        LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(-1, -2);
+        bLp.setMargins(0, dp(4), 0, 0);
+        col.addView(balanceText, bLp);
 
-        TextView sub = text("Bayar layanan Transiva lebih praktis dengan saldo aplikasi.", 13, "#E0F2FE", false);
-        sub.setPadding(0, dp(12), 0, dp(10));
-        card.addView(sub);
+        TextView logo = text("T", 22, "#0B7CFF", true);
+        logo.setGravity(Gravity.CENTER);
+        logo.setBackground(round("#FFFFFF", dp(22)));
+        row.addView(logo, new LinearLayout.LayoutParams(dp(44), dp(44)));
+
+        TextView sub = text("Bayar layanan Transiva lebih praktis dengan saldo aplikasi.", 12, "#EAF4FF", false);
+        LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(-1, -2);
+        sLp.setMargins(0, dp(8), 0, dp(12));
+        card.addView(sub, sLp);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        card.addView(actions);
+        card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
 
-        Button topup = smallButton("+ Isi Saldo");
-        topup.setOnClickListener(v -> openWeb(WEB_HOME + "#deposit"));
-        actions.addView(topup, new LinearLayout.LayoutParams(0, -2, 1));
-
-        Button refresh = smallButton("Refresh");
-        refresh.setOnClickListener(v -> loadDashboard());
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0, -2, 1);
-        rlp.setMargins(dp(10), 0, 0, 0);
-        actions.addView(refresh, rlp);
-
-        return card;
+        Button topup = smallButton("+ Isi Saldo", "#FFFFFF", "#0B7CFF");
+        Button refresh = smallButton("Refresh", "#EAF4FF", "#FFFFFF");
+        actions.addView(topup, new LinearLayout.LayoutParams(0, dp(42), 1));
+        LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(0, dp(42), 1);
+        rLp.setMargins(dp(10), 0, 0, 0);
+        actions.addView(refresh, rLp);
+        topup.setOnClickListener(v -> openWeb("?route=deposit"));
+        refresh.setOnClickListener(v -> loadBalance());
     }
 
-    private View weatherCard() {
-        weatherText = text("🌤️ Rekomendasi cuaca: minuman segar & layanan cepat di dekatmu", 15, "#92400E", true);
-        weatherText.setPadding(dp(18), dp(16), dp(18), dp(16));
-        weatherText.setBackground(round("#FEF3C7", dp(18)));
-        weatherText.setLayoutParams(margin(-1, -2, 0, 0, 0, dp(14)));
-        return weatherText;
+    private void buildWeatherCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        card.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(22), 1));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(14));
+        root.addView(card, lp);
+
+        TextView title = text("🛒 Transiva Lokal", 16, "#0B3A78", true);
+        TextView sub = text("Kurir • Makanan • Titip Belanja siap antar kebutuhanmu", 12, "#64748B", false);
+        sub.setPadding(0, dp(4), 0, 0);
+        card.addView(title);
+        card.addView(sub);
     }
 
-    private View serviceGrid() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setLayoutParams(margin(-1, -2, 0, 0, 0, dp(14)));
+    private void buildMenuGrid() {
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(3);
+        LinearLayout.LayoutParams gLp = new LinearLayout.LayoutParams(-1, -2);
+        gLp.setMargins(0, 0, 0, dp(14));
+        root.addView(grid, gLp);
 
-        LinearLayout row1 = row();
-        row1.addView(serviceCard("TransRide", "Motor", "ic_transride", WEB_HOME + "#kurir"), cellLp(0, 0, dp(8), dp(8)));
-        row1.addView(serviceCard("TransCar", "Mobil", "ic_transcar", WEB_HOME + "#mobil"), cellLp(dp(8), 0, 0, dp(8)));
-        box.addView(row1);
-
-        LinearLayout row2 = row();
-        row2.addView(serviceCard("TransFood", "Makanan", "ic_transfood", WEB_HOME + "#food"), cellLp(0, dp(8), dp(8), dp(8)));
-        row2.addView(serviceCard("TransTour", "Wisata", "ic_transtour", WEB_HOME + "#wisata"), cellLp(dp(8), dp(8), 0, dp(8)));
-        box.addView(row2);
-
-        LinearLayout row3 = row();
-        row3.addView(serviceCard("TransLaundry", "Cuci pakaian", "ic_translaundry", WEB_HOME + "#laundry"), cellLp(0, dp(8), dp(8), 0));
-        row3.addView(serviceCard("TransPickup", "Kurir barang", "ic_transpickup", WEB_HOME + "#pickup"), cellLp(dp(8), dp(8), 0, 0));
-        box.addView(row3);
-
-        return box;
+        addMenu(grid, "TransRide", "ic_transride", "?route=kurir");
+        addMenu(grid, "TransCar", "ic_transcar", "?route=mobil");
+        addMenu(grid, "TransFood", "ic_transfood", "?route=food");
+        addMenu(grid, "TransTour", "ic_transtour", "?route=wisata");
+        addMenu(grid, "Laundry", "ic_translaundry", "?route=laundry");
+        addMenu(grid, "Pickup", "ic_transpickup", "soon");
     }
 
-    private LinearLayout row() {
+    private void addMenu(GridLayout grid, String title, String iconName, String route) {
+        LinearLayout item = new LinearLayout(this);
+        item.setOrientation(LinearLayout.VERTICAL);
+        item.setGravity(Gravity.CENTER);
+        item.setPadding(dp(8), dp(12), dp(8), dp(10));
+        item.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(22), 1));
+        item.setClickable(true);
+        item.setFocusable(true);
+        item.setOnClickListener(v -> {
+            if ("soon".equals(route)) showInfo("Segera Hadir", "TransPickup sedang dikembangkan.");
+            else openWeb(route);
+        });
+
+        int iconRes = getDrawableId(iconName);
+        if (iconRes != 0) {
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(iconRes);
+            icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+            item.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        } else {
+            TextView fallback = text("●", 28, "#0B7CFF", true);
+            fallback.setGravity(Gravity.CENTER);
+            item.addView(fallback, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        }
+
+        TextView label = text(title, 12, "#0B3A78", true);
+        label.setGravity(Gravity.CENTER);
+        label.setPadding(0, dp(8), 0, 0);
+        item.addView(label, new LinearLayout.LayoutParams(-1, -2));
+
+        GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+        lp.width = (getResources().getDisplayMetrics().widthPixels - dp(50)) / 3;
+        lp.height = dp(104);
+        lp.setMargins(dp(4), dp(4), dp(4), dp(8));
+        grid.addView(item, lp);
+    }
+
+    private void buildStatusCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(16), dp(16), dp(16), dp(16));
+        card.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(22), 1));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(14));
+        root.addView(card, lp);
+
+        TextView title = text("Status Pesanan", 17, "#0B3A78", true);
+        card.addView(title);
+        statusText = text("Memuat status pesanan...", 13, "#64748B", false);
+        statusText.setPadding(0, dp(8), 0, 0);
+        card.addView(statusText);
+    }
+
+    private void buildBottomActions() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        return row;
+        root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        Button history = primaryButton("Riwayat");
+        Button profile = outlineButton("Profil");
+        row.addView(history, new LinearLayout.LayoutParams(0, dp(50), 1));
+        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(0, dp(50), 1);
+        pLp.setMargins(dp(10), 0, 0, 0);
+        row.addView(profile, pLp);
+        history.setOnClickListener(v -> openWeb("?route=history"));
+        profile.setOnClickListener(v -> openWeb("?route=profile"));
     }
 
-    private LinearLayout.LayoutParams cellLp(int l, int t, int r, int b) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(118), 1);
-        lp.setMargins(l, t, r, b);
-        return lp;
-    }
-
-    private View serviceCard(String title, String sub, String iconName, String url) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setGravity(Gravity.CENTER);
-        card.setPadding(dp(12), dp(12), dp(12), dp(12));
-        card.setBackground(round("#FFFFFF", dp(20)));
-        card.setOnClickListener(v -> openWeb(url));
-
-        ImageView icon = new ImageView(this);
-        icon.setImageResource(getDrawableId(iconName));
-        icon.setColorFilter(Color.parseColor("#0F766E"));
-        card.addView(icon, new LinearLayout.LayoutParams(dp(34), dp(34)));
-
-        TextView titleText = text(title, 16, "#111827", true);
-        titleText.setGravity(Gravity.CENTER);
-        titleText.setPadding(0, dp(8), 0, dp(2));
-        card.addView(titleText);
-
-        TextView subText = text(sub, 12, "#6B7280", false);
-        subText.setGravity(Gravity.CENTER);
-        card.addView(subText);
-
-        return card;
-    }
-
-    private View orderStatusCard() {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(18), dp(18), dp(18), dp(18));
-        card.setBackground(round("#FFFFFF", dp(20)));
-        card.setLayoutParams(margin(-1, -2, 0, 0, 0, dp(14)));
-
-        LinearLayout top = new LinearLayout(this);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        card.addView(top);
-
-        TextView title = text("Status Pesanan", 19, "#111827", true);
-        top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-
-        progressBar = new ProgressBar(this);
-        progressBar.setVisibility(View.GONE);
-        top.addView(progressBar, new LinearLayout.LayoutParams(dp(32), dp(32)));
-
-        statusText = text("Memuat status...", 14, "#6B7280", false);
-        statusText.setPadding(0, dp(8), 0, dp(8));
-        card.addView(statusText);
-
-        orderBox = new LinearLayout(this);
-        orderBox.setOrientation(LinearLayout.VERTICAL);
-        card.addView(orderBox);
-
-        return card;
-    }
-
-    private View bottomActions() {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.HORIZONTAL);
-
-        Button history = button("Riwayat");
-        history.setOnClickListener(v -> openWeb(WEB_HOME + "#history"));
-        box.addView(history, new LinearLayout.LayoutParams(0, -2, 1));
-
-        Button profile = button("Profil");
-        profile.setOnClickListener(v -> openWeb(WEB_HOME + "#profile"));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
-        lp.setMargins(dp(10), 0, 0, 0);
-        box.addView(profile, lp);
-
-        return box;
-    }
-
-    private void loadDashboard() {
-        if (!safeLoggedIn()) return;
-
-        String username = session.getUsername();
-        String userId = session.getUserId();
-
-        if (username == null || username.trim().isEmpty()) username = "User";
-
-        nameText.setText(username);
-        statusText.setText("Memuat pesanan aktif...");
+    private void loadBalance() {
+        if (loading) return;
+        loading = true;
         progressBar.setVisibility(View.VISIBLE);
-        orderBox.removeAllViews();
-
-        final String u = username;
-        final String uid = userId;
-
         new Thread(() -> {
-            String balanceJson = "";
-            String ordersJson = "";
-            Exception error = null;
-
+            String result = rupiah(0);
             try {
-                balanceJson = httpGet(BASE + "getBalance.php?username=" + enc(u));
-                ordersJson = httpGet(BASE + "get_user_orders.php?user_id=" + enc(uid));
-            } catch (Exception e) {
-                error = e;
-            }
-
-            final String b = balanceJson;
-            final String o = ordersJson;
-            final Exception err = error;
-
-            runOnUiThread(() -> {
+                JSONObject json = getJson(BASE_URL + "server/getBalance.php?username=" + Uri.encode(username));
+                if (json.optBoolean("success", false)) result = rupiah(json.optDouble("balance", 0));
+            } catch (Exception ignored) {}
+            String finalResult = result;
+            mainHandler.post(() -> {
+                loading = false;
                 progressBar.setVisibility(View.GONE);
-                if (err != null) {
-                    statusText.setText("Dashboard belum sinkron: " + clean(err.getMessage()));
-                    balanceText.setText("Saldo tidak terbaca");
-                    orderBox.addView(orderMiniCard("Koneksi server bermasalah", "Coba refresh atau buka ulang aplikasi."));
-                    return;
-                }
-                showBalance(b);
-                showOrders(o);
+                balanceText.setText(finalResult);
             });
         }).start();
     }
 
-    private void showBalance(String json) {
-        try {
-            JSONObject obj = new JSONObject(json);
-            int balance = obj.optInt("balance", 0);
-            balanceText.setText(rupiah(balance));
-        } catch (Exception e) {
-            balanceText.setText("Saldo tidak terbaca");
-        }
+    private void loadOrderStatus() {
+        new Thread(() -> {
+            String text = "Belum ada pesanan aktif";
+            try {
+                if (userId > 0) {
+                    JSONObject json = getJson(BASE_URL + "server/get_user_orders.php?user_id=" + userId);
+                    JSONArray orders = json.optJSONArray("orders");
+                    if (json.optBoolean("success", false) && orders != null && orders.length() > 0) {
+                        JSONObject o = orders.optJSONObject(0);
+                        if (o != null) {
+                            text = "Order #" + firstNonEmpty(o.optString("order_id"), o.optString("id"), "-") + "\nStatus: " + o.optString("status", "-");
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+            String finalText = text;
+            mainHandler.post(() -> statusText.setText(finalText));
+        }).start();
     }
 
-    private void showOrders(String json) {
-        orderBox.removeAllViews();
-        try {
-            JSONObject obj = new JSONObject(json);
-            JSONArray arr = obj.optJSONArray("orders");
-            if (arr == null || arr.length() == 0) {
-                statusText.setText("Belum ada pesanan aktif.");
-                orderBox.addView(orderMiniCard("Aman", "Pesanan aktif akan tampil di sini."));
-                return;
-            }
-
-            statusText.setText("Ada " + arr.length() + " pesanan/riwayat terbaru.");
-            int max = Math.min(arr.length(), 4);
-            for (int i = 0; i < max; i++) {
-                JSONObject item = arr.getJSONObject(i);
-                String title = "Order #" + item.optString("id", "-") + " • " + item.optString("status", "-");
-                String sub = "Layanan: " + item.optString("order_type", "kurir")
-                        + "\nDriver: " + item.optString("driver", "-")
-                        + "\nHarga: " + rupiah(item.optInt("price", 0));
-                View card = orderMiniCard(title, sub);
-                card.setOnClickListener(v -> openWeb(WEB_HOME + "#history"));
-                orderBox.addView(card);
-            }
-        } catch (Exception e) {
-            statusText.setText("Status pesanan tidak terbaca.");
-            orderBox.addView(orderMiniCard("Data belum siap", "Format response server perlu disamakan JSON orders."));
-        }
-    }
-
-    private View orderMiniCard(String title, String sub) {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        card.setBackground(round("#F9FAFB", dp(16)));
-        card.setLayoutParams(margin(-1, -2, 0, dp(8), 0, 0));
-
-        card.addView(text(title, 15, "#111827", true));
-        TextView s = text(sub, 13, "#4B5563", false);
-        s.setPadding(0, dp(4), 0, 0);
-        card.addView(s);
-        return card;
-    }
-
-    private void openWeb(String url) {
-        try {
-            Intent intent = new Intent(this, MainActivity.class);
-            intent.putExtra("url", url == null ? WEB_HOME : url);
-            startActivity(intent);
-        } catch (Exception e) {
-            Toast.makeText(this, "Fitur belum tersedia", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private String httpGet(String link) throws Exception {
+    private JSONObject getJson(String urlText) throws Exception {
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(link).openConnection();
-            conn.setConnectTimeout(12000);
-            conn.setReadTimeout(15000);
+            URL url = new URL(urlText);
+            conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
             conn.setRequestProperty("Accept", "application/json");
-            conn.setRequestProperty("User-Agent", "TransivaAndroidNativeHome/1.0");
-
             int code = conn.getResponseCode();
-            InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
-            String result = read(stream).trim();
-            if (code < 200 || code >= 300) {
-                throw new Exception("HTTP " + code + " " + result);
-            }
-            return result;
+            InputStream is = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
+            String body = readStream(is).trim();
+            if (body.length() == 0) return new JSONObject();
+            return new JSONObject(body);
         } finally {
             if (conn != null) conn.disconnect();
         }
     }
 
-    private String read(InputStream stream) throws Exception {
+    private String readStream(InputStream stream) throws Exception {
         if (stream == null) return "";
-        BufferedReader br = new BufferedReader(new InputStreamReader(stream, "UTF-8"));
+        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
         StringBuilder sb = new StringBuilder();
         String line;
-        while ((line = br.readLine()) != null) sb.append(line);
-        br.close();
+        while ((line = reader.readLine()) != null) sb.append(line);
+        reader.close();
         return sb.toString();
     }
 
-    private String enc(String s) {
+    private void openWeb(String route) {
         try {
-            return URLEncoder.encode(s == null ? "" : s, "UTF-8");
+            Intent intent = new Intent(this, MainActivity.class);
+            intent.putExtra("native_route", route);
+            intent.putExtra("url", BASE_URL + route);
+            startActivity(intent);
         } catch (Exception e) {
-            return "";
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(BASE_URL + route)));
         }
     }
 
-    private String rupiah(int value) {
-        return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format(value);
+    private void showInfo(String title, String message) {
+        new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show();
     }
 
-    private String clean(String message) {
-        if (message == null || message.trim().isEmpty()) return "koneksi bermasalah";
-        message = message.trim();
-        if (message.length() > 90) return message.substring(0, 90) + "...";
-        return message;
-    }
-
-    private TextView text(String value, int sp, String color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(value);
-        t.setTextSize(sp);
-        t.setTextColor(Color.parseColor(color));
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return t;
-    }
-
-    private TextView pill(String value) {
-        TextView t = text(value, 12, "#FFFFFF", true);
-        t.setPadding(dp(10), dp(6), dp(10), dp(6));
-        t.setBackground(roundStroke("#1E40AF", "#60A5FA", dp(99), 1));
-        return t;
-    }
-
-    private Button button(String value) {
+    private Button primaryButton(String value) {
         Button b = new Button(this);
         b.setText(value);
         b.setAllCaps(false);
-        b.setTextSize(15);
-        b.setTextColor(Color.parseColor("#FFFFFF"));
-        b.setBackground(round("#0F766E", dp(16)));
-        b.setPadding(dp(10), dp(12), dp(10), dp(12));
+        b.setTextSize(14);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setTextColor(Color.WHITE);
+        b.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(18)));
         return b;
     }
 
-    private Button smallButton(String value) {
-        Button b = button(value);
-        b.setTextSize(14);
-        b.setBackground(roundStroke("#1D4ED8", "#93C5FD", dp(14), 1));
+    private Button outlineButton(String value) {
+        Button b = primaryButton(value);
+        b.setTextColor(Color.parseColor("#0B7CFF"));
+        b.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(18), 1));
         return b;
+    }
+
+    private Button smallButton(String value, String bg, String fg) {
+        Button b = new Button(this);
+        b.setText(value);
+        b.setAllCaps(false);
+        b.setTextSize(12);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setTextColor(Color.parseColor(fg));
+        b.setBackground(roundStroke(bg, "#FFFFFF", dp(16), 1));
+        return b;
+    }
+
+    private TextView text(String value, int sp, String color, boolean bold) {
+        TextView tv = new TextView(this);
+        tv.setText(value);
+        tv.setTextSize(sp);
+        tv.setTextColor(Color.parseColor(color));
+        if (bold) tv.setTypeface(Typeface.DEFAULT_BOLD);
+        return tv;
     }
 
     private GradientDrawable round(String color, int radius) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(Color.parseColor(color));
-        g.setCornerRadius(radius);
-        return g;
+        GradientDrawable gd = new GradientDrawable();
+        gd.setColor(Color.parseColor(color));
+        gd.setCornerRadius(radius);
+        return gd;
     }
 
-    private GradientDrawable roundStroke(String color, String stroke, int radius, int sw) {
-        GradientDrawable g = round(color, radius);
-        g.setStroke(dp(sw), Color.parseColor(stroke));
-        return g;
+    private GradientDrawable roundStroke(String color, String stroke, int radius, int width) {
+        GradientDrawable gd = round(color, radius);
+        gd.setStroke(dp(width), Color.parseColor(stroke));
+        return gd;
     }
 
     private GradientDrawable roundGradient(String start, String end, int radius) {
-        GradientDrawable g = new GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                new int[]{Color.parseColor(start), Color.parseColor(end)}
-        );
-        g.setCornerRadius(radius);
-        return g;
+        GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.parseColor(start), Color.parseColor(end)});
+        gd.setCornerRadius(radius);
+        return gd;
     }
 
-    private LinearLayout.LayoutParams margin(int w, int h, int l, int t, int r, int b) {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(w, h);
-        lp.setMargins(l, t, r, b);
-        return lp;
+    private String rupiah(double value) {
+        try {
+            NumberFormat nf = NumberFormat.getCurrencyInstance(new Locale("id", "ID"));
+            nf.setMaximumFractionDigits(0);
+            return nf.format(value).replace("Rp", "Rp ");
+        } catch (Exception e) {
+            return "Rp " + Math.round(value);
+        }
+    }
+
+    private String firstNonEmpty(String... values) {
+        for (String v : values) if (v != null && v.trim().length() > 0) return v.trim();
+        return "";
     }
 
     private int getDrawableId(String name) {
-        int id = getResources().getIdentifier(name, "drawable", getPackageName());
-        return id == 0 ? android.R.drawable.sym_def_app_icon : id;
+        try { return getResources().getIdentifier(name, "drawable", getPackageName()); } catch (Exception e) { return 0; }
     }
 
-    private int dp(int value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
 }
