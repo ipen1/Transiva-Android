@@ -837,7 +837,7 @@ public class CustomerDashboardActivity extends Activity {
             Button chat = outlineButton("💬 Chat Driver");
             LinearLayout.LayoutParams chatLp = new LinearLayout.LayoutParams(-1, dp(48));
             chatLp.setMargins(0, dp(8), 0, 0);
-            chat.setOnClickListener(v -> openNativeChat(orderId));
+            chat.setOnClickListener(v -> openNativeChat(order));
             statusActionsBox.addView(chat, chatLp);
         }
     }
@@ -926,41 +926,67 @@ public class CustomerDashboardActivity extends Activity {
         startActivity(intent);
     }
 
-    private void openNativeChat(String orderId) {
-        if (orderId == null || orderId.trim().length() == 0) {
+    private void openNativeChat(JSONObject order) {
+        if (order == null) {
+            showInfo("Gagal Membuka Chat", "Data order tidak ditemukan.");
+            return;
+        }
+
+        String orderId = firstNonEmpty(
+                order.optString("order_id"),
+                order.optString("id"),
+                getStringPref("active_order_id")
+        );
+
+        if (orderId.trim().length() == 0) {
             showInfo("Gagal Membuka Chat", "Order ID chat tidak ditemukan.");
             return;
         }
+
+        String roomId = firstNonEmpty(
+                order.optString("room_id"),
+                getStringPref("active_chat_room_id"),
+                "ROOM-" + orderId
+        );
+
+        roomId = normalizeRoomId(roomId);
+
+        String driverName = firstNonEmpty(
+                order.optString("driver_name"),
+                order.optString("driver"),
+                order.optString("driver_username"),
+                "Driver"
+        );
+
+        String status = firstNonEmpty(
+                order.optString("status"),
+                getStringPref("order_status")
+        );
 
         getSharedPreferences(PREF_NAME, MODE_PRIVATE)
                 .edit()
                 .putString("active_order_id", orderId)
                 .putString("active_chat_order_id", orderId)
-                .putString("active_chat_room_id", "ROOM-" + orderId)
+                .putString("active_chat_room_id", roomId)
+                .putString("active_chat_driver_name", driverName)
+                .putString("active_chat_order_status", status)
                 .apply();
 
-        Intent intent = null;
+        Intent intent = new Intent(this, CustomerChatActivity.class);
+        intent.putExtra("order_id", orderId);
+        intent.putExtra("room_id", roomId);
+        intent.putExtra("driver_name", driverName);
+        intent.putExtra("order_status", status);
+        startActivity(intent);
+    }
 
-        try {
-            Class<?> chatClass = Class.forName(getPackageName() + ".ChatNativeActivity");
-            intent = new Intent(this, chatClass);
-        } catch (Exception ignored) {}
-
-        if (intent == null) {
-            try {
-                Class<?> chatClass = Class.forName(getPackageName() + ".CustomerChatActivity");
-                intent = new Intent(this, chatClass);
-            } catch (Exception ignored) {}
+    private String normalizeRoomId(String value) {
+        String clean = firstNonEmpty(value, "").trim().replace("_", "-").toUpperCase(Locale.US);
+        clean = clean.replaceAll("[^A-Z0-9\\-]", "");
+        if (clean.length() > 0 && !clean.startsWith("ROOM-")) {
+            clean = "ROOM-" + clean;
         }
-
-        if (intent != null) {
-            intent.putExtra("order_id", orderId);
-            intent.putExtra("room_id", "ROOM-" + orderId);
-            startActivity(intent);
-            return;
-        }
-
-        openWeb("?route=customerChat&order_id=" + Uri.encode(orderId));
+        return clean;
     }
 
     private String detectDriverType(JSONObject order) {
