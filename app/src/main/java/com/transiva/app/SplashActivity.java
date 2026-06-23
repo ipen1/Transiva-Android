@@ -60,8 +60,8 @@ public class SplashActivity extends Activity {
     }
 
     private Intent dashboardIntent(String role) {
-        if ("costumer".equals(role)) {
-            return new Intent(this, CostumerDashboardActivity.class);
+        if ("customer".equals(role)) {
+            return new Intent(this, CustomerDashboardActivity.class);
         }
         if ("driver".equals(role)) {
             return new Intent(this, DriverDashboardActivity.class);
