@@ -293,17 +293,9 @@ public class CustomerDashboardActivity extends Activity {
             else openWeb(route);
         });
 
-        ImageView icon = new ImageView(this);
-        int iconRes = getDrawableId(iconName);
-        if (iconRes != 0) {
-            icon.setImageResource(iconRes);
-            icon.setColorFilter(Color.parseColor("#0B7CFF"));
-        } else {
-            icon.setImageResource(android.R.drawable.star_big_on);
-            icon.setColorFilter(Color.parseColor("#0B7CFF"));
-        }
-        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        item.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        TextView icon = text(menuEmoji(title), 30, "#0B7CFF", true);
+        icon.setGravity(Gravity.CENTER);
+        item.addView(icon, new LinearLayout.LayoutParams(dp(46), dp(46)));
 
         TextView label = text(title, 12, "#0B3A78", true);
         label.setGravity(Gravity.CENTER);
@@ -315,6 +307,16 @@ public class CustomerDashboardActivity extends Activity {
         lp.height = dp(104);
         lp.setMargins(dp(4), dp(4), dp(4), dp(8));
         grid.addView(item, lp);
+    }
+
+    private String menuEmoji(String title) {
+        if ("TransRide".equalsIgnoreCase(title)) return "🏍️";
+        if ("TransCar".equalsIgnoreCase(title)) return "🚗";
+        if ("TransFood".equalsIgnoreCase(title)) return "🍔";
+        if ("TransTour".equalsIgnoreCase(title)) return "🏝️";
+        if ("Laundry".equalsIgnoreCase(title)) return "🧺";
+        if ("Pickup".equalsIgnoreCase(title)) return "📦";
+        return "●";
     }
 
     private void buildStatusCard() {
@@ -426,21 +428,26 @@ public class CustomerDashboardActivity extends Activity {
         } catch (Exception ignored) {}
 
         new Thread(() -> {
-            String result = "📍 " + String.format(Locale.US, "%.5f, %.5f", location.getLatitude(), location.getLongitude());
+            String result = "📍 Lokasi Kamu";
+
             try {
                 Geocoder geocoder = new Geocoder(CustomerDashboardActivity.this, new Locale("id", "ID"));
                 List<Address> list = geocoder.getFromLocation(location.getLatitude(), location.getLongitude(), 1);
+
                 if (list != null && list.size() > 0) {
                     Address a = list.get(0);
-                    String subAdmin = firstNonEmpty(a.getSubAdminArea(), a.getLocality(), a.getAdminArea());
-                    String locality = firstNonEmpty(a.getLocality(), a.getSubLocality(), a.getFeatureName());
-                    String province = firstNonEmpty(a.getAdminArea(), "");
 
-                    String clean = firstNonEmpty(subAdmin, locality, province);
+                    String clean = firstNonEmpty(
+                            a.getSubAdminArea(),
+                            a.getLocality(),
+                            a.getSubLocality(),
+                            a.getFeatureName(),
+                            a.getAdminArea()
+                    );
+
+                    clean = shortLocationName(clean);
+
                     if (clean.length() > 0) {
-                        if (province.length() > 0 && !clean.toLowerCase(Locale.US).contains(province.toLowerCase(Locale.US))) {
-                            clean = clean + ", " + province;
-                        }
                         result = "📍 " + clean;
                     }
                 }
@@ -449,6 +456,29 @@ public class CustomerDashboardActivity extends Activity {
             String finalResult = result;
             mainHandler.post(() -> locationText.setText(finalResult));
         }).start();
+    }
+
+    private String shortLocationName(String value) {
+        String clean = firstNonEmpty(value, "");
+
+        if (clean.length() == 0) return "";
+
+        clean = clean.replace("Kabupaten ", "");
+        clean = clean.replace("Kota ", "");
+        clean = clean.replace("Provinsi ", "");
+
+        int comma = clean.indexOf(",");
+        if (comma > 0) {
+            clean = clean.substring(0, comma);
+        }
+
+        clean = clean.trim();
+
+        if (clean.equalsIgnoreCase("Sulawesi Tengah")) {
+            return "Parigi Moutong";
+        }
+
+        return clean;
     }
 
     private void loadBalance() {
