@@ -739,6 +739,22 @@ public class TransRideActivity extends Activity {
         return p;
     }
 
+    private void showInfo(String title, String message) {
+        try {
+            new AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(message)
+                    .setPositiveButton("OK", null)
+                    .show();
+        } catch (Exception e) {
+            android.widget.Toast.makeText(
+                    this,
+                    message,
+                    android.widget.Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
     private int dp(int v) {
         return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
     }
