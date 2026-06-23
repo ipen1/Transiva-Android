@@ -345,7 +345,7 @@ public class CustomerDashboardActivity extends Activity {
         pLp.setMargins(dp(10), 0, 0, 0);
         row.addView(profile, pLp);
         history.setOnClickListener(v -> openWeb("?route=history"));
-        profile.setOnClickListener(v -> openWeb("?route=profile"));
+        profile.setOnClickListener(v -> {Intent intent = new Intent(this, ProfileActivity.class);startActivity(intent);});
     }
 
     private void loadActualLocation() {
