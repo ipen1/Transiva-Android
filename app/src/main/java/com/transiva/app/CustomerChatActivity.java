@@ -41,6 +41,8 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.Map;
 
 public class CustomerChatActivity extends Activity {
 
@@ -67,6 +69,12 @@ public class CustomerChatActivity extends Activity {
     private String driverName = "Driver";
     private String driverPlate = "";
     private String driverPhoto = "";
+    private String lastHeaderName = "";
+    private String lastHeaderInfo = "";
+    private String loadedDriverPhotoUrl = "";
+    private String loadingDriverPhotoUrl = "";
+    private boolean defaultAvatarApplied = false;
+    private static final Map<String, Bitmap> imageCache = new HashMap<>();
     private String orderStatus = "";
 
     private int lastId = 0;
@@ -242,41 +250,115 @@ public class CustomerChatActivity extends Activity {
     }
 
     private void setDriverHeader() {
-        driverNameText.setText(firstNonEmpty(driverName, "Driver"));
+        String name = firstNonEmpty(driverName, "Driver");
         String info = "Chat Driver";
         if (driverPlate.length() > 0) info = "Plat: " + driverPlate;
         if (orderStatus.length() > 0) info += " • " + statusLabel(orderStatus);
-        driverInfoText.setText(info);
-        setDefaultAvatar();
-        if (driverPhoto.length() > 0) loadImage(driverPhoto);
+
+        if (!name.equals(lastHeaderName)) {
+            driverNameText.setText(name);
+            lastHeaderName = name;
+        }
+
+        if (!info.equals(lastHeaderInfo)) {
+            driverInfoText.setText(info);
+            lastHeaderInfo = info;
+        }
+
+        updateDriverAvatarStable(driverPhoto);
     }
 
-    private void setDefaultAvatar() {
+    private void setDefaultAvatarOnce() {
+        if (defaultAvatarApplied || driverPhotoView == null) return;
         try {
             driverPhotoView.setImageResource(android.R.drawable.ic_menu_myplaces);
             driverPhotoView.setColorFilter(Color.parseColor("#0B7CFF"));
+            defaultAvatarApplied = true;
         } catch (Exception ignored) {}
     }
 
-    private void loadImage(String urlText) {
+    private void updateDriverAvatarStable(String rawUrl) {
+        String urlText = fixImageUrl(rawUrl);
+
+        if (urlText.length() == 0) {
+            setDefaultAvatarOnce();
+            return;
+        }
+
+        if (urlText.equals(loadedDriverPhotoUrl)) {
+            return;
+        }
+
+        Bitmap cached = imageCache.get(urlText);
+        if (cached != null && !cached.isRecycled()) {
+            try {
+                driverPhotoView.clearColorFilter();
+                driverPhotoView.setImageBitmap(cached);
+                loadedDriverPhotoUrl = urlText;
+                defaultAvatarApplied = false;
+            } catch (Exception ignored) {}
+            return;
+        }
+
+        if (urlText.equals(loadingDriverPhotoUrl)) {
+            return;
+        }
+
+        if (loadedDriverPhotoUrl.length() == 0) {
+            setDefaultAvatarOnce();
+        }
+
+        loadImageStable(urlText);
+    }
+
+    private String fixImageUrl(String value) {
+        String path = firstNonEmpty(value, "").replace("\\", "/").trim();
+        if (path.length() == 0 || "null".equalsIgnoreCase(path) || "undefined".equalsIgnoreCase(path)) return "";
+        if (path.startsWith("http://") || path.startsWith("https://")) return path;
+        if (path.startsWith("/")) return BASE_URL.substring(0, BASE_URL.length() - 1) + path;
+        return BASE_URL + path;
+    }
+
+    private void loadImageStable(String urlText) {
+        loadingDriverPhotoUrl = urlText;
+
         new Thread(() -> {
+            Bitmap bmp = null;
+            HttpURLConnection conn = null;
+            InputStream is = null;
+
             try {
                 URL url = new URL(urlText);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn = (HttpURLConnection) url.openConnection();
                 conn.setConnectTimeout(12000);
                 conn.setReadTimeout(12000);
                 conn.setUseCaches(true);
-                InputStream is = conn.getInputStream();
-                Bitmap bmp = BitmapFactory.decodeStream(is);
-                is.close();
-                conn.disconnect();
-                if (bmp != null) {
-                    mainHandler.post(() -> {
+                conn.setRequestProperty("Accept", "image/*");
+                is = conn.getInputStream();
+                bmp = BitmapFactory.decodeStream(is);
+            } catch (Exception ignored) {
+            } finally {
+                try { if (is != null) is.close(); } catch (Exception ignored) {}
+                try { if (conn != null) conn.disconnect(); } catch (Exception ignored) {}
+            }
+
+            Bitmap finalBmp = bmp;
+            mainHandler.post(() -> {
+                if (!urlText.equals(loadingDriverPhotoUrl)) return;
+                loadingDriverPhotoUrl = "";
+
+                if (finalBmp != null && !finalBmp.isRecycled()) {
+                    imageCache.put(urlText, finalBmp);
+                    try {
                         driverPhotoView.clearColorFilter();
-                        driverPhotoView.setImageBitmap(bmp);
-                    });
+                        driverPhotoView.setImageBitmap(finalBmp);
+                        loadedDriverPhotoUrl = urlText;
+                        defaultAvatarApplied = false;
+                    } catch (Exception ignored) {}
+                } else if (loadedDriverPhotoUrl.length() == 0) {
+                    setDefaultAvatarOnce();
                 }
-            } catch (Exception ignored) {}
+            });
         }).start();
     }
 
