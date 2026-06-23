@@ -88,6 +88,8 @@ public class TransRideActivity extends Activity {
     private double deliveryLng = 0;
     private String pickupAddress = "";
     private String deliveryAddress = "";
+    private double routeKm = 0;
+    private int routeMinutes = 0;
 
     private int userId = 0;
     private String username = "User";
@@ -312,16 +314,25 @@ public class TransRideActivity extends Activity {
                 "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>" +
                 "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>" +
                 "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef6ff;}" +
-                ".leaflet-control-attribution{font-size:9px}.leaflet-control-zoom{margin-top:190px!important}.pin{font-size:27px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.25));}.leaflet-popup-content{font-family:Arial;font-weight:700;color:#0B3A78;}</style>" +
+                ".leaflet-control-attribution{font-size:9px}.leaflet-control-zoom{margin-top:178px!important}" +
+                ".pin{font-size:27px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.25));}" +
+                ".leaflet-popup-content{font-family:Arial;font-weight:700;color:#0B3A78;}</style>" +
                 "</head><body><div id='map'></div><script>" +
                 "var map=L.map('map',{zoomControl:true,attributionControl:true}).setView([-0.7765,120.1329],16);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:'OSM'}).addTo(map);" +
-                "var pickup=null,delivery=null,line=null,mode='pickup',timer=null,ready=false;" +
+                "var pickup=null,delivery=null,line=null,mode='pickup',timer=null,ready=false,routeReq=0;" +
                 "function ic(t){return L.divIcon({html:'<div class=pin>'+t+'</div>',className:'',iconSize:[32,32],iconAnchor:[16,30]});}" +
                 "function setMode(m){mode=m;}" +
                 "function setCenter(lat,lng){map.setView([parseFloat(lat),parseFloat(lng)],17);sendCenter();}" +
-                "function setPoint(type,lat,lng,label){lat=parseFloat(lat);lng=parseFloat(lng);var mk=(type==='pickup')?pickup:delivery;if(mk){map.removeLayer(mk);}mk=L.marker([lat,lng],{icon:ic(type==='pickup'?'👤':'📍')}).addTo(map).bindPopup(label||'Lokasi');if(type==='pickup'){pickup=mk;}else{delivery=mk;}draw();}" +
-                "function draw(){if(line){map.removeLayer(line);line=null;}if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();line=L.polyline([a,b],{weight:5,opacity:.85,color:'#0B7CFF'}).addTo(map);}}" +
+                "function setPoint(type,lat,lng,label){lat=parseFloat(lat);lng=parseFloat(lng);var mk=(type==='pickup')?pickup:delivery;if(mk){map.removeLayer(mk);}mk=L.marker([lat,lng],{icon:ic(type==='pickup'?'👤':'📍')}).addTo(map).bindPopup(label||'Lokasi');if(type==='pickup'){pickup=mk;}else{delivery=mk;}drawRoute();}" +
+                "function fallbackLine(a,b){if(line){map.removeLayer(line);}line=L.polyline([a,b],{weight:5,opacity:.88,color:'#0B7CFF'}).addTo(map);}" +
+                "function drawRoute(){if(!pickup||!delivery)return;var a=pickup.getLatLng(),b=delivery.getLatLng();var id=++routeReq;" +
+                "var url='https://router.project-osrm.org/route/v1/driving/'+a.lng+','+a.lat+';'+b.lng+','+b.lat+'?overview=full&geometries=geojson&steps=false';" +
+                "fetch(url).then(function(r){return r.json();}).then(function(j){if(id!==routeReq)return;if(!j||!j.routes||!j.routes.length){fallbackLine(a,b);return;}" +
+                "var r=j.routes[0],cs=r.geometry.coordinates,pts=[];for(var i=0;i<cs.length;i++){pts.push([cs[i][1],cs[i][0]]);}if(line){map.removeLayer(line);}line=L.polyline(pts,{weight:5,opacity:.9,color:'#0B7CFF'}).addTo(map);" +
+                "try{AndroidTransRide.onRouteFound(r.distance/1000,r.duration);}catch(e){}" +
+                "try{map.fitBounds(line.getBounds(),{padding:[80,80]});}catch(e){}" +
+                "}).catch(function(e){fallbackLine(a,b);});}" +
                 "function sendCenter(){if(!ready)return;var c=map.getCenter();try{AndroidTransRide.onCenterChanged(mode,c.lat,c.lng);}catch(e){}}" +
                 "map.on('moveend',function(){clearTimeout(timer);timer=setTimeout(sendCenter,250);});" +
                 "setTimeout(function(){ready=true;map.invalidateSize();sendCenter();},900);" +
@@ -336,6 +347,13 @@ public class TransRideActivity extends Activity {
                 return;
             }
             applyPickedPoint(mode, lat, lng, true);
+        }
+
+        @JavascriptInterface
+        public void onRouteFound(double km, double seconds) {
+            routeKm = km;
+            routeMinutes = Math.max(1, (int) Math.ceil(seconds / 60.0));
+            mainHandler.post(() -> updateLocationTexts());
         }
     }
 
@@ -366,6 +384,8 @@ public class TransRideActivity extends Activity {
     private void applyPickedPoint(String mode, double lat, double lng, boolean fromMapMove) {
         if (lat == 0 || lng == 0) return;
         String cleanMode = "delivery".equals(mode) ? "delivery" : "pickup";
+        routeKm = 0;
+        routeMinutes = 0;
         if ("delivery".equals(cleanMode)) {
             deliveryLat = lat;
             deliveryLng = lng;
@@ -556,11 +576,11 @@ public class TransRideActivity extends Activity {
         deliveryText.setText("📍 Lokasi Tujuan\n" + (deliveryLat != 0 && deliveryLng != 0 ? shortAddr(deliveryAddress) + " • " + fmt(deliveryLat) + ", " + fmt(deliveryLng) : "Pilih tab Tujuan lalu geser peta"));
 
         if (pickupLat != 0 && pickupLng != 0 && deliveryLat != 0 && deliveryLng != 0) {
-            double km = haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng) * 1.25;
-            int minutes = Math.max(1, (int) Math.ceil(km * 4));
+            double km = routeKm > 0 ? routeKm : haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng) * 1.25;
+            int minutes = routeMinutes > 0 ? routeMinutes : Math.max(1, (int) Math.ceil(km * 4));
             estimateText.setText("Estimasi " + String.format(Locale.US, "%.1f", km) + " KM • " + minutes + " menit");
         } else {
-            estimateText.setText("Geser peta untuk memilih jemput/tujuan");
+            estimateText.setText("Klik kolom Jemput/Tujuan lalu geser peta");
         }
     }
 
@@ -578,8 +598,8 @@ public class TransRideActivity extends Activity {
             showInfo("Tujuan Belum Ada", "Pilih titik tujuan terlebih dahulu.");
             return;
         }
-        double km = haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng) * 1.25;
-        int minutes = Math.max(1, (int) Math.ceil(km * 4));
+        double km = routeKm > 0 ? routeKm : haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng) * 1.25;
+        int minutes = routeMinutes > 0 ? routeMinutes : Math.max(1, (int) Math.ceil(km * 4));
         new AlertDialog.Builder(this)
                 .setTitle("Konfirmasi Order")
                 .setMessage("Layanan: Transbike\nJarak estimasi: " + String.format(Locale.US, "%.1f", km) + " KM\nEstimasi waktu: " + minutes + " menit\n\nLanjut order sekarang?")
@@ -613,10 +633,11 @@ public class TransRideActivity extends Activity {
                 delivery.put("address", deliveryAddress);
                 payload.put("delivery", delivery);
 
-                double km = haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng) * 1.25;
+                double km = routeKm > 0 ? routeKm : haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng) * 1.25;
+                int minutes = routeMinutes > 0 ? routeMinutes : Math.max(1, (int) Math.ceil(km * 4));
                 JSONObject route = new JSONObject();
                 route.put("km", km);
-                route.put("minutes", Math.max(1, (int) Math.ceil(km * 4)));
+                route.put("minutes", minutes);
                 route.put("price", 0);
                 payload.put("route", route);
 
@@ -876,6 +897,24 @@ public class TransRideActivity extends Activity {
         } catch (Exception e) {
             android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_LONG).show();
         }
+    }
+
+
+    private int getDrawableId(String name) {
+        try {
+            return getResources().getIdentifier(name, "drawable", getPackageName());
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private int firstDrawableId(String... names) {
+        if (names == null) return 0;
+        for (String name : names) {
+            int res = getDrawableId(name);
+            if (res != 0) return res;
+        }
+        return 0;
     }
 
     private int dp(int v) {
