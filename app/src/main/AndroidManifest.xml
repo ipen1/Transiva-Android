@@ -165,6 +165,12 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".SearchDriverActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".DriverDashboardActivity"
             android:exported="false"
             android:screenOrientation="portrait"
