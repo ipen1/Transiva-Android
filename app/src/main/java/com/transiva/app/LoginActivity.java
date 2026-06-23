@@ -36,6 +36,7 @@ import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 
 public class LoginActivity extends Activity {
 
@@ -312,10 +313,19 @@ public class LoginActivity extends Activity {
                     return;
                 }
                 if (result.user != null) {
-                    try { TransivaSession.saveUser(LoginActivity.this, result.user); } catch (Exception ignored) {}
+                    try {
+                        new SessionManager(LoginActivity.this).saveUser(result.user);
+                    } catch (Exception ignored) {}
+
+                    try {
+                        TransivaSession.saveUser(LoginActivity.this, result.user);
+                    } catch (Exception ignored) {}
                 }
+
+                String cleanRole = normalizeRole(result.role);
+
                 showMessage("Login berhasil", true);
-                mainHandler.postDelayed(() -> openRolePage(result.role), 600);
+                mainHandler.postDelayed(() -> openRolePage(cleanRole), 600);
             });
         }).start();
     }
@@ -357,6 +367,12 @@ public class LoginActivity extends Activity {
 
             JSONObject user = json.optJSONObject("user");
             String role = user != null ? user.optString("role", "customer") : "customer";
+            role = normalizeRole(role);
+
+            if (user != null) {
+                user.put("role", role);
+            }
+
             return LoginResult.ok(message, role, user);
         } catch (Exception e) {
             return LoginResult.fail("Server error / koneksi gagal");
@@ -398,29 +414,99 @@ public class LoginActivity extends Activity {
     }
 
     private void openRolePage(String role) {
-        if (role == null) role = "customer";
+        String cleanRole = normalizeRole(role);
+
         String className;
-        switch (role) {
-            case "driver": className = "com.transiva.app.DriverDashboardActivity"; break;
-            case "merchant": className = "com.transiva.app.MerchantDashboardActivity"; break;
-            case "admin": className = "com.transiva.app.AdminDashboardActivity"; break;
-            case "wisataowner":
-            case "wisata_owner": className = "com.transiva.app.NativeHomeActivity"; break;
-            default: className = "com.transiva.app.MainActivity"; break;
+
+        switch (cleanRole) {
+            case "customer":
+                className = "com.transiva.app.CustomerDashboardActivity";
+                break;
+
+            case "driver":
+                className = "com.transiva.app.DriverDashboardActivity";
+                break;
+
+            case "merchant":
+                className = "com.transiva.app.MerchantDashboardActivity";
+                break;
+
+            case "admin":
+                className = "com.transiva.app.AdminDashboardActivity";
+                break;
+
+            case "wisata":
+                className = "com.transiva.app.NativeHomeActivity";
+                break;
+
+            default:
+                className = "com.transiva.app.CustomerDashboardActivity";
+                break;
         }
+
         try {
             Class<?> target = Class.forName(className);
+
             Intent intent = new Intent(this, target);
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            intent.putExtra("native_role", cleanRole);
+            intent.addFlags(
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+                            | Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TASK
+            );
+
             startActivity(intent);
             finish();
+
         } catch (Exception e) {
-            Intent intent = new Intent(this, MainActivity.class);
-            intent.putExtra("native_role", role);
-            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(intent);
-            finish();
+            showMessage("Dashboard tidak ditemukan: " + className, false);
         }
+    }
+
+    private String normalizeRole(String role) {
+        if (role == null) {
+            return "customer";
+        }
+
+        String clean = role.trim().toLowerCase(Locale.US);
+
+        if (clean.equals("customer")
+                || clean.equals("costumer")
+                || clean.equals("user")
+                || clean.equals("pelanggan")) {
+            return "customer";
+        }
+
+        if (clean.equals("driver")
+                || clean.equals("kurir")
+                || clean.equals("ojek")
+                || clean.equals("rider")) {
+            return "driver";
+        }
+
+        if (clean.equals("merchant")
+                || clean.equals("merchen")
+                || clean.equals("resto")
+                || clean.equals("restaurant")
+                || clean.equals("penjual")) {
+            return "merchant";
+        }
+
+        if (clean.equals("admin")
+                || clean.equals("administrator")
+                || clean.equals("owner")
+                || clean.equals("superadmin")) {
+            return "admin";
+        }
+
+        if (clean.equals("wisata")
+                || clean.equals("wisataowner")
+                || clean.equals("wisata_owner")
+                || clean.equals("owner_wisata")) {
+            return "wisata";
+        }
+
+        return "customer";
     }
 
     private void openRegister() {
