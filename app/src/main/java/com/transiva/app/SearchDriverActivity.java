@@ -369,7 +369,13 @@ public class SearchDriverActivity extends Activity {
                 JSONObject res = postJson(BASE_URL + "server/check_order_status.php", payload);
                 if (!res.optBoolean("success", false)) return;
 
-                String status = res.optString("status", "").trim().toLowerCase(Locale.US);
+                JSONObject order = res.optJSONObject("order");
+                if (order == null) order = new JSONObject();
+
+                String status = firstNonEmpty(
+                        order.optString("status", ""),
+                        res.optString("status", "")
+                ).trim().toLowerCase(Locale.US);
 
                 if (status.equals("canceled") || status.equals("cancelled")) {
                     clearOrderPrefs();
@@ -380,7 +386,10 @@ public class SearchDriverActivity extends Activity {
                     return;
                 }
 
-                if (status.equals("taken")) {
+                if (status.equals("taken")
+                        || status.equals("arrived_pickup")
+                        || status.equals("on_delivery")
+                        || status.equals("arrived_delivery")) {
                     mainHandler.post(() -> showDriver(res));
                 }
             } catch (Exception ignored) {}
@@ -388,7 +397,7 @@ public class SearchDriverActivity extends Activity {
     }
 
     private void showDriver(JSONObject data) {
-        if (isCanceling || driverFound) return;
+        if (isCanceling || driverFound || destroyed) return;
         driverFound = true;
         destroyLoopsKeepScreen();
         radarView.stopRadar();
@@ -401,27 +410,82 @@ public class SearchDriverActivity extends Activity {
         JSONObject driver = data.optJSONObject("driver");
         if (driver == null) driver = new JSONObject();
 
-        String driverName = firstNonEmpty(driver.optString("name"), driver.optString("username"), "Driver");
+        JSONObject order = data.optJSONObject("order");
+        if (order == null) order = new JSONObject();
+
+        String driverName = firstNonEmpty(
+                driver.optString("name", ""),
+                driver.optString("username", ""),
+                order.optString("driver_username", ""),
+                data.optString("driver_username", ""),
+                "Driver"
+        );
+
         driverNameText.setText(driverName);
         driverDistanceText.setText("Driver menuju pickup");
         driverAvatarText.setText(driverName.substring(0, 1).toUpperCase(Locale.US));
 
-        double driverLat = safeDouble(firstNonEmpty(driver.optString("lat"), driver.optString("latitude")));
-        double driverLng = safeDouble(firstNonEmpty(driver.optString("lng"), driver.optString("longitude")));
-        double pickupLat = safeDouble(data.optString("pickup_lat"));
-        double pickupLng = safeDouble(data.optString("pickup_lng"));
+        String driverType = normalizeDriverType(firstNonEmpty(
+                order.optString("driver_type", ""),
+                order.optString("price_mode", ""),
+                data.optString("driver_type", ""),
+                data.optString("order_type", ""),
+                driver.optString("driver_type", ""),
+                getStringPref("active_driver_type"),
+                "bike"
+        ));
 
+        double driverLat = getJsonDouble(driver, "driver_lat", "lat", "latitude");
+        double driverLng = getJsonDouble(driver, "driver_lng", "lng", "longitude");
+
+        double pickupLat = firstValidCoordValue(
+                getJsonDouble(order, "pickup_lat", "pickupLatitude", "pickup_latitude"),
+                getJsonDouble(data, "pickup_lat", "pickupLatitude", "pickup_latitude"),
+                getDoublePref("pickup_lat")
+        );
+        double pickupLng = firstValidCoordValue(
+                getJsonDouble(order, "pickup_lng", "pickupLongitude", "pickup_longitude"),
+                getJsonDouble(data, "pickup_lng", "pickupLongitude", "pickup_longitude"),
+                getDoublePref("pickup_lng")
+        );
+        double deliveryLat = firstValidCoordValue(
+                getJsonDouble(order, "delivery_lat", "deliveryLatitude", "delivery_latitude"),
+                getJsonDouble(data, "delivery_lat", "deliveryLatitude", "delivery_latitude"),
+                getDoublePref("delivery_lat")
+        );
+        double deliveryLng = firstValidCoordValue(
+                getJsonDouble(order, "delivery_lng", "deliveryLongitude", "delivery_longitude"),
+                getJsonDouble(data, "delivery_lng", "deliveryLongitude", "delivery_longitude"),
+                getDoublePref("delivery_lng")
+        );
+
+        saveTripPrefs(activeOrderId, driverType, pickupLat, pickupLng, deliveryLat, deliveryLng);
         loadDriverMap(driverName, driverLat, driverLng, pickupLat, pickupLng);
 
-        mainHandler.postDelayed(() -> {
-            if (!isCanceling) {
-                Intent i = new Intent(SearchDriverActivity.this, MainActivity.class);
-                i.putExtra("native_route", "?route=customerTrip");
-                i.putExtra("url", BASE_URL + "?route=customerTrip");
-                startActivity(i);
-                finish();
+        mainHandler.postDelayed(() -> openNativeTrip(driverType, pickupLat, pickupLng, deliveryLat, deliveryLng), 1800);
+    }
+
+    private void openNativeTrip(String driverType, double pickupLat, double pickupLng, double deliveryLat, double deliveryLng) {
+        if (isCanceling || destroyed) return;
+        try {
+            Intent i = new Intent(SearchDriverActivity.this, CustomerTripActivity.class);
+            i.putExtra("order_id", activeOrderId);
+            i.putExtra("active_order_id", activeOrderId);
+            i.putExtra("active_driver_type", driverType);
+            if (pickupLat != 0 && pickupLng != 0) {
+                i.putExtra("pickup_lat", pickupLat);
+                i.putExtra("pickup_lng", pickupLng);
             }
-        }, 6000);
+            if (deliveryLat != 0 && deliveryLng != 0) {
+                i.putExtra("delivery_lat", deliveryLat);
+                i.putExtra("delivery_lng", deliveryLng);
+            }
+            i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(i);
+            finish();
+        } catch (Exception e) {
+            showInfo("Trip Native", "CustomerTripActivity belum ditemukan. Pastikan file Java dan AndroidManifest sudah ditambahkan.");
+        }
     }
 
     private void loadDriverMap(String driverName, double driverLat, double driverLng, double pickupLat, double pickupLng) {
@@ -445,6 +509,63 @@ public class SearchDriverActivity extends Activity {
                 "</script></body></html>";
 
         miniMap.loadDataWithBaseURL("https://transiva.my.id/", html, "text/html", "UTF-8", null);
+    }
+
+    private void saveTripPrefs(String orderId, String driverType, double pickupLat, double pickupLng, double deliveryLat, double deliveryLng) {
+        try {
+            SharedPreferences.Editor e = getSharedPreferences("transiva", MODE_PRIVATE).edit();
+            e.putString("active_order_id", firstNonEmpty(orderId, activeOrderId));
+            e.putString("active_driver_type", normalizeDriverType(driverType));
+            if (pickupLat != 0 && pickupLng != 0) {
+                e.putLong("pickup_lat", Double.doubleToLongBits(pickupLat));
+                e.putLong("pickup_lng", Double.doubleToLongBits(pickupLng));
+                e.putString("pickup_lat_text", String.valueOf(pickupLat));
+                e.putString("pickup_lng_text", String.valueOf(pickupLng));
+            }
+            if (deliveryLat != 0 && deliveryLng != 0) {
+                e.putLong("delivery_lat", Double.doubleToLongBits(deliveryLat));
+                e.putLong("delivery_lng", Double.doubleToLongBits(deliveryLng));
+                e.putString("delivery_lat_text", String.valueOf(deliveryLat));
+                e.putString("delivery_lng_text", String.valueOf(deliveryLng));
+            }
+            e.apply();
+        } catch (Exception ignored) {}
+    }
+
+    private String normalizeDriverType(String raw) {
+        String type = firstNonEmpty(raw, "bike").toLowerCase(Locale.US).trim();
+        if (type.equals("transcar") || type.equals("car") || type.equals("mobil")) return "car";
+        return "motor";
+    }
+
+    private double getJsonDouble(JSONObject obj, String... keys) {
+        if (obj == null || keys == null) return 0;
+        for (String key : keys) {
+            if (key == null || key.length() == 0) continue;
+            double value = safeDouble(obj.optString(key, ""));
+            if (value != 0) return value;
+        }
+        return 0;
+    }
+
+    private double getDoublePref(String key) {
+        try {
+            SharedPreferences sp = getSharedPreferences("transiva", MODE_PRIVATE);
+            if (sp.contains(key)) {
+                try { return Double.longBitsToDouble(sp.getLong(key, Double.doubleToLongBits(0))); } catch (Exception ignored) {}
+                try { return safeDouble(sp.getString(key, "0")); } catch (Exception ignored) {}
+            }
+            return safeDouble(sp.getString(key + "_text", "0"));
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
+    private double firstValidCoordValue(double... values) {
+        if (values == null) return 0;
+        for (double v : values) {
+            if (v != 0 && Double.isFinite(v)) return v;
+        }
+        return 0;
     }
 
     private void confirmCancelOrder() {
