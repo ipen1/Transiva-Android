@@ -39,6 +39,9 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.BufferedWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -60,6 +63,7 @@ public class CustomerDashboardActivity extends Activity {
     private TextView verifiedText;
     private TextView balanceText;
     private TextView statusText;
+    private LinearLayout statusActionsBox;
     private TextView locationText;
     private EditText searchInput;
     private ProgressBar progressBar;
@@ -352,9 +356,16 @@ public class CustomerDashboardActivity extends Activity {
         root.addView(card, lp);
 
         card.addView(text("Status Pesanan", 17, "#0B3A78", true));
+
         statusText = text("Memuat status pesanan...", 13, "#64748B", false);
         statusText.setPadding(0, dp(8), 0, 0);
         card.addView(statusText);
+
+        statusActionsBox = new LinearLayout(this);
+        statusActionsBox.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(-1, -2);
+        actionLp.setMargins(0, dp(10), 0, 0);
+        card.addView(statusActionsBox, actionLp);
     }
 
     private void buildBottomActions() {
@@ -525,20 +536,326 @@ public class CustomerDashboardActivity extends Activity {
 
     private void loadOrderStatus() {
         new Thread(() -> {
+            JSONObject activeOrder = null;
             String text = "Belum ada pesanan aktif";
+
             try {
                 if (userId > 0) {
                     JSONObject json = getJson(BASE_URL + "server/get_user_orders.php?user_id=" + userId);
                     JSONArray orders = json.optJSONArray("orders");
+
                     if (json.optBoolean("success", false) && orders != null && orders.length() > 0) {
-                        JSONObject o = orders.optJSONObject(0);
-                        if (o != null) text = "Order #" + firstNonEmpty(o.optString("order_id"), o.optString("id"), "-") + "\nStatus: " + o.optString("status", "-");
+                        for (int i = 0; i < orders.length(); i++) {
+                            JSONObject o = orders.optJSONObject(i);
+                            if (o == null) continue;
+
+                            String status = o.optString("status", "").toLowerCase(Locale.US).trim();
+
+                            if (!isFinishedOrCanceled(status)) {
+                                activeOrder = o;
+                                break;
+                            }
+                        }
                     }
                 }
             } catch (Exception ignored) {}
+
+            JSONObject finalOrder = activeOrder;
+            if (finalOrder != null) {
+                text = buildNativeStatusText(finalOrder);
+            }
+
             String finalText = text;
-            mainHandler.post(() -> statusText.setText(finalText));
+            mainHandler.post(() -> {
+                statusText.setText(finalText);
+                buildOrderActionButtons(finalOrder);
+            });
         }).start();
+    }
+
+    private boolean isFinishedOrCanceled(String status) {
+        status = firstNonEmpty(status, "").toLowerCase(Locale.US).trim();
+        return status.equals("finished")
+                || status.equals("completed")
+                || status.equals("finish")
+                || status.equals("canceled")
+                || status.equals("cancelled")
+                || status.equals("merchant_rejected");
+    }
+
+    private String buildNativeStatusText(JSONObject order) {
+        String orderId = firstNonEmpty(order.optString("order_id"), order.optString("id"), "-");
+        String status = order.optString("status", "").toLowerCase(Locale.US).trim();
+        String driver = firstNonEmpty(order.optString("driver"), order.optString("driver_username"), "Driver");
+        String orderType = order.optString("order_type", "").toLowerCase(Locale.US).trim();
+
+        boolean isCar = orderType.equals("passenger_car")
+                || orderType.equals("car")
+                || orderType.equals("mobil")
+                || order.optString("driver_type", "").equalsIgnoreCase("car");
+
+        String vehicle = isCar ? "🚗" : "🛵";
+
+        if (status.equals("pending")) {
+            return "Order #" + orderId + "\n⏳ Menunggu " + (isCar ? "driver mobil" : "kurir") + " menerima orderan.";
+        }
+
+        if (status.equals("merchant_accepted")) {
+            return "Order #" + orderId + "\n✅ Pesanan diterima merchant. Menunggu driver mengambil pesanan.";
+        }
+
+        if (status.equals("taken")) {
+            return "Order #" + orderId + "\n" + vehicle + " " + driver + " sedang menuju lokasi pickup.";
+        }
+
+        if (status.equals("arrived_pickup")) {
+            return "Order #" + orderId + "\n✅ " + driver + " sudah tiba di lokasi pickup.";
+        }
+
+        if (status.equals("on_delivery")) {
+            return "Order #" + orderId + "\n" + vehicle + " " + driver + " sedang menuju lokasi tujuan.";
+        }
+
+        if (status.equals("arrived_delivery")) {
+            return "Order #" + orderId + "\n🏁 Driver sudah tiba di lokasi tujuan.";
+        }
+
+        return "Order #" + orderId + "\nStatus: " + firstNonEmpty(status, "-");
+    }
+
+    private void buildOrderActionButtons(JSONObject order) {
+        if (statusActionsBox == null) return;
+
+        statusActionsBox.removeAllViews();
+
+        if (order == null) return;
+
+        String status = order.optString("status", "").toLowerCase(Locale.US).trim();
+        String orderId = firstNonEmpty(order.optString("order_id"), order.optString("id"), "");
+
+        if (orderId.length() == 0 || isFinishedOrCanceled(status)) return;
+
+        if (status.equals("pending") || status.equals("merchant_accepted")) {
+            Button cancel = dangerButton("Batalkan Order");
+            cancel.setOnClickListener(v -> confirmCancelOrder(orderId));
+            statusActionsBox.addView(cancel, new LinearLayout.LayoutParams(-1, dp(48)));
+            return;
+        }
+
+        if (status.equals("taken")
+                || status.equals("arrived_pickup")
+                || status.equals("on_delivery")
+                || status.equals("arrived_delivery")) {
+
+            Button trip = primaryButton("🗺️ Lihat Status Perjalanan Driver");
+            trip.setOnClickListener(v -> openNativeTrip(order));
+            statusActionsBox.addView(trip, new LinearLayout.LayoutParams(-1, dp(48)));
+
+            Button chat = outlineButton("💬 Chat Driver");
+            LinearLayout.LayoutParams chatLp = new LinearLayout.LayoutParams(-1, dp(48));
+            chatLp.setMargins(0, dp(8), 0, 0);
+            chat.setOnClickListener(v -> openNativeChat(orderId));
+            statusActionsBox.addView(chat, chatLp);
+        }
+    }
+
+    private void confirmCancelOrder(String orderId) {
+        new AlertDialog.Builder(this)
+                .setTitle("Batalkan Order")
+                .setMessage("Yakin ingin membatalkan order ini?\n\nOrder yang dibatalkan tidak bisa dilanjutkan kembali.")
+                .setNegativeButton("Tidak", null)
+                .setPositiveButton("Ya", (d, w) -> cancelOrder(orderId))
+                .show();
+    }
+
+    private void cancelOrder(String orderId) {
+        if (orderId == null || orderId.trim().length() == 0) {
+            showInfo("Gagal", "Order ID tidak ditemukan.");
+            return;
+        }
+
+        setLoading(true);
+
+        new Thread(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("order_id", orderId);
+
+                JSONObject res = postJson(BASE_URL + "server/cancel_order.php", payload);
+                boolean ok = res.optBoolean("success", false);
+                String msg = firstNonEmpty(
+                        res.optString("message"),
+                        ok ? "Order berhasil dibatalkan" : "Gagal membatalkan order"
+                );
+
+                mainHandler.post(() -> {
+                    setLoading(false);
+                    showInfo(ok ? "Berhasil" : "Gagal", msg);
+
+                    if (ok) {
+                        clearActiveOrderPrefs();
+                        loadOrderStatus();
+                    }
+                });
+
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    setLoading(false);
+                    showInfo("Error", "Terjadi kesalahan koneksi saat membatalkan order.");
+                });
+            }
+        }).start();
+    }
+
+    private void openNativeTrip(JSONObject order) {
+        if (order == null) {
+            showInfo("Gagal", "Data order tidak ditemukan.");
+            return;
+        }
+
+        String orderId = firstNonEmpty(order.optString("order_id"), order.optString("id"), "");
+        String pickupLat = firstNonEmpty(order.optString("pickup_lat"), order.optString("user_lat"));
+        String pickupLng = firstNonEmpty(order.optString("pickup_lng"), order.optString("user_lng"));
+        String deliveryLat = firstNonEmpty(order.optString("delivery_lat"), "");
+        String deliveryLng = firstNonEmpty(order.optString("delivery_lng"), "");
+
+        if (!isValidCoordText(pickupLat, pickupLng)) {
+            showInfo("Lokasi Tidak Valid", "Lokasi pickup tidak ditemukan. Silakan cek ulang pesanan.");
+            return;
+        }
+
+        SharedPreferences.Editor e = getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit();
+        e.putString("active_order_id", orderId);
+        e.putString("pickup_lat", pickupLat);
+        e.putString("pickup_lng", pickupLng);
+        e.putString("delivery_lat", deliveryLat);
+        e.putString("delivery_lng", deliveryLng);
+        e.putString("active_driver_type", detectDriverType(order));
+        e.apply();
+
+        Intent intent = new Intent(this, CustomerTripActivity.class);
+        intent.putExtra("order_id", orderId);
+        intent.putExtra("pickup_lat", pickupLat);
+        intent.putExtra("pickup_lng", pickupLng);
+        intent.putExtra("delivery_lat", deliveryLat);
+        intent.putExtra("delivery_lng", deliveryLng);
+        intent.putExtra("driver_type", detectDriverType(order));
+        startActivity(intent);
+    }
+
+    private void openNativeChat(String orderId) {
+        if (orderId == null || orderId.trim().length() == 0) {
+            showInfo("Gagal Membuka Chat", "Order ID chat tidak ditemukan.");
+            return;
+        }
+
+        getSharedPreferences(PREF_NAME, MODE_PRIVATE)
+                .edit()
+                .putString("active_order_id", orderId)
+                .putString("active_chat_order_id", orderId)
+                .putString("active_chat_room_id", "ROOM-" + orderId)
+                .apply();
+
+        Intent intent = null;
+
+        try {
+            Class<?> chatClass = Class.forName(getPackageName() + ".ChatNativeActivity");
+            intent = new Intent(this, chatClass);
+        } catch (Exception ignored) {}
+
+        if (intent == null) {
+            try {
+                Class<?> chatClass = Class.forName(getPackageName() + ".CustomerChatActivity");
+                intent = new Intent(this, chatClass);
+            } catch (Exception ignored) {}
+        }
+
+        if (intent != null) {
+            intent.putExtra("order_id", orderId);
+            intent.putExtra("room_id", "ROOM-" + orderId);
+            startActivity(intent);
+            return;
+        }
+
+        openWeb("?route=customerChat&order_id=" + Uri.encode(orderId));
+    }
+
+    private String detectDriverType(JSONObject order) {
+        String type = firstNonEmpty(
+                order.optString("driver_type"),
+                order.optString("price_mode"),
+                order.optString("order_type"),
+                "bike"
+        ).toLowerCase(Locale.US).trim();
+
+        if (type.equals("car") || type.equals("mobil") || type.equals("passenger_car") || type.equals("transcar")) {
+            return "car";
+        }
+
+        return "bike";
+    }
+
+    private boolean isValidCoordText(String lat, String lng) {
+        try {
+            double a = Double.parseDouble(firstNonEmpty(lat, "0"));
+            double b = Double.parseDouble(firstNonEmpty(lng, "0"));
+            return a != 0 && b != 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void clearActiveOrderPrefs() {
+        getSharedPreferences(PREF_NAME, MODE_PRIVATE)
+                .edit()
+                .remove("active_order_id")
+                .remove("active_order")
+                .remove("order_status")
+                .remove("pickup_lat")
+                .remove("pickup_lng")
+                .remove("delivery_lat")
+                .remove("delivery_lng")
+                .remove("active_chat_order_id")
+                .remove("active_chat_room_id")
+                .apply();
+    }
+
+    private void setLoading(boolean value) {
+        loading = value;
+        if (progressBar != null) progressBar.setVisibility(value ? View.VISIBLE : View.GONE);
+    }
+
+    private JSONObject postJson(String urlText, JSONObject payload) throws Exception {
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(urlText);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
+            conn.setDoInput(true);
+            conn.setDoOutput(true);
+            conn.setUseCaches(false);
+            conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            conn.setRequestProperty("Accept", "application/json");
+
+            OutputStream os = conn.getOutputStream();
+            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
+            writer.write(payload == null ? "{}" : payload.toString());
+            writer.flush();
+            writer.close();
+            os.close();
+
+            int code = conn.getResponseCode();
+            InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
+            String body = readStream(is).trim();
+
+            if (body.length() == 0) return new JSONObject();
+
+            return new JSONObject(body);
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
     }
 
     private JSONObject getJson(String urlText) throws Exception {
@@ -600,6 +917,13 @@ public class CustomerDashboardActivity extends Activity {
         Button b = primaryButton(value);
         b.setTextColor(Color.parseColor("#0B7CFF"));
         b.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(18), 1));
+        return b;
+    }
+
+    private Button dangerButton(String value) {
+        Button b = primaryButton(value);
+        b.setTextColor(Color.WHITE);
+        b.setBackground(roundGradient("#EF4444", "#DC2626", dp(18)));
         return b;
     }
 
