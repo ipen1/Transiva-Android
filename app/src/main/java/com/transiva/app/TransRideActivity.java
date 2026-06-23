@@ -78,6 +78,7 @@ public class TransRideActivity extends Activity {
     private boolean loading = false;
     private boolean mapReady = false;
     private boolean suppressBridgeOnce = false;
+    private boolean bridgeLocked = false;
     private String pickingMode = "pickup";
 
     private double userLat = 0;
@@ -320,20 +321,20 @@ public class TransRideActivity extends Activity {
                 "</head><body><div id='map'></div><script>" +
                 "var map=L.map('map',{zoomControl:true,attributionControl:true}).setView([-0.7765,120.1329],16);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:'OSM'}).addTo(map);" +
-                "var pickup=null,delivery=null,line=null,mode='pickup',timer=null,ready=false,routeReq=0;" +
+                "var pickup=null,delivery=null,line=null,mode='pickup',timer=null,ready=false,routeReq=0,programMove=false;" +
                 "function ic(t){return L.divIcon({html:'<div class=pin>'+t+'</div>',className:'',iconSize:[32,32],iconAnchor:[16,30]});}" +
                 "function setMode(m){mode=m;}" +
-                "function setCenter(lat,lng){map.setView([parseFloat(lat),parseFloat(lng)],17);sendCenter();}" +
-                "function setPoint(type,lat,lng,label){lat=parseFloat(lat);lng=parseFloat(lng);var mk=(type==='pickup')?pickup:delivery;if(mk){map.removeLayer(mk);}mk=L.marker([lat,lng],{icon:ic(type==='pickup'?'👤':'📍')}).addTo(map).bindPopup(label||'Lokasi');if(type==='pickup'){pickup=mk;}else{delivery=mk;}drawRoute();}" +
+                "function setCenter(lat,lng){programMove=true;map.setView([parseFloat(lat),parseFloat(lng)],17);setTimeout(function(){programMove=false;},700);}" +
+                "function setPoint(type,lat,lng,label){lat=parseFloat(lat);lng=parseFloat(lng);var mk=(type==='pickup')?pickup:delivery;if(mk){mk.setLatLng([lat,lng]);mk.setPopupContent(label||'Lokasi');}else{mk=L.marker([lat,lng],{icon:ic(type==='pickup'?'👤':'📍')}).addTo(map).bindPopup(label||'Lokasi');}if(type==='pickup'){pickup=mk;}else{delivery=mk;}if(line){map.removeLayer(line);line=null;}}" +
                 "function fallbackLine(a,b){if(line){map.removeLayer(line);}line=L.polyline([a,b],{weight:5,opacity:.88,color:'#0B7CFF'}).addTo(map);}" +
-                "function drawRoute(){if(!pickup||!delivery)return;var a=pickup.getLatLng(),b=delivery.getLatLng();var id=++routeReq;" +
+                "function drawRouteForOrder(){if(!pickup||!delivery)return;var a=pickup.getLatLng(),b=delivery.getLatLng();var id=++routeReq;" +
                 "var url='https://router.project-osrm.org/route/v1/driving/'+a.lng+','+a.lat+';'+b.lng+','+b.lat+'?overview=full&geometries=geojson&steps=false';" +
                 "fetch(url).then(function(r){return r.json();}).then(function(j){if(id!==routeReq)return;if(!j||!j.routes||!j.routes.length){fallbackLine(a,b);return;}" +
                 "var r=j.routes[0],cs=r.geometry.coordinates,pts=[];for(var i=0;i<cs.length;i++){pts.push([cs[i][1],cs[i][0]]);}if(line){map.removeLayer(line);}line=L.polyline(pts,{weight:5,opacity:.9,color:'#0B7CFF'}).addTo(map);" +
                 "try{AndroidTransRide.onRouteFound(r.distance/1000,r.duration);}catch(e){}" +
-                "try{map.fitBounds(line.getBounds(),{padding:[80,80]});}catch(e){}" +
+                "try{programMove=true;map.fitBounds(line.getBounds(),{padding:[90,90]});setTimeout(function(){programMove=false;},2200);}catch(e){}" +
                 "}).catch(function(e){fallbackLine(a,b);});}" +
-                "function sendCenter(){if(!ready)return;var c=map.getCenter();try{AndroidTransRide.onCenterChanged(mode,c.lat,c.lng);}catch(e){}}" +
+                "function sendCenter(){if(!ready||programMove)return;var c=map.getCenter();try{AndroidTransRide.onCenterChanged(mode,c.lat,c.lng);}catch(e){}}" +
                 "map.on('moveend',function(){clearTimeout(timer);timer=setTimeout(sendCenter,250);});" +
                 "setTimeout(function(){ready=true;map.invalidateSize();sendCenter();},900);" +
                 "</script></body></html>";
@@ -342,6 +343,9 @@ public class TransRideActivity extends Activity {
     public class MapBridge {
         @JavascriptInterface
         public void onCenterChanged(String mode, double lat, double lng) {
+            if (bridgeLocked) {
+                return;
+            }
             if (suppressBridgeOnce) {
                 suppressBridgeOnce = false;
                 return;
@@ -597,6 +601,13 @@ public class TransRideActivity extends Activity {
         if (deliveryLat == 0 || deliveryLng == 0) {
             showInfo("Tujuan Belum Ada", "Pilih titik tujuan terlebih dahulu.");
             return;
+        }
+        try {
+            bridgeLocked = true;
+            if (mapView != null) mapView.evaluateJavascript("drawRouteForOrder()", null);
+            mainHandler.postDelayed(() -> bridgeLocked = false, 2500);
+        } catch (Exception ignored) {
+            bridgeLocked = false;
         }
         double km = routeKm > 0 ? routeKm : haversineKm(pickupLat, pickupLng, deliveryLat, deliveryLng) * 1.25;
         int minutes = routeMinutes > 0 ? routeMinutes : Math.max(1, (int) Math.ceil(km * 4));
