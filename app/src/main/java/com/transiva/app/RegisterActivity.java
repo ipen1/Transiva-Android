@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
@@ -44,6 +45,8 @@ public class RegisterActivity extends Activity {
     private static final String SEND_OTP_URL = BASE_URL + "server/sendEmailOtp.php";
     private static final String VERIFY_OTP_URL = BASE_URL + "server/verifyEmailOtp.php";
     private static final String REGISTER_URL = BASE_URL + "server/register.php";
+    private static final String PRIVACY_URL = BASE_URL + "privacy.html";
+    private static final String TERMS_URL = BASE_URL + "terms.html";
     private static final int TIMEOUT_MS = 25000;
 
     private boolean otpVerified = false;
@@ -72,12 +75,10 @@ public class RegisterActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
         try {
-            getWindow().setStatusBarColor(Color.parseColor("#07142C"));
-            getWindow().setNavigationBarColor(Color.parseColor("#06142E"));
+            getWindow().setStatusBarColor(Color.parseColor("#0A1A2E"));
+            getWindow().setNavigationBarColor(Color.parseColor("#0A1A2E"));
         } catch (Exception ignored) {}
-
         buildLayout();
     }
 
@@ -92,50 +93,52 @@ public class RegisterActivity extends Activity {
 
     private void buildLayout() {
         FrameLayout page = new FrameLayout(this);
-        page.setBackground(roundGradientVertical("#07142C", "#101827", dp(0)));
+        page.setBackgroundColor(Color.parseColor("#F4F8FF"));
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
+        scroll.setFillViewport(false);
         page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(14), dp(38), dp(14), dp(34));
+        root.setPadding(dp(18), dp(16), dp(18), dp(20));
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         ImageView logo = new ImageView(this);
-        int logoRes = getDrawableId("transiva_logo");
-        if (logoRes == 0) logoRes = getDrawableId("logo_transiva");
-        if (logoRes == 0) logoRes = getDrawableId("logo");
+        int logoRes = findDrawable("transiva_logo");
+        if (logoRes == 0) logoRes = findDrawable("logo_transiva");
+        if (logoRes == 0) logoRes = findDrawable("logo");
         if (logoRes == 0) logoRes = getApplicationInfo().icon;
         logo.setImageResource(logoRes);
         logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(116), dp(64));
-        logoLp.setMargins(0, 0, 0, dp(20));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(165), dp(62));
+        logoLp.setMargins(0, dp(2), 0, dp(4));
         root.addView(logo, logoLp);
+
+        TextView title = text("Daftar Transiva", 25, "#123F7A", true);
+        title.setGravity(Gravity.CENTER);
+        root.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView sub = text("Buat akun untuk mulai menggunakan layanan", 14, "#667085", false);
+        sub.setGravity(Gravity.CENTER);
+        sub.setPadding(dp(4), dp(6), dp(4), dp(14));
+        root.addView(sub, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(20), dp(24), dp(20), dp(20));
-        card.setBackground(roundStroke("#111A2B", "#26324A", dp(28), 1));
-        card.setElevation(dp(6));
-        root.addView(card, new LinearLayout.LayoutParams(-1, -2));
+        card.setPadding(dp(18), dp(18), dp(18), dp(18));
+        card.setBackground(roundStroke("#FFFFFF", "#EEF3FA", dp(24), 1));
+        card.setElevation(dp(5));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
+        cardLp.setMargins(0, 0, 0, dp(18));
+        root.addView(card, cardLp);
 
-        TextView title = text("Daftar Transiva", 26, "#F8FAFC", true);
-        title.setGravity(Gravity.CENTER);
-        card.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView subtitle = text("Buat akun untuk mulai pesan atau menerima layanan", 15, "#9AA7BB", false);
-        subtitle.setGravity(Gravity.CENTER);
-        subtitle.setPadding(0, dp(8), 0, dp(18));
-        card.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
-
-        messageText = text("", 13, "#FECACA", true);
+        messageText = text("", 12, "#B91C1C", true);
         messageText.setVisibility(View.GONE);
-        messageText.setPadding(dp(14), dp(12), dp(14), dp(12));
+        messageText.setPadding(dp(12), dp(9), dp(12), dp(9));
         LinearLayout.LayoutParams msgLp = new LinearLayout.LayoutParams(-1, -2);
-        msgLp.setMargins(0, 0, 0, dp(14));
+        msgLp.setMargins(0, 0, 0, dp(10));
         card.addView(messageText, msgLp);
 
         card.addView(label("Nama Pengguna"));
@@ -148,24 +151,31 @@ public class RegisterActivity extends Activity {
         emailInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         card.addView(emailInput, fieldLp());
 
-        sendOtpBtn = secondaryButton("Kirim Kode OTP");
-        LinearLayout.LayoutParams otpBtnLp = new LinearLayout.LayoutParams(-1, dp(48));
-        otpBtnLp.setMargins(0, 0, 0, dp(12));
-        card.addView(sendOtpBtn, otpBtnLp);
+        sendOtpBtn = secondaryButton("Kirim OTP");
+        LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(-1, dp(44));
+        sendLp.setMargins(0, 0, 0, dp(10));
+        card.addView(sendOtpBtn, sendLp);
 
         card.addView(label("Kode OTP"));
-        otpInput = input("Masukkan 6 digit OTP", InputType.TYPE_CLASS_NUMBER, 6);
+        LinearLayout otpRow = new LinearLayout(this);
+        otpRow.setOrientation(LinearLayout.HORIZONTAL);
+        otpRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams otpRowLp = new LinearLayout.LayoutParams(-1, dp(48));
+        otpRowLp.setMargins(0, 0, 0, dp(8));
+        card.addView(otpRow, otpRowLp);
+
+        otpInput = input("6 digit OTP", InputType.TYPE_CLASS_NUMBER, 6);
         otpInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
-        card.addView(otpInput, fieldLp());
+        LinearLayout.LayoutParams otpInputLp = new LinearLayout.LayoutParams(0, -1, 1f);
+        otpInputLp.setMargins(0, 0, dp(8), 0);
+        otpRow.addView(otpInput, otpInputLp);
 
-        verifyOtpBtn = secondaryButton("Verifikasi OTP");
-        LinearLayout.LayoutParams verifyLp = new LinearLayout.LayoutParams(-1, dp(48));
-        verifyLp.setMargins(0, 0, 0, dp(8));
-        card.addView(verifyOtpBtn, verifyLp);
+        verifyOtpBtn = secondaryButton("Verifikasi");
+        otpRow.addView(verifyOtpBtn, new LinearLayout.LayoutParams(dp(108), -1));
 
-        otpStatusText = text("OTP boleh dikosongkan, admin dapat verifikasi manual.", 12, "#7FA6D9", false);
+        otpStatusText = text("OTP boleh dikosongkan, admin dapat verifikasi manual.", 11, "#667085", false);
         otpStatusText.setGravity(Gravity.CENTER);
-        otpStatusText.setPadding(0, 0, 0, dp(12));
+        otpStatusText.setPadding(0, 0, 0, dp(8));
         card.addView(otpStatusText, new LinearLayout.LayoutParams(-1, -2));
 
         card.addView(label("Kata Sandi"));
@@ -174,41 +184,41 @@ public class RegisterActivity extends Activity {
         card.addView(passwordInput, fieldLp());
 
         card.addView(label("Konfirmasi Kata Sandi"));
-        confirmPasswordInput = input("Masukkan Kembali Kata Sandi", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, 100);
+        confirmPasswordInput = input("Ulangi Kata Sandi", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD, 100);
         confirmPasswordInput.setImeOptions(EditorInfo.IME_ACTION_DONE);
         card.addView(confirmPasswordInput, fieldLp());
 
-        registerBtn = primaryButton("Buat Akun");
-        LinearLayout.LayoutParams registerLp = new LinearLayout.LayoutParams(-1, dp(56));
-        registerLp.setMargins(0, dp(6), 0, dp(16));
+        registerBtn = new Button(this);
+        registerBtn.setAllCaps(false);
+        registerBtn.setText("Buat Akun   →");
+        registerBtn.setTextSize(16);
+        registerBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        registerBtn.setTextColor(Color.WHITE);
+        registerBtn.setBackground(roundGradient("#006BEF", "#2E9BFF", dp(16)));
+        LinearLayout.LayoutParams registerLp = new LinearLayout.LayoutParams(-1, dp(52));
+        registerLp.setMargins(0, dp(6), 0, dp(14));
         card.addView(registerBtn, registerLp);
 
-        TextView toLogin = text("Sudah punya akun? Masuk", 15, "#58A6FF", true);
+        TextView toLogin = text("Sudah punya akun? Masuk", 14, "#1685F2", true);
         toLogin.setGravity(Gravity.CENTER);
-        toLogin.setPadding(0, dp(4), 0, dp(8));
+        toLogin.setPadding(0, dp(2), 0, dp(14));
         card.addView(toLogin, new LinearLayout.LayoutParams(-1, -2));
-
-        View divider = new View(this);
-        divider.setBackgroundColor(Color.parseColor("#26324A"));
-        LinearLayout.LayoutParams divLp = new LinearLayout.LayoutParams(-1, dp(1));
-        divLp.setMargins(0, dp(10), 0, dp(14));
-        card.addView(divider, divLp);
 
         LinearLayout legal = new LinearLayout(this);
         legal.setGravity(Gravity.CENTER);
         legal.setOrientation(LinearLayout.HORIZONTAL);
         card.addView(legal, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView privacy = pillText("Kebijakan Privasi");
+        TextView privacy = text("Kebijakan Privasi", 12, "#1685F2", true);
+        TextView sep = text("   |   ", 12, "#CBD5E1", false);
+        TextView terms = text("Syarat & Ketentuan", 12, "#1685F2", true);
         legal.addView(privacy);
-        TextView dot = text("  •  ", 13, "#9AA7BB", false);
-        legal.addView(dot);
-        TextView terms = pillText("Syarat & Ketentuan");
+        legal.addView(sep);
         legal.addView(terms);
 
         progressBar = new ProgressBar(this);
         progressBar.setVisibility(View.GONE);
-        FrameLayout.LayoutParams progressLp = new FrameLayout.LayoutParams(dp(54), dp(54));
+        FrameLayout.LayoutParams progressLp = new FrameLayout.LayoutParams(dp(52), dp(52));
         progressLp.gravity = Gravity.CENTER;
         page.addView(progressBar, progressLp);
 
@@ -246,6 +256,8 @@ public class RegisterActivity extends Activity {
         verifyOtpBtn.setOnClickListener(v -> verifyOtp());
         registerBtn.setOnClickListener(v -> registerUser());
         toLogin.setOnClickListener(v -> openLogin());
+        privacy.setOnClickListener(v -> openBrowser(PRIVACY_URL));
+        terms.setOnClickListener(v -> openBrowser(TERMS_URL));
 
         confirmPasswordInput.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER;
@@ -266,7 +278,7 @@ public class RegisterActivity extends Activity {
 
         otpVerified = false;
         lastEmail = "";
-        setGlobalLoading(true, sendOtpBtn, "Mengirim OTP...");
+        setGlobalLoading(true, sendOtpBtn, "Mengirim...");
 
         runNetwork(() -> {
             JSONObject result;
@@ -279,14 +291,14 @@ public class RegisterActivity extends Activity {
             }
             JSONObject finalResult = result;
             mainHandler.post(() -> {
-                setGlobalLoading(false, sendOtpBtn, "Kirim Kode OTP");
+                setGlobalLoading(false, sendOtpBtn, "Kirim OTP");
                 if (!finalResult.optBoolean("success", false)) {
                     showMessage(finalResult.optString("message", "Gagal mengirim OTP"), false);
                     return;
                 }
                 lastEmail = email;
                 otpStatusText.setText("Kode OTP sudah dikirim ke email.");
-                otpStatusText.setTextColor(Color.parseColor("#86EFAC"));
+                otpStatusText.setTextColor(Color.parseColor("#166534"));
                 showMessage("Kode OTP berhasil dikirim", true);
                 startResendCooldown();
                 otpInput.requestFocus();
@@ -303,7 +315,7 @@ public class RegisterActivity extends Activity {
         if (!otp.matches("^[0-9]{6}$")) { showMessage("OTP harus 6 angka", false); return; }
         if (lastEmail.isEmpty() || !email.equals(lastEmail)) { showMessage("Kirim OTP ke email ini terlebih dahulu", false); return; }
 
-        setGlobalLoading(true, verifyOtpBtn, "Memverifikasi...");
+        setGlobalLoading(true, verifyOtpBtn, "Cek...");
         runNetwork(() -> {
             JSONObject result;
             try {
@@ -316,7 +328,7 @@ public class RegisterActivity extends Activity {
             }
             JSONObject finalResult = result;
             mainHandler.post(() -> {
-                setGlobalLoading(false, verifyOtpBtn, "Verifikasi OTP");
+                setGlobalLoading(false, verifyOtpBtn, "Verifikasi");
                 if (!finalResult.optBoolean("success", false)) {
                     otpVerified = false;
                     showMessage(finalResult.optString("message", "OTP salah"), false);
@@ -327,10 +339,10 @@ public class RegisterActivity extends Activity {
                 emailInput.setEnabled(false);
                 otpInput.setEnabled(false);
                 verifyOtpBtn.setEnabled(false);
-                verifyOtpBtn.setText("OTP Terverifikasi");
-                verifyOtpBtn.setBackground(roundGradient("#22C55E", "#16A34A", dp(18)));
+                verifyOtpBtn.setText("Verified");
+                verifyOtpBtn.setBackground(roundGradient("#16A34A", "#22C55E", dp(16)));
                 otpStatusText.setText("Email berhasil diverifikasi.");
-                otpStatusText.setTextColor(Color.parseColor("#86EFAC"));
+                otpStatusText.setTextColor(Color.parseColor("#166534"));
                 showMessage("Email berhasil diverifikasi", true);
                 passwordInput.requestFocus();
             });
@@ -353,7 +365,7 @@ public class RegisterActivity extends Activity {
         if (!password.equals(confirmPassword)) { showMessage("Konfirmasi Kata Sandi tidak cocok", false); return; }
 
         int emailVerified = otpVerified && email.equals(lastEmail) ? 1 : 0;
-        setGlobalLoading(true, registerBtn, "Membuat Akun...");
+        setGlobalLoading(true, registerBtn, "Membuat...");
 
         runNetwork(() -> {
             JSONObject result;
@@ -370,12 +382,12 @@ public class RegisterActivity extends Activity {
             }
             JSONObject finalResult = result;
             mainHandler.post(() -> {
-                setGlobalLoading(false, registerBtn, "Buat Akun");
+                setGlobalLoading(false, registerBtn, "Buat Akun   →");
                 if (!finalResult.optBoolean("success", false)) {
                     showMessage(finalResult.optString("message", "Gagal membuat akun"), false);
                     return;
                 }
-                showMessage(emailVerified == 1 ? "Akun berhasil dibuat dan email sudah terverifikasi" : "Akun berhasil dibuat. Email belum terverifikasi, admin dapat memverifikasi manual.", true);
+                showMessage(emailVerified == 1 ? "Akun berhasil dibuat dan email sudah terverifikasi" : "Akun berhasil dibuat. Email belum terverifikasi.", true);
                 mainHandler.postDelayed(this::openLogin, 1200);
             });
         });
@@ -441,10 +453,10 @@ public class RegisterActivity extends Activity {
         otpInput.setEnabled(true);
         emailInput.setEnabled(true);
         verifyOtpBtn.setEnabled(true);
-        verifyOtpBtn.setText("Verifikasi OTP");
-        verifyOtpBtn.setBackground(roundGradient("#0F6ABF", "#123F6D", dp(18)));
+        verifyOtpBtn.setText("Verifikasi");
+        verifyOtpBtn.setBackground(roundGradient("#006BEF", "#2E9BFF", dp(16)));
         otpStatusText.setText("OTP boleh dikosongkan, admin dapat verifikasi manual.");
-        otpStatusText.setTextColor(Color.parseColor("#7FA6D9"));
+        otpStatusText.setTextColor(Color.parseColor("#667085"));
     }
 
     private void setGlobalLoading(boolean value, Button activeButton, String text) {
@@ -460,7 +472,7 @@ public class RegisterActivity extends Activity {
         registerBtn.setEnabled(!value);
         activeButton.setText(text);
         activeButton.setAlpha(value ? 0.75f : 1f);
-        if (!value && activeButton != verifyOtpBtn) activeButton.setAlpha(1f);
+        if (!value) activeButton.setAlpha(1f);
     }
 
     private JSONObject error(String message) {
@@ -472,8 +484,8 @@ public class RegisterActivity extends Activity {
     private void showMessage(String message, boolean success) {
         messageText.setVisibility(View.VISIBLE);
         messageText.setText(message);
-        messageText.setTextColor(Color.parseColor(success ? "#BBF7D0" : "#FECACA"));
-        messageText.setBackground(round(success ? "#123B2A" : "#4A1E2A", dp(14)));
+        messageText.setTextColor(Color.parseColor(success ? "#166534" : "#B91C1C"));
+        messageText.setBackground(round(success ? "#DCFCE7" : "#FEE2E2", dp(12)));
     }
 
     private void clearMessage() {
@@ -482,59 +494,40 @@ public class RegisterActivity extends Activity {
     }
 
     private TextView label(String value) {
-        TextView tv = text(value, 14, "#F1F5F9", true);
-        tv.setPadding(0, dp(8), 0, dp(7));
+        TextView tv = text(value, 14, "#123F7A", true);
+        tv.setPadding(0, dp(5), 0, dp(6));
         return tv;
     }
 
     private EditText input(String hint, int inputType, int maxLength) {
         EditText et = new EditText(this);
-        et.setHint(hint);
-        et.setTextSize(16);
-        et.setTextColor(Color.parseColor("#F8FAFC"));
-        et.setHintTextColor(Color.parseColor("#6D7890"));
         et.setSingleLine(true);
+        et.setTextSize(14);
+        et.setTextColor(Color.parseColor("#1F2937"));
+        et.setHintTextColor(Color.parseColor("#98A2B3"));
+        et.setHint(hint);
         et.setInputType(inputType);
         et.setFilters(new InputFilter[]{new InputFilter.LengthFilter(maxLength)});
         et.setPadding(dp(16), 0, dp(16), 0);
-        et.setBackground(roundStroke("#111827", "#26324A", dp(18), 1));
+        et.setBackground(roundStroke("#FFFFFF", "#D8E1ED", dp(16), 1));
         return et;
     }
 
     private LinearLayout.LayoutParams fieldLp() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(56));
-        lp.setMargins(0, 0, 0, dp(12));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(48));
+        lp.setMargins(0, 0, 0, dp(10));
         return lp;
-    }
-
-    private Button primaryButton(String value) {
-        Button btn = new Button(this);
-        btn.setText(value);
-        btn.setAllCaps(false);
-        btn.setTextSize(16);
-        btn.setTypeface(Typeface.DEFAULT_BOLD);
-        btn.setTextColor(Color.WHITE);
-        btn.setBackground(roundGradient("#2F78FF", "#F47B22", dp(18)));
-        return btn;
     }
 
     private Button secondaryButton(String value) {
         Button btn = new Button(this);
         btn.setText(value);
         btn.setAllCaps(false);
-        btn.setTextSize(14);
+        btn.setTextSize(13);
         btn.setTypeface(Typeface.DEFAULT_BOLD);
         btn.setTextColor(Color.WHITE);
-        btn.setBackground(roundGradient("#0F6ABF", "#123F6D", dp(18)));
+        btn.setBackground(roundGradient("#006BEF", "#2E9BFF", dp(16)));
         return btn;
-    }
-
-    private TextView pillText(String value) {
-        TextView tv = text(value, 13, "#168BD2", true);
-        tv.setGravity(Gravity.CENTER);
-        tv.setPadding(dp(12), dp(8), dp(12), dp(8));
-        tv.setBackground(round("#112F4A", dp(22)));
-        return tv;
     }
 
     private TextView text(String value, int sp, String color, boolean bold) {
@@ -542,6 +535,7 @@ public class RegisterActivity extends Activity {
         tv.setText(value);
         tv.setTextSize(sp);
         tv.setTextColor(Color.parseColor(color));
+        tv.setIncludeFontPadding(true);
         if (bold) tv.setTypeface(Typeface.DEFAULT_BOLD);
         return tv;
     }
@@ -565,12 +559,6 @@ public class RegisterActivity extends Activity {
         return gd;
     }
 
-    private GradientDrawable roundGradientVertical(String start, String end, int radius) {
-        GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{Color.parseColor(start), Color.parseColor(end)});
-        gd.setCornerRadius(radius);
-        return gd;
-    }
-
     private boolean isValidEmail(String email) { return EMAIL_PATTERN.matcher(email).matches(); }
 
     private String cleanUsername(String value) {
@@ -588,10 +576,16 @@ public class RegisterActivity extends Activity {
         finish();
     }
 
+    private void openBrowser(String url) {
+        try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
+        catch (Exception ignored) {}
+    }
+
     private void runNetwork(Runnable runnable) { new Thread(runnable).start(); }
 
-    private int getDrawableId(String name) {
-        try { return getResources().getIdentifier(name, "drawable", getPackageName()); } catch (Exception e) { return 0; }
+    private int findDrawable(String name) {
+        try { return getResources().getIdentifier(name, "drawable", getPackageName()); }
+        catch (Exception e) { return 0; }
     }
 
     private int dp(int value) {
