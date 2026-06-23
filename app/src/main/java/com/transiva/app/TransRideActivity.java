@@ -29,6 +29,9 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 
 import org.json.JSONObject;
 
@@ -67,6 +70,7 @@ public class TransRideActivity extends Activity {
     private Button linkBtn;
     private Button orderBtn;
     private ProgressBar progressBar;
+    private WebView mapView;
 
     private LocationManager locationManager;
     private boolean loading = false;
@@ -144,6 +148,8 @@ public class TransRideActivity extends Activity {
         Button close = smallButton("Tutup", "#FFFFFF", "#0B7CFF", "#9DCAFF");
         header.addView(close, new LinearLayout.LayoutParams(dp(82), dp(42)));
         close.setOnClickListener(v -> finish());
+
+        buildMapCard(root);
 
         LinearLayout locCard = card("#FFFFFF", "#D7E6F8", 24);
         root.addView(locCard, lp(-1, -2, 0, 0, 0, 14));
@@ -230,6 +236,90 @@ public class TransRideActivity extends Activity {
         page.addView(progressBar, pLp);
 
         setContentView(page);
+    }
+
+    private void buildMapCard(LinearLayout root) {
+        LinearLayout mapCard = card("#FFFFFF", "#D7E6F8", 22);
+        mapCard.setOrientation(LinearLayout.VERTICAL);
+        root.addView(mapCard, lp(-1, -2, 0, 0, 0, 14));
+
+        LinearLayout mapHeader = new LinearLayout(this);
+        mapHeader.setOrientation(LinearLayout.HORIZONTAL);
+        mapHeader.setGravity(Gravity.CENTER_VERTICAL);
+        mapCard.addView(mapHeader, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView title = text("Peta TransRide", 15, "#0B3A78", true);
+        mapHeader.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+
+        Button gps = smallButton("GPS", "#EAF4FF", "#0B7CFF", "#B9DBFF");
+        mapHeader.addView(gps, new LinearLayout.LayoutParams(dp(76), dp(38)));
+        gps.setOnClickListener(v -> getCurrentLocation("pickup"));
+
+        mapView = new WebView(this);
+        mapView.setBackgroundColor(Color.TRANSPARENT);
+        mapView.setWebViewClient(new WebViewClient());
+        WebSettings settings = mapView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        mapView.loadDataWithBaseURL(
+                "https://transiva.my.id/",
+                mapHtml(),
+                "text/html",
+                "UTF-8",
+                null
+        );
+
+        LinearLayout.LayoutParams mapLp = new LinearLayout.LayoutParams(-1, dp(250));
+        mapLp.setMargins(0, dp(10), 0, 0);
+        mapCard.addView(mapView, mapLp);
+
+        TextView hint = text("Geser/zoom peta untuk melihat rute. Titik jemput dan tujuan akan muncul setelah dipilih.", 11, "#64748B", false);
+        hint.setPadding(0, dp(8), 0, 0);
+        mapCard.addView(hint);
+    }
+
+    private String mapHtml() {
+        return "<!DOCTYPE html>" +
+                "<html><head><meta name='viewport' content='width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'>" +
+                "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>" +
+                "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>" +
+                "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eaf4ff;}" +
+                ".leaflet-control-attribution{font-size:9px;}" +
+                ".pin{font-size:26px;line-height:26px;text-align:center;}" +
+                "</style></head><body><div id='map'></div>" +
+                "<script>" +
+                "var map=L.map('map',{zoomControl:true,attributionControl:true}).setView([-0.82,120.17],13);" +
+                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OSM'}).addTo(map);" +
+                "var pickup=null,delivery=null,line=null;" +
+                "function icon(t){return L.divIcon({html:'<div class=\"pin\">'+t+'</div>',className:'',iconSize:[30,30],iconAnchor:[15,28]});}" +
+                "function setPoint(type,lat,lng,label){" +
+                "lat=parseFloat(lat);lng=parseFloat(lng);" +
+                "if(type==='pickup'){if(pickup){map.removeLayer(pickup);}pickup=L.marker([lat,lng],{icon:icon('👤')}).addTo(map).bindPopup(label||'Lokasi Jemput');}" +
+                "else{if(delivery){map.removeLayer(delivery);}delivery=L.marker([lat,lng],{icon:icon('📍')}).addTo(map).bindPopup(label||'Lokasi Tujuan');}" +
+                "drawRoute();" +
+                "}" +
+                "function drawRoute(){" +
+                "if(line){map.removeLayer(line);line=null;}" +
+                "if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();line=L.polyline([a,b],{weight:5,opacity:.85}).addTo(map);map.fitBounds(line.getBounds(),{padding:[35,35]});}" +
+                "else if(pickup){map.setView(pickup.getLatLng(),16);}" +
+                "else if(delivery){map.setView(delivery.getLatLng(),16);}" +
+                "}" +
+                "function centerTo(lat,lng){map.setView([parseFloat(lat),parseFloat(lng)],16);}" +
+                "setTimeout(function(){map.invalidateSize();},500);" +
+                "</script></body></html>";
+    }
+
+    private void updateMapPoint(String type, double lat, double lng, String label) {
+        if (mapView == null || lat == 0 || lng == 0) return;
+        String safeLabel = label == null ? "" : label.replace("\", "\\").replace("'", "\'").replace("
+", " ");
+        String js = "javascript:setPoint('" + type + "'," + lat + "," + lng + ",'" + safeLabel + "')";
+        mainHandler.postDelayed(() -> {
+            try { mapView.evaluateJavascript(js, null); } catch (Exception ignored) {}
+        }, 350);
     }
 
     private TextView locationRow(LinearLayout parent, String emoji, String title, String subtitle) {
@@ -401,12 +491,14 @@ public class TransRideActivity extends Activity {
     private void updateLocationTexts() {
         if (pickupLat != 0 && pickupLng != 0) {
             pickupText.setText(shortAddr(pickupAddress) + "\n" + fmt(pickupLat) + ", " + fmt(pickupLng));
+            updateMapPoint("pickup", pickupLat, pickupLng, shortAddr(pickupAddress));
         } else {
             pickupText.setText("Belum dipilih");
         }
 
         if (deliveryLat != 0 && deliveryLng != 0) {
             deliveryText.setText(shortAddr(deliveryAddress) + "\n" + fmt(deliveryLat) + ", " + fmt(deliveryLng));
+            updateMapPoint("delivery", deliveryLat, deliveryLng, shortAddr(deliveryAddress));
         } else {
             deliveryText.setText("Belum dipilih");
         }
@@ -602,6 +694,18 @@ public class TransRideActivity extends Activity {
             if (ok) getCurrentLocation(pickingMode);
             else showInfo("Izin Lokasi Ditolak", "TransRide membutuhkan izin lokasi agar titik jemput akurat.");
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        try {
+            if (mapView != null) {
+                mapView.stopLoading();
+                mapView.destroy();
+                mapView = null;
+            }
+        } catch (Exception ignored) {}
+        super.onDestroy();
     }
 
     private void setLoading(boolean value, String text) {
