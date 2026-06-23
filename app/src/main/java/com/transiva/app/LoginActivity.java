@@ -80,7 +80,7 @@ public class LoginActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(dp(20), dp(28), dp(20), dp(28));
+        root.setPadding(dp(18), dp(18), dp(18), dp(20));
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         ImageView logo = new ImageView(this);
@@ -90,29 +90,29 @@ public class LoginActivity extends Activity {
         if (logoRes == 0) logoRes = getApplicationInfo().icon;
         logo.setImageResource(logoRes);
         logo.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(210), dp(92));
-        logoLp.setMargins(0, dp(8), 0, dp(8));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(175), dp(70));
+        logoLp.setMargins(0, dp(4), 0, dp(4));
         root.addView(logo, logoLp);
 
-        TextView title = text("Masuk Transiva", 30, "#123F7A", true);
+        TextView title = text("Masuk Transiva", 26, "#123F7A", true);
         title.setGravity(Gravity.CENTER);
         root.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView sub = text("Masuk untuk mulai pesan atau menerima order", 16, "#667085", false);
+        TextView sub = text("Masuk untuk mulai pesan atau menerima order", 14, "#667085", false);
         sub.setGravity(Gravity.CENTER);
-        sub.setPadding(dp(4), dp(8), dp(4), dp(22));
+        sub.setPadding(dp(4), dp(6), dp(4), dp(16));
         root.addView(sub, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(22), dp(24), dp(22), dp(22));
-        card.setBackground(roundStroke("#FFFFFF", "#EEF3FA", dp(28), 1));
+        card.setPadding(dp(18), dp(20), dp(18), dp(18));
+        card.setBackground(roundStroke("#FFFFFF", "#EEF3FA", dp(24), 1));
         card.setElevation(dp(5));
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
         cardLp.setMargins(0, 0, 0, dp(18));
         root.addView(card, cardLp);
 
-        messageText = text("", 13, "#D32F2F", true);
+        messageText = text("", 12, "#D32F2F", true);
         messageText.setVisibility(View.GONE);
         messageText.setPadding(dp(14), dp(10), dp(14), dp(10));
         LinearLayout.LayoutParams msgLp = new LinearLayout.LayoutParams(-1, -2);
@@ -132,42 +132,42 @@ public class LoginActivity extends Activity {
         eyeBtn.setBackgroundColor(Color.TRANSPARENT);
         eyeBtn.setImageResource(android.R.drawable.ic_menu_view);
         eyeBtn.setColorFilter(Color.parseColor("#1E88F5"));
-        FrameLayout.LayoutParams eyeLp = new FrameLayout.LayoutParams(dp(48), dp(48));
+        FrameLayout.LayoutParams eyeLp = new FrameLayout.LayoutParams(dp(42), dp(42));
         eyeLp.gravity = Gravity.RIGHT | Gravity.CENTER_VERTICAL;
-        eyeLp.rightMargin = dp(6);
+        eyeLp.rightMargin = dp(4);
         passBox.addView(eyeBtn, eyeLp);
         card.addView(passBox, fieldLp());
 
         loginBtn = new Button(this);
         loginBtn.setAllCaps(false);
         loginBtn.setText("Masuk   →");
-        loginBtn.setTextSize(20);
+        loginBtn.setTextSize(17);
         loginBtn.setTypeface(Typeface.DEFAULT_BOLD);
         loginBtn.setTextColor(Color.WHITE);
-        loginBtn.setBackground(roundGradient("#006BEF", "#2E9BFF", dp(18)));
-        LinearLayout.LayoutParams loginLp = new LinearLayout.LayoutParams(-1, dp(58));
-        loginLp.setMargins(0, dp(12), 0, dp(18));
+        loginBtn.setBackground(roundGradient("#006BEF", "#2E9BFF", dp(16)));
+        LinearLayout.LayoutParams loginLp = new LinearLayout.LayoutParams(-1, dp(52));
+        loginLp.setMargins(0, dp(8), 0, dp(14));
         card.addView(loginBtn, loginLp);
 
-        TextView register = text("Belum punya akun? Daftar", 16, "#1685F2", true);
+        TextView register = text("Belum punya akun? Daftar", 14, "#1685F2", true);
         register.setGravity(Gravity.CENTER);
-        register.setPadding(0, dp(4), 0, dp(18));
+        register.setPadding(0, dp(2), 0, dp(14));
         card.addView(register, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout versionBox = new LinearLayout(this);
         versionBox.setOrientation(LinearLayout.HORIZONTAL);
         versionBox.setGravity(Gravity.CENTER_VERTICAL);
-        versionBox.setPadding(dp(14), dp(14), dp(14), dp(14));
-        versionBox.setBackground(round("#F1F6FF", dp(18)));
+        versionBox.setPadding(dp(12), dp(10), dp(12), dp(10));
+        versionBox.setBackground(round("#F1F6FF", dp(16)));
         LinearLayout.LayoutParams versionBoxLp = new LinearLayout.LayoutParams(-1, -2);
-        versionBoxLp.setMargins(0, 0, 0, dp(16));
+        versionBoxLp.setMargins(0, 0, 0, dp(14));
         card.addView(versionBox, versionBoxLp);
 
-        TextView shield = text("✓", 24, "#FFFFFF", true);
+        TextView shield = text("✓", 22, "#FFFFFF", true);
         shield.setGravity(Gravity.CENTER);
         shield.setBackground(round("#1685F2", dp(34)));
-        LinearLayout.LayoutParams shieldLp = new LinearLayout.LayoutParams(dp(54), dp(54));
-        shieldLp.setMargins(0, 0, dp(12), 0);
+        LinearLayout.LayoutParams shieldLp = new LinearLayout.LayoutParams(dp(46), dp(46));
+        shieldLp.setMargins(0, 0, dp(10), 0);
         versionBox.addView(shield, shieldLp);
 
         LinearLayout verTexts = new LinearLayout(this);
@@ -175,29 +175,29 @@ public class LoginActivity extends Activity {
         LinearLayout.LayoutParams verTextsLp = new LinearLayout.LayoutParams(0, -2, 1f);
         versionBox.addView(verTexts, verTextsLp);
 
-        versionText = text("Versi Aplikasi : 1.0", 15, "#123F7A", true);
+        versionText = text("Versi Aplikasi : 1.0", 13, "#123F7A", true);
         verTexts.addView(versionText, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView verSub = text("Aplikasi selalu diperbarui", 12, "#667085", false);
+        TextView verSub = text("Aplikasi selalu diperbarui", 11, "#667085", false);
         verTexts.addView(verSub, new LinearLayout.LayoutParams(-1, -2));
 
         updateBtn = new Button(this);
         updateBtn.setAllCaps(false);
         updateBtn.setText("Cek");
-        updateBtn.setTextSize(13);
+        updateBtn.setTextSize(12);
         updateBtn.setTypeface(Typeface.DEFAULT_BOLD);
         updateBtn.setTextColor(Color.parseColor("#1685F2"));
         updateBtn.setBackground(roundStroke("#FFFFFF", "#9BCBFF", dp(16), 1));
-        versionBox.addView(updateBtn, new LinearLayout.LayoutParams(dp(86), dp(46)));
+        versionBox.addView(updateBtn, new LinearLayout.LayoutParams(dp(74), dp(40)));
 
         LinearLayout legal = new LinearLayout(this);
         legal.setGravity(Gravity.CENTER);
         legal.setOrientation(LinearLayout.HORIZONTAL);
         card.addView(legal, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView privacy = text("Kebijakan Privasi", 13, "#1685F2", true);
-        TextView sep = text("   |   ", 13, "#CBD5E1", false);
-        TextView terms = text("Syarat & Ketentuan", 13, "#1685F2", true);
+        TextView privacy = text("Kebijakan Privasi", 12, "#1685F2", true);
+        TextView sep = text("   |   ", 12, "#CBD5E1", false);
+        TextView terms = text("Syarat & Ketentuan", 12, "#1685F2", true);
         legal.addView(privacy);
         legal.addView(sep);
         legal.addView(terms);
@@ -240,21 +240,21 @@ public class LoginActivity extends Activity {
     }
 
     private TextView label(String value) {
-        TextView tv = text(value, 16, "#123F7A", true);
-        tv.setPadding(0, dp(8), 0, dp(8));
+        TextView tv = text(value, 14, "#123F7A", true);
+        tv.setPadding(0, dp(5), 0, dp(6));
         return tv;
     }
 
     private EditText input(String hint, int type, String icon, boolean hasEye) {
         EditText et = new EditText(this);
         et.setSingleLine(true);
-        et.setTextSize(16);
+        et.setTextSize(14);
         et.setTextColor(Color.parseColor("#1F2937"));
         et.setHintTextColor(Color.parseColor("#98A2B3"));
         et.setHint(hint);
         et.setInputType(type);
-        et.setPadding(dp(56), 0, hasEye ? dp(58) : dp(16), 0);
-        et.setBackground(roundStroke("#FFFFFF", "#D8E1ED", dp(18), 1));
+        et.setPadding(dp(18), 0, hasEye ? dp(46) : dp(18), 0);
+        et.setBackground(roundStroke("#FFFFFF", "#D8E1ED", dp(16), 1));
         et.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
         et.setTextAlignment(View.TEXT_ALIGNMENT_VIEW_START);
 
@@ -264,8 +264,8 @@ public class LoginActivity extends Activity {
     }
 
     private LinearLayout.LayoutParams fieldLp() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(58));
-        lp.setMargins(0, 0, 0, dp(16));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(50));
+        lp.setMargins(0, 0, 0, dp(12));
         return lp;
     }
 
