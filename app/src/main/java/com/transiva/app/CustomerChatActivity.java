@@ -4,10 +4,11 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -19,11 +20,11 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -38,36 +39,41 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 
 public class CustomerChatActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
-    private static final String PREF_NAME = "transiva";
-    private static final int TIMEOUT_MS = 18000;
-    private static final int REFRESH_MS = 2000;
+    private static final String GET_CHAT_URL = BASE_URL + "server/getChat.php";
+    private static final String SEND_CHAT_URL = BASE_URL + "server/sendChat.php";
+    private static final int TIMEOUT_MS = 20000;
+    private static final long REFRESH_MS = 2000L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final List<ChatMessage> messages = new ArrayList<>();
 
-    private LinearLayout messageList;
-    private ScrollView scrollView;
-    private EditText inputText;
+    private LinearLayout messagesBox;
+    private ScrollView messagesScroll;
+    private TextView driverNameText;
+    private TextView driverInfoText;
+    private TextView statusText;
+    private ImageView driverPhotoView;
+    private EditText chatInput;
     private Button sendBtn;
-    private Button backBtn;
-    private TextView titleText;
-    private TextView subTitleText;
     private ProgressBar progressBar;
 
-    private boolean sending = false;
-    private boolean loading = false;
-    private boolean destroyed = false;
     private String orderId = "";
     private String roomId = "";
     private String driverName = "Driver";
+    private String driverPlate = "";
+    private String driverPhoto = "";
+    private String orderStatus = "";
+
+    private int lastId = 0;
+    private boolean sending = false;
+    private boolean loading = false;
+    private boolean destroyed = false;
+    private boolean firstLoad = true;
 
     private final Runnable refreshRunnable = new Runnable() {
         @Override public void run() {
@@ -86,11 +92,11 @@ public class CustomerChatActivity extends Activity {
             getWindow().setNavigationBarColor(Color.parseColor("#071426"));
         } catch (Exception ignored) {}
 
-        resolveRoomData();
+        readIntentAndPrefs();
         buildLayout();
 
         if (roomId.length() == 0) {
-            showInfo("Chat Tidak Valid", "Room chat tidak ditemukan.");
+            showInfo("Chat", "Room chat tidak ditemukan.", true);
             return;
         }
 
@@ -98,46 +104,39 @@ public class CustomerChatActivity extends Activity {
         mainHandler.postDelayed(refreshRunnable, REFRESH_MS);
     }
 
-    private void resolveRoomData() {
-        Intent i = getIntent();
-        SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+    private void readIntentAndPrefs() {
+        SharedPreferences sp = getSharedPreferences("transiva", MODE_PRIVATE);
 
         orderId = firstNonEmpty(
-                i.getStringExtra("order_id"),
-                i.getStringExtra("active_order_id"),
+                getIntent().getStringExtra("order_id"),
                 sp.getString("active_order_id", ""),
                 sp.getString("order_id", "")
         );
 
         roomId = firstNonEmpty(
-                i.getStringExtra("room_id"),
-                sp.getString("active_chat_room_id", "")
+                getIntent().getStringExtra("room_id"),
+                sp.getString("active_chat_room_id", ""),
+                orderId.length() > 0 ? "ROOM-" + orderId : ""
         );
 
         driverName = firstNonEmpty(
-                i.getStringExtra("driver_name"),
+                getIntent().getStringExtra("driver_name"),
                 sp.getString("active_driver_name", ""),
                 "Driver"
         );
 
-        if (roomId.length() == 0 && orderId.length() > 0) {
-            roomId = "ROOM-" + orderId;
-        }
+        driverPhoto = firstNonEmpty(getIntent().getStringExtra("driver_photo"), sp.getString("active_driver_photo", ""));
+        driverPlate = firstNonEmpty(getIntent().getStringExtra("driver_plate"), sp.getString("active_driver_plate", ""));
 
         roomId = normalizeRoomId(roomId);
+        if (orderId.length() == 0 && roomId.startsWith("ROOM-")) {
+            orderId = roomId.replaceFirst("(?i)^ROOM-", "");
+        }
 
         sp.edit()
                 .putString("active_order_id", orderId)
                 .putString("active_chat_room_id", roomId)
-                .putString("active_driver_name", driverName)
                 .apply();
-    }
-
-    private String normalizeRoomId(String value) {
-        return firstNonEmpty(value, "")
-                .replace("_", "-")
-                .trim()
-                .toUpperCase(Locale.US);
     }
 
     private void buildLayout() {
@@ -146,79 +145,85 @@ public class CustomerChatActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(14), dp(16), dp(14), dp(10));
+        root.setPadding(dp(14), dp(14), dp(14), dp(10));
         page.addView(root, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(12), dp(10), dp(12), dp(10));
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setPadding(dp(14), dp(12), dp(14), dp(12));
         header.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(24), 1));
         header.setElevation(dp(4));
         root.addView(header, new LinearLayout.LayoutParams(-1, -2));
 
-        backBtn = smallButton("‹", "#EAF4FF", "#0B7CFF", "#B9DBFF");
-        header.addView(backBtn, new LinearLayout.LayoutParams(dp(42), dp(42)));
-        backBtn.setOnClickListener(v -> goBack());
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(topRow, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout titleBox = new LinearLayout(this);
-        titleBox.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, -2, 1);
-        titleLp.setMargins(dp(10), 0, 0, 0);
-        header.addView(titleBox, titleLp);
+        Button backBtn = smallButton("‹", "#EAF4FF", "#0B7CFF", "#B9DBFF");
+        topRow.addView(backBtn, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        backBtn.setOnClickListener(v -> finish());
 
-        titleText = text("Chat Driver", 18, "#0B3A78", true);
-        titleBox.addView(titleText);
+        driverPhotoView = new ImageView(this);
+        driverPhotoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        driverPhotoView.setBackground(round("#EAF4FF", dp(22)));
+        LinearLayout.LayoutParams imgLp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        imgLp.setMargins(dp(10), 0, dp(10), 0);
+        topRow.addView(driverPhotoView, imgLp);
 
-        subTitleText = text(driverName + " • Online", 12, "#64748B", false);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
-        subLp.setMargins(0, dp(3), 0, 0);
-        titleBox.addView(subTitleText, subLp);
+        LinearLayout titleCol = new LinearLayout(this);
+        titleCol.setOrientation(LinearLayout.VERTICAL);
+        topRow.addView(titleCol, new LinearLayout.LayoutParams(0, -2, 1));
 
-        TextView roomBadge = text("💬", 22, "#0B7CFF", true);
-        roomBadge.setGravity(Gravity.CENTER);
-        roomBadge.setBackground(round("#EAF4FF", dp(22)));
-        header.addView(roomBadge, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        driverNameText = text(driverName, 17, "#0B3A78", true);
+        driverNameText.setSingleLine(true);
+        titleCol.addView(driverNameText);
 
-        scrollView = new ScrollView(this);
-        scrollView.setFillViewport(true);
+        driverInfoText = text("Chat Driver", 12, "#64748B", false);
+        titleCol.addView(driverInfoText);
+
+        statusText = text("Menghubungkan chat...", 12, "#0B7CFF", true);
+        statusText.setPadding(0, dp(8), 0, 0);
+        header.addView(statusText);
+
+        messagesScroll = new ScrollView(this);
+        messagesScroll.setFillViewport(true);
         LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, 0, 1);
-        scrollLp.setMargins(0, dp(12), 0, dp(10));
-        root.addView(scrollView, scrollLp);
+        scrollLp.setMargins(0, dp(10), 0, dp(10));
+        root.addView(messagesScroll, scrollLp);
 
-        messageList = new LinearLayout(this);
-        messageList.setOrientation(LinearLayout.VERTICAL);
-        messageList.setPadding(dp(2), dp(8), dp(2), dp(8));
-        scrollView.addView(messageList, new ScrollView.LayoutParams(-1, -2));
+        messagesBox = new LinearLayout(this);
+        messagesBox.setOrientation(LinearLayout.VERTICAL);
+        messagesBox.setPadding(dp(2), dp(8), dp(2), dp(8));
+        messagesScroll.addView(messagesBox, new ScrollView.LayoutParams(-1, -2));
 
-        LinearLayout inputArea = new LinearLayout(this);
-        inputArea.setOrientation(LinearLayout.HORIZONTAL);
-        inputArea.setGravity(Gravity.CENTER_VERTICAL);
-        inputArea.setPadding(dp(10), dp(8), dp(10), dp(8));
-        inputArea.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(24), 1));
-        inputArea.setElevation(dp(5));
-        root.addView(inputArea, new LinearLayout.LayoutParams(-1, dp(66)));
+        LinearLayout inputCard = new LinearLayout(this);
+        inputCard.setGravity(Gravity.CENTER_VERTICAL);
+        inputCard.setPadding(dp(10), dp(8), dp(10), dp(8));
+        inputCard.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(24), 1));
+        inputCard.setElevation(dp(6));
+        root.addView(inputCard, new LinearLayout.LayoutParams(-1, dp(66)));
 
-        inputText = new EditText(this);
-        inputText.setSingleLine(true);
-        inputText.setTextSize(14);
-        inputText.setTextColor(Color.parseColor("#0F172A"));
-        inputText.setHintTextColor(Color.parseColor("#94A3B8"));
-        inputText.setHint("Ketik pesan...");
-        inputText.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        inputText.setImeOptions(EditorInfo.IME_ACTION_SEND);
-        inputText.setPadding(dp(14), 0, dp(14), 0);
-        inputText.setBackground(roundStroke("#F8FBFF", "#E2E8F0", dp(18), 1));
-        inputArea.addView(inputText, new LinearLayout.LayoutParams(0, dp(46), 1));
+        chatInput = new EditText(this);
+        chatInput.setSingleLine(false);
+        chatInput.setMaxLines(3);
+        chatInput.setTextSize(14);
+        chatInput.setTextColor(Color.parseColor("#0F172A"));
+        chatInput.setHintTextColor(Color.parseColor("#94A3B8"));
+        chatInput.setHint("Ketik pesan...");
+        chatInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        chatInput.setImeOptions(EditorInfo.IME_ACTION_SEND);
+        chatInput.setPadding(dp(14), 0, dp(14), 0);
+        chatInput.setBackground(roundStroke("#F8FBFF", "#D8E4F2", dp(18), 1));
+        inputCard.addView(chatInput, new LinearLayout.LayoutParams(0, -1, 1));
 
         sendBtn = primaryButton("Kirim");
-        LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(dp(82), dp(46));
+        LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(dp(78), -1);
         sendLp.setMargins(dp(8), 0, 0, 0);
-        inputArea.addView(sendBtn, sendLp);
+        inputCard.addView(sendBtn, sendLp);
         sendBtn.setOnClickListener(v -> sendMessage());
 
-        inputText.setOnEditorActionListener((v, actionId, event) -> {
-            boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_UP;
+        chatInput.setOnEditorActionListener((v, actionId, event) -> {
+            boolean enter = event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN;
             if (actionId == EditorInfo.IME_ACTION_SEND || enter) {
                 sendMessage();
                 return true;
@@ -233,6 +238,46 @@ public class CustomerChatActivity extends Activity {
         page.addView(progressBar, pLp);
 
         setContentView(page);
+        setDriverHeader();
+    }
+
+    private void setDriverHeader() {
+        driverNameText.setText(firstNonEmpty(driverName, "Driver"));
+        String info = "Chat Driver";
+        if (driverPlate.length() > 0) info = "Plat: " + driverPlate;
+        if (orderStatus.length() > 0) info += " • " + statusLabel(orderStatus);
+        driverInfoText.setText(info);
+        setDefaultAvatar();
+        if (driverPhoto.length() > 0) loadImage(driverPhoto);
+    }
+
+    private void setDefaultAvatar() {
+        try {
+            driverPhotoView.setImageResource(android.R.drawable.ic_menu_myplaces);
+            driverPhotoView.setColorFilter(Color.parseColor("#0B7CFF"));
+        } catch (Exception ignored) {}
+    }
+
+    private void loadImage(String urlText) {
+        new Thread(() -> {
+            try {
+                URL url = new URL(urlText);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setConnectTimeout(12000);
+                conn.setReadTimeout(12000);
+                conn.setUseCaches(true);
+                InputStream is = conn.getInputStream();
+                Bitmap bmp = BitmapFactory.decodeStream(is);
+                is.close();
+                conn.disconnect();
+                if (bmp != null) {
+                    mainHandler.post(() -> {
+                        driverPhotoView.clearColorFilter();
+                        driverPhotoView.setImageBitmap(bmp);
+                    });
+                }
+            } catch (Exception ignored) {}
+        }).start();
     }
 
     private void loadMessages(boolean showLoading) {
@@ -240,138 +285,114 @@ public class CustomerChatActivity extends Activity {
         loading = true;
         if (showLoading) progressBar.setVisibility(View.VISIBLE);
 
+        final int requestLastId = firstLoad ? 0 : lastId;
+
         new Thread(() -> {
             try {
-                JSONObject res = getJson(BASE_URL + "server/getChat.php?room_id=" + Uri.encode(roomId));
+                String url = GET_CHAT_URL + "?room_id=" + urlEncode(roomId) + (requestLastId > 0 ? "&last_id=" + requestLastId : "");
+                JSONObject res = getJson(url);
 
-                if (res.optBoolean("ended", false)) {
-                    mainHandler.post(() -> {
-                        loading = false;
-                        progressBar.setVisibility(View.GONE);
-                        handleChatEnded();
-                    });
-                    return;
-                }
-
-                if (!res.optBoolean("success", false)) {
-                    mainHandler.post(() -> {
-                        loading = false;
-                        progressBar.setVisibility(View.GONE);
-                        subTitleText.setText("Gagal memuat chat • coba lagi otomatis");
-                    });
-                    return;
-                }
-
-                JSONArray arr = res.optJSONArray("messages");
-                List<ChatMessage> newMessages = parseMessages(arr);
                 mainHandler.post(() -> {
                     loading = false;
                     progressBar.setVisibility(View.GONE);
-                    subTitleText.setText(driverName + " • Online");
-                    boolean changed = isMessagesChanged(newMessages);
-                    if (changed) {
-                        messages.clear();
-                        messages.addAll(newMessages);
-                        renderMessages();
-                    }
+                    handleChatResponse(res, requestLastId == 0);
                 });
             } catch (Exception e) {
                 mainHandler.post(() -> {
                     loading = false;
                     progressBar.setVisibility(View.GONE);
-                    subTitleText.setText("Koneksi terputus • mencoba lagi...");
+                    statusText.setText("Koneksi chat bermasalah, mencoba ulang...");
                 });
             }
         }).start();
     }
 
-    private List<ChatMessage> parseMessages(JSONArray arr) {
-        List<ChatMessage> out = new ArrayList<>();
-        if (arr == null) return out;
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject o = arr.optJSONObject(i);
-            if (o == null) continue;
-            ChatMessage m = new ChatMessage();
-            m.id = firstNonEmpty(o.optString("id"), String.valueOf(i));
-            m.senderType = firstNonEmpty(o.optString("sender_type"), o.optString("sender"), "driver").toLowerCase(Locale.US);
-            m.message = firstNonEmpty(o.optString("message"), "");
-            m.createdAt = firstNonEmpty(o.optString("created_at"), o.optString("time"), "");
-            if (m.message.length() > 0) out.add(m);
+    private void handleChatResponse(JSONObject res, boolean resetList) {
+        if (res == null) return;
+
+        if (res.optBoolean("ended", false)) {
+            orderStatus = res.optString("status", orderStatus);
+            statusText.setText("Percakapan telah berakhir");
+            chatInput.setEnabled(false);
+            sendBtn.setEnabled(false);
+            mainHandler.removeCallbacks(refreshRunnable);
+        } else {
+            orderStatus = res.optString("status", orderStatus);
+            statusText.setText(statusLabel(orderStatus));
         }
-        return out;
-    }
 
-    private boolean isMessagesChanged(List<ChatMessage> newMessages) {
-        if (newMessages.size() != messages.size()) return true;
-        for (int i = 0; i < newMessages.size(); i++) {
-            ChatMessage a = newMessages.get(i);
-            ChatMessage b = messages.get(i);
-            if (!a.id.equals(b.id) || !a.message.equals(b.message) || !a.senderType.equals(b.senderType)) return true;
+        JSONObject driver = res.optJSONObject("driver");
+        if (driver != null) {
+            driverName = firstNonEmpty(driver.optString("name", ""), driver.optString("username", ""), driverName, "Driver");
+            driverPlate = firstNonEmpty(driver.optString("plate", ""), driverPlate);
+            driverPhoto = firstNonEmpty(driver.optString("driver_photo", ""), driver.optString("photo", ""), driverPhoto);
+            setDriverHeader();
+            saveDriverPrefs();
         }
-        return false;
-    }
 
-    private void renderMessages() {
-        messageList.removeAllViews();
-
-        if (messages.size() == 0) {
-            TextView empty = text("Belum ada pesan. Mulai chat dengan driver.", 13, "#64748B", false);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(dp(10), dp(28), dp(10), dp(28));
-            messageList.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+        if (!res.optBoolean("success", false)) {
+            String msg = firstNonEmpty(res.optString("message", ""), "Gagal memuat chat");
+            statusText.setText(msg);
             return;
         }
 
-        for (ChatMessage m : messages) {
-            boolean mine = "customer".equalsIgnoreCase(m.senderType);
-            addBubble(m, mine);
+        JSONArray arr = res.optJSONArray("messages");
+        if (arr == null) return;
+
+        if (resetList) {
+            messagesBox.removeAllViews();
         }
 
-        mainHandler.postDelayed(() -> scrollView.fullScroll(View.FOCUS_DOWN), 120);
+        boolean added = false;
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject m = arr.optJSONObject(i);
+            if (m == null) continue;
+            int id = m.optInt("id", 0);
+            if (!resetList && id <= lastId) continue;
+            if (id > lastId) lastId = id;
+            addMessageBubble(m);
+            added = true;
+        }
+
+        firstLoad = false;
+        if (added || resetList) scrollToBottom();
     }
 
-    private void addBubble(ChatMessage m, boolean mine) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(mine ? Gravity.RIGHT : Gravity.LEFT);
-        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, dp(4), 0, dp(6));
-        messageList.addView(row, rowLp);
+    private void addMessageBubble(JSONObject m) {
+        String sender = m.optString("sender_type", "").trim().toLowerCase(Locale.US);
+        String message = m.optString("message", "");
+        String createdAt = m.optString("created_at", "");
+        boolean mine = "customer".equals(sender);
 
-        LinearLayout bubble = new LinearLayout(this);
-        bubble.setOrientation(LinearLayout.VERTICAL);
-        bubble.setPadding(dp(13), dp(9), dp(13), dp(8));
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setGravity(mine ? Gravity.RIGHT : Gravity.LEFT);
+        LinearLayout.LayoutParams wrapLp = new LinearLayout.LayoutParams(-1, -2);
+        wrapLp.setMargins(0, dp(4), 0, dp(4));
+        messagesBox.addView(wrap, wrapLp);
+
+        TextView bubble = text(message, 14, mine ? "#FFFFFF" : "#0F172A", false);
+        bubble.setPadding(dp(14), dp(10), dp(14), dp(10));
+        bubble.setMaxWidth((int)(getResources().getDisplayMetrics().widthPixels * 0.74));
         bubble.setBackground(mine
                 ? roundGradient("#086BFF", "#2EA2FF", dp(18))
                 : roundStroke("#FFFFFF", "#D7E6F8", dp(18), 1));
+        wrap.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
 
-        int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.76);
-        LinearLayout.LayoutParams bubbleLp = new LinearLayout.LayoutParams(-2, -2);
-        bubbleLp.width = -2;
-        bubbleLp.setMargins(mine ? dp(44) : 0, 0, mine ? 0 : dp(44), 0);
-        row.addView(bubble, bubbleLp);
-        bubble.setMaximumWidth(maxWidth);
-
-        TextView msg = text(m.message, 14, mine ? "#FFFFFF" : "#0F172A", false);
-        msg.setLineSpacing(dp(2), 1.0f);
-        bubble.addView(msg, new LinearLayout.LayoutParams(-2, -2));
-
-        String time = shortTime(m.createdAt);
+        String time = formatTime(createdAt);
         if (time.length() > 0) {
-            TextView t = text(time, 10, mine ? "#DCEEFF" : "#94A3B8", false);
-            t.setGravity(mine ? Gravity.RIGHT : Gravity.LEFT);
-            LinearLayout.LayoutParams tLp = new LinearLayout.LayoutParams(-1, -2);
-            tLp.setMargins(0, dp(4), 0, 0);
-            bubble.addView(t, tLp);
+            TextView t = text(time, 10, "#94A3B8", false);
+            t.setPadding(dp(8), dp(2), dp(8), 0);
+            wrap.addView(t, new LinearLayout.LayoutParams(-2, -2));
         }
     }
 
     private void sendMessage() {
         if (sending) return;
-        String msg = inputText.getText().toString().trim();
-        if (msg.length() == 0) return;
-        if (roomId.length() == 0) {
-            showInfo("Chat Tidak Valid", "Room chat tidak ditemukan.");
+        String message = chatInput.getText().toString().trim();
+        if (message.length() == 0) return;
+        if (message.length() > 1000) {
+            showInfo("Pesan Terlalu Panjang", "Maksimal 1000 karakter.", false);
             return;
         }
 
@@ -379,33 +400,30 @@ public class CustomerChatActivity extends Activity {
         sendBtn.setEnabled(false);
         sendBtn.setText("...");
 
-        ChatMessage temp = new ChatMessage();
-        temp.id = "tmp-" + System.currentTimeMillis();
-        temp.senderType = "customer";
-        temp.message = msg;
-        temp.createdAt = new SimpleDateFormat("HH:mm", Locale.US).format(new Date());
-        messages.add(temp);
-        renderMessages();
-        inputText.setText("");
-
         new Thread(() -> {
             try {
                 JSONObject payload = new JSONObject();
                 payload.put("room_id", roomId);
                 payload.put("sender_type", "customer");
-                payload.put("message", msg);
-                if (orderId.length() > 0) payload.put("order_id", orderId);
+                payload.put("message", message);
 
-                JSONObject res = postJson(BASE_URL + "server/sendChat.php", payload);
+                JSONObject res = postJson(SEND_CHAT_URL, payload);
+
                 mainHandler.post(() -> {
                     sending = false;
                     sendBtn.setEnabled(true);
                     sendBtn.setText("Kirim");
+
                     if (res.optBoolean("success", false)) {
+                        chatInput.setText("");
                         loadMessages(false);
                     } else {
-                        Toast.makeText(this, firstNonEmpty(res.optString("message"), "Gagal mengirim pesan"), Toast.LENGTH_LONG).show();
-                        removeTemp(temp.id);
+                        if (res.optBoolean("ended", false)) {
+                            chatInput.setEnabled(false);
+                            sendBtn.setEnabled(false);
+                            mainHandler.removeCallbacks(refreshRunnable);
+                        }
+                        showInfo("Chat", firstNonEmpty(res.optString("message", ""), "Gagal mengirim pesan"), false);
                     }
                 });
             } catch (Exception e) {
@@ -413,21 +431,18 @@ public class CustomerChatActivity extends Activity {
                     sending = false;
                     sendBtn.setEnabled(true);
                     sendBtn.setText("Kirim");
-                    Toast.makeText(this, "Koneksi gagal saat mengirim pesan", Toast.LENGTH_LONG).show();
-                    removeTemp(temp.id);
+                    showInfo("Koneksi Gagal", "Pesan belum terkirim. Coba lagi.", false);
                 });
             }
         }).start();
     }
 
-    private void removeTemp(String id) {
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            if (messages.get(i).id.equals(id)) {
-                messages.remove(i);
-                break;
-            }
-        }
-        renderMessages();
+    private void saveDriverPrefs() {
+        getSharedPreferences("transiva", MODE_PRIVATE).edit()
+                .putString("active_driver_name", driverName)
+                .putString("active_driver_plate", driverPlate)
+                .putString("active_driver_photo", driverPhoto)
+                .apply();
     }
 
     private JSONObject getJson(String urlText) throws Exception {
@@ -491,51 +506,64 @@ public class CustomerChatActivity extends Activity {
         return sb.toString();
     }
 
-    private void handleChatEnded() {
-        mainHandler.removeCallbacks(refreshRunnable);
-        new AlertDialog.Builder(this)
-                .setTitle("Chat Berakhir")
-                .setMessage("Percakapan telah berakhir karena order selesai/dibatalkan.")
-                .setCancelable(false)
-                .setPositiveButton("OK", (d, w) -> goBack())
-                .show();
+    private void scrollToBottom() {
+        mainHandler.postDelayed(() -> {
+            try { messagesScroll.fullScroll(View.FOCUS_DOWN); } catch (Exception ignored) {}
+        }, 120);
     }
 
-    private void goBack() {
-        mainHandler.removeCallbacks(refreshRunnable);
+    private String normalizeRoomId(String value) {
+        String v = firstNonEmpty(value, "").trim().replace("_", "-").toUpperCase(Locale.US);
+        v = v.replaceAll("[^A-Z0-9\\-]", "");
+        if (v.length() > 0 && !v.startsWith("ROOM-")) v = "ROOM-" + v;
+        return v;
+    }
+
+    private String statusLabel(String status) {
+        String s = firstNonEmpty(status, "").toLowerCase(Locale.US);
+        if (s.equals("taken")) return "Driver menuju pickup";
+        if (s.equals("arrived_pickup")) return "Driver tiba di pickup";
+        if (s.equals("on_delivery")) return "Dalam perjalanan ke tujuan";
+        if (s.equals("arrived_delivery")) return "Driver tiba di tujuan";
+        if (s.equals("merchant_accepted")) return "Pesanan diproses merchant";
+        if (s.equals("finished") || s.equals("completed") || s.equals("finish")) return "Order selesai";
+        if (s.equals("canceled") || s.equals("cancelled")) return "Order dibatalkan";
+        if (s.length() == 0) return "Chat aktif";
+        return "Status: " + s;
+    }
+
+    private String formatTime(String value) {
         try {
-            Intent i = new Intent(this, CustomerTripActivity.class);
-            if (orderId.length() > 0) i.putExtra("order_id", orderId);
-            i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            startActivity(i);
+            if (value == null || value.trim().length() == 0) return "";
+            String v = value.trim();
+            SimpleDateFormat in = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+            Date d = in.parse(v);
+            if (d == null) return "";
+            return new SimpleDateFormat("HH:mm", Locale.getDefault()).format(d);
         } catch (Exception e) {
-            try { startActivity(new Intent(this, CustomerDashboardActivity.class)); } catch (Exception ignored) {}
+            return "";
         }
-        finish();
     }
 
-    @Override protected void onDestroy() {
-        destroyed = true;
-        mainHandler.removeCallbacks(refreshRunnable);
-        super.onDestroy();
+    private String urlEncode(String value) {
+        try { return java.net.URLEncoder.encode(value, "UTF-8"); } catch (Exception e) { return value; }
     }
 
-    private String shortTime(String value) {
-        String v = firstNonEmpty(value, "");
-        if (v.length() == 0) return "";
-        if (v.matches("^\\d{2}:\\d{2}.*")) return v.substring(0, 5);
-        int space = v.indexOf(' ');
-        if (space >= 0 && v.length() >= space + 6) return v.substring(space + 1, space + 6);
-        if (v.length() >= 16 && v.charAt(10) == 'T') return v.substring(11, 16);
-        return v.length() > 16 ? v.substring(11, 16) : "";
-    }
-
-    private void showInfo(String title, String message) {
-        try {
-            new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show();
-        } catch (Exception e) {
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+    private String firstNonEmpty(String... values) {
+        if (values == null) return "";
+        for (String v : values) {
+            if (v != null && v.trim().length() > 0 && !v.trim().equalsIgnoreCase("null")) return v.trim();
         }
+        return "";
+    }
+
+    private TextView text(String value, int sp, String color, boolean bold) {
+        TextView tv = new TextView(this);
+        tv.setText(value == null ? "" : value);
+        tv.setTextSize(sp);
+        tv.setTextColor(Color.parseColor(color));
+        if (bold) tv.setTypeface(Typeface.DEFAULT_BOLD);
+        return tv;
     }
 
     private Button primaryButton(String value) {
@@ -556,17 +584,8 @@ public class CustomerChatActivity extends Activity {
         b.setTextSize(22);
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setTextColor(Color.parseColor(fg));
-        b.setBackground(roundStroke(bg, stroke, dp(16), 1));
+        b.setBackground(roundStroke(bg, stroke, dp(18), 1));
         return b;
-    }
-
-    private TextView text(String value, int sp, String color, boolean bold) {
-        TextView tv = new TextView(this);
-        tv.setText(value == null ? "" : value);
-        tv.setTextSize(sp);
-        tv.setTextColor(Color.parseColor(color));
-        if (bold) tv.setTypeface(Typeface.DEFAULT_BOLD);
-        return tv;
     }
 
     private GradientDrawable round(String color, int radius) {
@@ -588,22 +607,24 @@ public class CustomerChatActivity extends Activity {
         return gd;
     }
 
-    private String firstNonEmpty(String... values) {
-        if (values == null) return "";
-        for (String v : values) {
-            if (v != null && v.trim().length() > 0 && !v.trim().equalsIgnoreCase("null") && !v.trim().equalsIgnoreCase("undefined")) return v.trim();
-        }
-        return "";
+    private void showInfo(String title, String message, boolean closeAfter) {
+        try {
+            new AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(message)
+                    .setPositiveButton("OK", (d, w) -> { if (closeAfter) finish(); })
+                    .show();
+        } catch (Exception ignored) {}
     }
 
     private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+        return (int)(v * getResources().getDisplayMetrics().density + 0.5f);
     }
 
-    private static class ChatMessage {
-        String id = "";
-        String senderType = "";
-        String message = "";
-        String createdAt = "";
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        mainHandler.removeCallbacks(refreshRunnable);
+        super.onDestroy();
     }
 }
