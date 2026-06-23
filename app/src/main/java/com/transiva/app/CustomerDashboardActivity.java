@@ -289,8 +289,31 @@ public class CustomerDashboardActivity extends Activity {
         item.setClickable(true);
         item.setFocusable(true);
         item.setOnClickListener(v -> {
-            if ("soon".equals(route)) showInfo("Segera Hadir", "TransPickup sedang dikembangkan.");
-            else openWeb(route);
+
+            if ("TransRide".equalsIgnoreCase(title)
+                    || "TransBike".equalsIgnoreCase(title)
+                    || "Transbike".equalsIgnoreCase(title)) {
+
+                startActivity(
+                        new Intent(
+                                CustomerDashboardActivity.this,
+                                TransRideActivity.class
+                        )
+                );
+
+                return;
+            }
+
+            if ("soon".equals(route)) {
+                showInfo(
+                        "Segera Hadir",
+                        "TransPickup sedang dikembangkan."
+                );
+                return;
+            }
+
+            openWeb(route);
+
         });
 
         TextView icon = text(menuEmoji(title), 30, "#0B7CFF", true);
