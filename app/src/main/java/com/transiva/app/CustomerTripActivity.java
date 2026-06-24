@@ -14,6 +14,9 @@ import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -41,10 +44,17 @@ public class CustomerTripActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String CHECK_STATUS_URL = BASE_URL + "server/check_order_status.php";
+
+    // Pakai file Leaflet lokal/server sendiri, bukan CDN, agar stabil di WebView.
+    private static final String LEAFLET_CSS = BASE_URL + "js/leaflet.css";
+    private static final String LEAFLET_JS  = BASE_URL + "js/leaflet.js";
+
     private static final int TIMEOUT_MS = 25000;
     private static final long TRACKING_MS = 3000;
+    private static final long MAP_FALLBACK_READY_MS = 2500;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     private final Runnable trackingRunnable = new Runnable() {
         @Override public void run() {
             fetchDriverPosition();
@@ -59,15 +69,17 @@ public class CustomerTripActivity extends Activity {
     private TextView driverPlateText;
     private TextView tripInfoText;
     private ImageView driverPhotoView;
-    private Button backBtn;
     private ProgressBar progressBar;
 
     private String orderId = "";
     private String activeDriverType = "motor";
+
     private boolean mapReady = false;
     private boolean firstFocus = true;
     private boolean trackingStarted = false;
     private boolean finishedCountdownStarted = false;
+    private boolean lastDataAlreadyPushed = false;
+
     private int finishSeconds = 5;
 
     private double pickupLat = 0;
@@ -78,9 +90,13 @@ public class CustomerTripActivity extends Activity {
     private double lastDriverLng = 0;
     private double lastBearing = 0;
 
+    private String lastDriverName = "Driver";
+    private String lastStatus = "";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         try {
             getWindow().setStatusBarColor(Color.parseColor("#071426"));
             getWindow().setNavigationBarColor(Color.parseColor("#071426"));
@@ -93,9 +109,23 @@ public class CustomerTripActivity extends Activity {
             showInfo("Order tidak ditemukan", "ID order tidak ditemukan. Silakan ulangi order.");
             return;
         }
+
         if (!validCoord(pickupLat, pickupLng)) {
-            statusText.setText("Lokasi pickup belum tersedia. Menunggu data order dari server...");
+            statusText.setText("Mengambil data lokasi order...");
         }
+
+        // FIX PENTING:
+        // Tracking langsung jalan, tidak menunggu mapReady.
+        // Kalau Leaflet lambat/gagal, data driver tetap diambil dari server.
+        startTrackingOnce();
+
+        // Fallback agar WebView tetap mencoba render marker walaupun callback JS lambat.
+        mainHandler.postDelayed(() -> {
+            if (!mapReady && mapView != null) {
+                mapReady = true;
+                pushAllMarkersToMap();
+            }
+        }, MAP_FALLBACK_READY_MS);
     }
 
     private void readIntentAndSavedData() {
@@ -112,11 +142,13 @@ public class CustomerTripActivity extends Activity {
         pickupLng = getDoubleExtraOrPref(i, sp, "pickup_lng", 0);
         deliveryLat = getDoubleExtraOrPref(i, sp, "delivery_lat", 0);
         deliveryLng = getDoubleExtraOrPref(i, sp, "delivery_lng", 0);
+
         activeDriverType = firstNonEmpty(
                 i.getStringExtra("active_driver_type"),
                 sp.getString("active_driver_type", "motor"),
                 "motor"
         );
+
         if (!"car".equals(activeDriverType)) activeDriverType = "motor";
     }
 
@@ -137,10 +169,6 @@ public class CustomerTripActivity extends Activity {
             if (v != null && v.trim().length() > 0 && !"null".equalsIgnoreCase(v.trim())) {
                 return Double.parseDouble(v.trim());
             }
-        } catch (Exception ignored) {}
-
-        try {
-            return Double.longBitsToDouble(sp.getLong(key, Double.doubleToLongBits(def)));
         } catch (Exception ignored) {}
 
         return def;
@@ -208,26 +236,53 @@ public class CustomerTripActivity extends Activity {
 
         mapView = new WebView(this);
         mapView.setBackgroundColor(Color.parseColor("#EAF4FF"));
-        mapView.setWebViewClient(new WebViewClient());
+        mapView.setVerticalScrollBarEnabled(false);
+        mapView.setHorizontalScrollBarEnabled(false);
+        mapView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+
         WebSettings s = mapView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
+        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
         if (android.os.Build.VERSION.SDK_INT >= 21) {
             s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
+
+        mapView.setWebChromeClient(new WebChromeClient());
+        mapView.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                mainHandler.postDelayed(() -> {
+                    if (!mapReady) {
+                        mapReady = true;
+                        pushAllMarkersToMap();
+                    }
+                }, 1200);
+            }
+
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                // Jangan hentikan tracking. Map bisa fallback saat JS siap.
+            }
+        });
+
         mapView.addJavascriptInterface(new TripBridge(), "AndroidTrip");
+
         LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, 0, 1);
         mlp.setMargins(0, dp(4), 0, dp(10));
         card.addView(mapView, mlp);
         mapView.loadDataWithBaseURL(BASE_URL, mapHtml(), "text/html", "UTF-8", null);
 
-        tripInfoText = text("Rute akan tampil otomatis saat lokasi driver tersedia", 12, "#64748B", false);
+        tripInfoText = text("Menyiapkan rute perjalanan...", 12, "#64748B", false);
         tripInfoText.setPadding(dp(4), 0, dp(4), dp(8));
         card.addView(tripInfoText, new LinearLayout.LayoutParams(-1, -2));
 
-        backBtn = outlineButton("Kembali");
+        Button backBtn = outlineButton("Kembali");
         card.addView(backBtn, new LinearLayout.LayoutParams(-1, dp(48)));
         backBtn.setOnClickListener(v -> finish());
 
@@ -242,31 +297,44 @@ public class CustomerTripActivity extends Activity {
 
     private String mapHtml() {
         return "<!DOCTYPE html><html><head>" +
+                "<meta charset='UTF-8'>" +
                 "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>" +
-                "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>" +
-                "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>" +
-                "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef6ff;}" +
+                "<link rel='stylesheet' href='" + LEAFLET_CSS + "?v=native_fix_1'>" +
+                "<script src='" + LEAFLET_JS + "?v=native_fix_1'></script>" +
+                "<style>" +
+                "html,body,#map{height:100%;width:100%;margin:0;padding:0;background:#eaf4ff;overflow:hidden;}" +
+                ".leaflet-container{height:100%;width:100%;font-family:Arial,sans-serif;background:#eaf4ff;border-radius:18px;}" +
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
-                ".leaflet-container{font-family:Arial,sans-serif;border-radius:18px;}" +
-                ".pin{font-size:30px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.28));}" +
-                ".vehicle{width:42px;height:42px;object-fit:contain;transition:transform .35s linear;filter:drop-shadow(0 4px 5px rgba(0,0,0,.35));}" +
-                ".popup{font-weight:700;color:#0B3A78;min-width:120px;}" +
+                ".leaflet-tile-pane{filter:saturate(.92) contrast(.98) brightness(1.03);}" +
+                ".pin{width:40px;height:40px;border-radius:20px;display:flex;align-items:center;justify-content:center;font-size:21px;background:#fff;box-shadow:0 5px 14px rgba(15,23,42,.24);border:3px solid #fff;}" +
+                ".pickup{background:#16a34a;color:#fff;}" +
+                ".delivery{background:#ef4444;color:#fff;}" +
+                ".vehicle{width:46px;height:46px;object-fit:contain;transition:transform .35s linear;filter:drop-shadow(0 5px 6px rgba(0,0,0,.38));}" +
+                ".popup{font-weight:700;color:#0B3A78;min-width:130px;line-height:1.35;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([-0.018137,120.087380],15);" +
-                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:''}).addTo(map);" +
-                "var pickup=null,delivery=null,driver=null,line=null,routeCoords=[],lastRouteKey='',drawing=false,lastRouteTime=0,lastDriver=[0,0];" +
-                "function esc(s){return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}" +
-                "function ic(t){return L.divIcon({html:'<div class=pin>'+t+'</div>',className:'',iconSize:[42,42],iconAnchor:[21,38],popupAnchor:[0,-36]});}" +
-                "function vehicleIcon(type){var img=(type==='car')?'assets/transcar.png':'assets/transbike.png';return L.divIcon({html:'<img class=vehicle src=\''+img+'\'>',className:'',iconSize:[46,46],iconAnchor:[23,23],popupAnchor:[0,-34]});}" +
-                "function setPickup(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup){pickup.setLatLng([lat,lng]);}else{pickup=L.marker([lat,lng],{icon:ic('👤'),zIndexOffset:500}).addTo(map);}pickup.bindPopup('<div class=popup>'+esc(label||'Lokasi Pickup')+'</div>');}" +
-                "function setDelivery(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery){delivery.setLatLng([lat,lng]);}else{delivery=L.marker([lat,lng],{icon:ic('📍'),zIndexOffset:500}).addTo(map);}delivery.bindPopup('<div class=popup>'+esc(label||'Lokasi Delivery')+'</div>');}" +
-                "function setDriver(lat,lng,bearing,type,name,status){lat=+lat;lng=+lng;bearing=+bearing||0;if(!lat||!lng)return;var pos=[lat,lng];if(!driver){driver=L.marker(pos,{icon:vehicleIcon(type),zIndexOffset:9999}).addTo(map);}else{driver.setLatLng(pos);}var el=driver.getElement();if(el){var img=el.querySelector('.vehicle');if(img){img.style.transform='rotate('+bearing+'deg)';}}driver.bindPopup('<div class=popup><b>'+esc(name||'Driver')+'</b><br><br>'+esc(status||'Dalam perjalanan')+'</div>');lastDriver=pos;}" +
-                "function clearLine(){if(line){map.removeLayer(line);line=null;}}" +
-                "function fitAll(){var p=[];if(driver)p.push(driver.getLatLng());if(pickup)p.push(pickup.getLatLng());if(delivery)p.push(delivery.getLatLng());if(p.length===1)map.setView(p[0],16,{animate:true});else if(p.length>1)map.fitBounds(p,{padding:[55,55],maxZoom:16,animate:true});}" +
+
+                "var map=null,pickup=null,delivery=null,driver=null,line=null,lastRouteKey='',drawing=false,lastRouteTime=0;" +
+                "function ready(){try{AndroidTrip.onMapReady();}catch(e){}}" +
+                "function esc(s){return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;');}" +
+                "function valid(a,b){a=+a;b=+b;return isFinite(a)&&isFinite(b)&&a!==0&&b!==0;}" +
+                "function init(){" +
+                " if(typeof L==='undefined'){setTimeout(init,300);return;}" +
+                " if(map){ready();return;}" +
+                " map=L.map('map',{zoomControl:false,attributionControl:false,preferCanvas:true}).setView([-0.018137,120.087380],15);" +
+                " L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,crossOrigin:true,attribution:''}).addTo(map);" +
+                " setTimeout(function(){try{map.invalidateSize(true);}catch(e){} ready();},600);" +
+                "}" +
+                "function iconPin(cls,txt){return L.divIcon({html:'<div class=\"pin '+cls+'\">'+txt+'</div>',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-22]});}" +
+                "function vehicleIcon(type){var img=(type==='car')?'assets/transcar.png':'assets/transbike.png';return L.divIcon({html:'<img class=\"vehicle\" src=\"'+img+'\">',className:'',iconSize:[48,48],iconAnchor:[24,24],popupAnchor:[0,-30]});}" +
+                "function setPickup(lat,lng,label){if(!map||!valid(lat,lng))return;var p=[+lat,+lng];if(pickup){pickup.setLatLng(p);}else{pickup=L.marker(p,{icon:iconPin('pickup','👤'),zIndexOffset:600}).addTo(map);}pickup.bindPopup('<div class=popup>'+esc(label||'Lokasi Pickup')+'</div>');}" +
+                "function setDelivery(lat,lng,label){if(!map||!valid(lat,lng))return;var p=[+lat,+lng];if(delivery){delivery.setLatLng(p);}else{delivery=L.marker(p,{icon:iconPin('delivery','⌂'),zIndexOffset:600}).addTo(map);}delivery.bindPopup('<div class=popup>'+esc(label||'Lokasi Delivery')+'</div>');}" +
+                "function setDriver(lat,lng,bearing,type,name,status){if(!map||!valid(lat,lng))return;lat=+lat;lng=+lng;bearing=+bearing||0;var p=[lat,lng];if(!driver){driver=L.marker(p,{icon:vehicleIcon(type),zIndexOffset:9999}).addTo(map);}else{driver.setLatLng(p);}var el=driver.getElement();if(el){var img=el.querySelector('.vehicle');if(img){img.style.transform='rotate('+bearing+'deg)';}}driver.bindPopup('<div class=popup><b>'+esc(name||'Driver')+'</b><br>'+esc(status||'Dalam perjalanan')+'</div>');}" +
+                "function clearLine(){if(line&&map){map.removeLayer(line);line=null;}}" +
+                "function fitAll(){if(!map)return;var p=[];if(driver)p.push(driver.getLatLng());if(pickup)p.push(pickup.getLatLng());if(delivery)p.push(delivery.getLatLng());if(p.length===1)map.setView(p[0],16,{animate:true});else if(p.length>1)map.fitBounds(L.latLngBounds(p),{padding:[55,55],maxZoom:16,animate:true});setTimeout(function(){try{map.invalidateSize(true);}catch(e){}},250);}" +
                 "function fitTrip(){fitAll();}" +
-                "function drawStraight(a,b,color){clearLine();line=L.polyline([a,b],{color:color||'#4285F4',weight:5,opacity:.78,dashArray:'8,8',lineCap:'round'}).addTo(map);line.bringToBack();}" +
-                "function drawRoute(dLat,dLng,tLat,tLng,status){var now=Date.now();var key=dLat.toFixed(3)+','+dLng.toFixed(3)+','+tLat.toFixed(3)+','+tLng.toFixed(3)+','+status;if(drawing||key===lastRouteKey||now-lastRouteTime<8000)return;drawing=true;lastRouteKey=key;lastRouteTime=now;var color=status==='on_delivery'?'#16a34a':(status==='arrived_pickup'?'#f59e0b':'#4285F4');var url='https://router.project-osrm.org/route/v1/driving/'+dLng+','+dLat+';'+tLng+','+tLat+'?overview=full&geometries=geojson';var timer=null;var ctrl=new AbortController();timer=setTimeout(function(){try{ctrl.abort();}catch(e){}},7000);fetch(url,{signal:ctrl.signal}).then(function(r){return r.json();}).then(function(j){clearTimeout(timer);if(!j||!j.routes||!j.routes[0])throw new Error('no route');var cs=j.routes[0].geometry.coordinates;var pts=[];for(var i=0;i<cs.length;i++){pts.push([cs[i][1],cs[i][0]]);}clearLine();line=L.polyline(pts,{color:color,weight:5,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(map);line.bringToBack();try{AndroidTrip.onRoute(j.routes[0].distance/1000,j.routes[0].duration);}catch(e){};}).catch(function(){drawStraight([dLat,dLng],[tLat,tLng],color);}).finally(function(){drawing=false;});}" +
-                "setTimeout(function(){map.invalidateSize();try{AndroidTrip.onMapReady();}catch(e){}},800);" +
+                "function drawStraight(a,b,color){if(!map)return;clearLine();line=L.polyline([a,b],{color:color||'#2563eb',weight:5,opacity:.8,dashArray:'8,8',lineCap:'round'}).addTo(map);try{line.bringToBack();}catch(e){}}" +
+                "function drawRoute(dLat,dLng,tLat,tLng,status){if(!map||!valid(dLat,dLng)||!valid(tLat,tLng))return;dLat=+dLat;dLng=+dLng;tLat=+tLat;tLng=+tLng;var now=Date.now();var key=dLat.toFixed(4)+','+dLng.toFixed(4)+','+tLat.toFixed(4)+','+tLng.toFixed(4)+','+status;if(drawing||key===lastRouteKey||now-lastRouteTime<7000)return;drawing=true;lastRouteKey=key;lastRouteTime=now;var color=status==='on_delivery'?'#16a34a':(status==='arrived_pickup'?'#f59e0b':'#2563eb');var url='https://router.project-osrm.org/route/v1/driving/'+dLng+','+dLat+';'+tLng+','+tLat+'?overview=full&geometries=geojson';var ctrl=null,timer=null;try{ctrl=new AbortController();timer=setTimeout(function(){try{ctrl.abort();}catch(e){}},7000);}catch(e){}fetch(url,ctrl?{signal:ctrl.signal}:{}).then(function(r){return r.json();}).then(function(j){if(timer)clearTimeout(timer);if(!j||!j.routes||!j.routes[0])throw new Error('no route');var cs=j.routes[0].geometry.coordinates,pts=[];for(var i=0;i<cs.length;i++){pts.push([cs[i][1],cs[i][0]]);}clearLine();line=L.polyline(pts,{color:color,weight:5,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(map);try{line.bringToBack();}catch(e){}try{AndroidTrip.onRoute(j.routes[0].distance/1000,j.routes[0].duration);}catch(e){}}).catch(function(){drawStraight([dLat,dLng],[tLat,tLng],color);}).finally(function(){drawing=false;fitAll();});}" +
+                "init();setTimeout(init,1000);" +
                 "</script></body></html>";
     }
 
@@ -274,20 +342,17 @@ public class CustomerTripActivity extends Activity {
         @JavascriptInterface public void onMapReady() {
             mainHandler.post(() -> {
                 mapReady = true;
-                pushInitialMarkers();
-                startTrackingOnce();
+                pushAllMarkersToMap();
             });
         }
-        @JavascriptInterface public void onRoute(double km, double seconds) {
-            mainHandler.post(() -> tripInfoText.setText("Estimasi rute driver: " + String.format(Locale.US, "%.1f", km) + " KM • " + Math.max(1, (int)Math.ceil(seconds / 60.0)) + " menit"));
-        }
-    }
 
-    private void pushInitialMarkers() {
-        if (!mapReady || mapView == null) return;
-        if (validCoord(pickupLat, pickupLng)) eval("setPickup(" + pickupLat + "," + pickupLng + ",'Lokasi Pickup')");
-        if (validCoord(deliveryLat, deliveryLng)) eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'Lokasi Delivery')");
-        eval("fitTrip()");
+        @JavascriptInterface public void onRoute(double km, double seconds) {
+            mainHandler.post(() -> {
+                if (km > 0 && seconds > 0) {
+                    tripInfoText.setText("Estimasi rute driver: " + String.format(Locale.US, "%.1f", km) + " KM • " + Math.max(1, (int)Math.ceil(seconds / 60.0)) + " menit");
+                }
+            });
+        }
     }
 
     private void startTrackingOnce() {
@@ -300,13 +365,18 @@ public class CustomerTripActivity extends Activity {
 
     private void fetchDriverPosition() {
         if (orderId.length() == 0 || finishedCountdownStarted) return;
+
         new Thread(() -> {
             try {
                 JSONObject payload = new JSONObject().put("order_id", orderId);
                 JSONObject res = postJson(CHECK_STATUS_URL, payload);
                 mainHandler.post(() -> {
                     setLoading(false);
-                    if (res.optBoolean("success", false)) handleStatusResponse(res);
+                    if (res.optBoolean("success", false)) {
+                        handleStatusResponse(res);
+                    } else {
+                        statusText.setText(firstNonEmpty(res.optString("message", ""), "Menunggu status order..."));
+                    }
                 });
             } catch (Exception e) {
                 mainHandler.post(() -> {
@@ -324,30 +394,46 @@ public class CustomerTripActivity extends Activity {
         if (order == null) order = new JSONObject();
 
         String status = firstNonEmpty(res.optString("status", ""), order.optString("status", "")).toLowerCase(Locale.US).trim();
-        String driverName = firstNonEmpty(driver.optString("name", ""), driver.optString("username", ""), order.optString("driver", ""), order.optString("driver_username", ""), res.optString("driver", ""), res.optString("driver_username", ""), "Driver");
-        String plate = firstNonEmpty(driver.optString("plate", ""), driver.optString("vehicle_plate", ""), order.optString("driver_plate", ""), "-");
+        String driverName = firstNonEmpty(
+                driver.optString("name", ""),
+                driver.optString("username", ""),
+                order.optString("driver", ""),
+                order.optString("driver_username", ""),
+                res.optString("driver", ""),
+                res.optString("driver_username", ""),
+                "Driver"
+        );
+        String plate = firstNonEmpty(
+                driver.optString("plate", ""),
+                driver.optString("vehicle_plate", ""),
+                driver.optString("plat", ""),
+                order.optString("driver_plate", ""),
+                "-"
+        );
+
         activeDriverType = resolveDriverType(order, driver);
+        lastDriverName = driverName;
+        lastStatus = status;
 
         double pLat = firstValidCoordPart(
-                getJsonDouble(order, "pickup_lat", "pickupLatitude", "pickup_latitude", "user_lat"),
-                getJsonDouble(res, "pickup_lat", "pickupLatitude", "pickup_latitude", "user_lat")
+                getJsonDouble(order, "pickup_lat", "pickupLatitude", "pickup_latitude", "user_lat", "customer_lat"),
+                getJsonDouble(res, "pickup_lat", "pickupLatitude", "pickup_latitude", "user_lat", "customer_lat")
         );
         double pLng = firstValidCoordPart(
-                getJsonDouble(order, "pickup_lng", "pickupLongitude", "pickup_longitude", "user_lng"),
-                getJsonDouble(res, "pickup_lng", "pickupLongitude", "pickup_longitude", "user_lng")
+                getJsonDouble(order, "pickup_lng", "pickupLongitude", "pickup_longitude", "user_lng", "customer_lng"),
+                getJsonDouble(res, "pickup_lng", "pickupLongitude", "pickup_longitude", "user_lng", "customer_lng")
         );
         double dLat = firstValidCoordPart(
-                getJsonDouble(order, "delivery_lat", "deliveryLatitude", "delivery_latitude"),
-                getJsonDouble(res, "delivery_lat", "deliveryLatitude", "delivery_latitude")
+                getJsonDouble(order, "delivery_lat", "deliveryLatitude", "delivery_latitude", "destination_lat"),
+                getJsonDouble(res, "delivery_lat", "deliveryLatitude", "delivery_latitude", "destination_lat")
         );
         double dLng = firstValidCoordPart(
-                getJsonDouble(order, "delivery_lng", "deliveryLongitude", "delivery_longitude"),
-                getJsonDouble(res, "delivery_lng", "deliveryLongitude", "delivery_longitude")
+                getJsonDouble(order, "delivery_lng", "deliveryLongitude", "delivery_longitude", "destination_lng"),
+                getJsonDouble(res, "delivery_lng", "deliveryLongitude", "delivery_longitude", "destination_lng")
         );
+
         if (validCoord(pLat, pLng)) { pickupLat = pLat; pickupLng = pLng; }
         if (validCoord(dLat, dLng)) { deliveryLat = dLat; deliveryLng = dLng; }
-        saveTripPrefs();
-        pushInitialMarkers();
 
         double lat = firstValidCoordPart(
                 getJsonDouble(driver, "driver_lat", "latitude", "lat"),
@@ -355,46 +441,86 @@ public class CustomerTripActivity extends Activity {
                 getJsonDouble(res, "driver_lat", "latitude", "lat")
         );
         double lng = firstValidCoordPart(
-                getJsonDouble(driver, "driver_lng", "longitude", "lng"),
-                getJsonDouble(order, "driver_lng", "longitude", "lng"),
-                getJsonDouble(res, "driver_lng", "longitude", "lng")
+                getJsonDouble(driver, "driver_lng", "driver_lon", "longitude", "lng", "lon"),
+                getJsonDouble(order, "driver_lng", "driver_lon", "longitude", "lng", "lon"),
+                getJsonDouble(res, "driver_lng", "driver_lon", "longitude", "lng", "lon")
         );
-        boolean hasLocation = validCoord(lat, lng);
+
+        boolean hasDriverLocation = validCoord(lat, lng);
 
         driverNameText.setText(driverName);
         driverTypeText.setText("car".equals(activeDriverType) ? "🚘 Mobil / Car" : "🏍️ Motor / Bike");
         driverPlateText.setText("🔢 Plat: " + plate);
-        setStatusText(status, driverName, hasLocation);
+        setStatusText(status, driverName, hasDriverLocation);
+
+        saveTripPrefs();
 
         if ("finished".equals(status) || "completed".equals(status)) {
             startFinishCountdown();
             return;
         }
-        if (!hasLocation) return;
 
-        double[] target = getTarget(status);
-        double bearing = calcBearing(lat, lng, target[0], target[1]);
+        if (hasDriverLocation) {
+            double[] target = getTarget(status);
+            double bearing = calcBearing(lat, lng, target[0], target[1]);
+
+            if (validCoord(lastDriverLat, lastDriverLng)) {
+                double moveBearing = calcBearing(lastDriverLat, lastDriverLng, lat, lng);
+                if (distanceMeters(lastDriverLat, lastDriverLng, lat, lng) > 2) bearing = moveBearing;
+            }
+
+            lastBearing = smoothBearing(lastBearing, bearing);
+            lastDriverLat = lat;
+            lastDriverLng = lng;
+        }
+
+        pushAllMarkersToMap();
+    }
+
+    private void pushAllMarkersToMap() {
+        if (mapView == null || !mapReady) return;
+
+        lastDataAlreadyPushed = true;
+
+        if (validCoord(pickupLat, pickupLng)) {
+            eval("setPickup(" + pickupLat + "," + pickupLng + ",'Lokasi Pickup')");
+        }
+
+        if (validCoord(deliveryLat, deliveryLng)) {
+            eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'Lokasi Delivery')");
+        }
+
         if (validCoord(lastDriverLat, lastDriverLng)) {
-            double moveBearing = calcBearing(lastDriverLat, lastDriverLng, lat, lng);
-            if (distanceMeters(lastDriverLat, lastDriverLng, lat, lng) > 2) bearing = moveBearing;
-        }
-        lastBearing = smoothBearing(lastBearing, bearing);
-        lastDriverLat = lat;
-        lastDriverLng = lng;
+            String popup = popupText(lastStatus);
+            eval("setDriver(" + lastDriverLat + "," + lastDriverLng + "," + lastBearing + ",'" + activeDriverType + "','" + esc(lastDriverName) + "','" + esc(popup) + "')");
 
-        String popup = popupText(status);
-        eval("setDriver(" + lat + "," + lng + "," + lastBearing + ",'" + activeDriverType + "','" + esc(driverName) + "','" + esc(popup) + "')");
-        if (validCoord(target[0], target[1])) {
-            eval("drawRoute(" + lat + "," + lng + "," + target[0] + "," + target[1] + ",'" + esc(status) + "')");
+            double[] target = getTarget(lastStatus);
+            if (validCoord(target[0], target[1])) {
+                eval("drawRoute(" + lastDriverLat + "," + lastDriverLng + "," + target[0] + "," + target[1] + ",'" + esc(lastStatus) + "')");
+            }
         }
+
         if (firstFocus) {
             firstFocus = false;
             eval("fitTrip()");
+        } else {
+            eval("fitAll()");
+        }
+
+        if (!validCoord(lastDriverLat, lastDriverLng) && (validCoord(pickupLat, pickupLng) || validCoord(deliveryLat, deliveryLng))) {
+            tripInfoText.setText("Titik pickup dan delivery siap. Menunggu lokasi driver terbaru...");
         }
     }
 
     private String resolveDriverType(JSONObject order, JSONObject driver) {
-        String type = firstNonEmpty(order.optString("driver_type", ""), order.optString("price_mode", ""), driver.optString("driver_type", ""), activeDriverType, "motor").toLowerCase(Locale.US);
+        String type = firstNonEmpty(
+                order.optString("driver_type", ""),
+                order.optString("price_mode", ""),
+                driver.optString("driver_type", ""),
+                driver.optString("vehicle_type", ""),
+                activeDriverType,
+                "motor"
+        ).toLowerCase(Locale.US);
         return "car".equals(type) || "mobil".equals(type) ? "car" : "motor";
     }
 
@@ -430,6 +556,7 @@ public class CustomerTripActivity extends Activity {
         finishedCountdownStarted = true;
         mainHandler.removeCallbacks(trackingRunnable);
         finishSeconds = 5;
+
         Runnable r = new Runnable() {
             @Override public void run() {
                 if (finishSeconds <= 0) {
@@ -483,12 +610,14 @@ public class CustomerTripActivity extends Activity {
             conn.setUseCaches(false);
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
+
             OutputStream os = conn.getOutputStream();
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
             writer.write(payload.toString());
             writer.flush();
             writer.close();
             os.close();
+
             int code = conn.getResponseCode();
             InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
             String body = readStream(is).trim();
@@ -540,7 +669,8 @@ public class CustomerTripActivity extends Activity {
         if (!validCoord(lat1, lng1) || !validCoord(lat2, lng2)) return lastBearing;
         double dLng = Math.toRadians(lng2 - lng1);
         double y = Math.sin(dLng) * Math.cos(Math.toRadians(lat2));
-        double x = Math.cos(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) - Math.sin(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(dLng);
+        double x = Math.cos(Math.toRadians(lat1)) * Math.sin(Math.toRadians(lat2)) -
+                Math.sin(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.cos(dLng);
         return normalize(Math.toDegrees(Math.atan2(y, x)));
     }
 
@@ -562,13 +692,17 @@ public class CustomerTripActivity extends Activity {
         double r = 6371000.0;
         double dLat = Math.toRadians(lat2 - lat1);
         double dLng = Math.toRadians(lng2 - lng1);
-        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                        Math.sin(dLng / 2) * Math.sin(dLng / 2);
         return r * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
     }
 
     private void eval(String js) {
         if (mapView == null || !mapReady) return;
-        try { mapView.evaluateJavascript(js, null); } catch (Exception ignored) {}
+        try {
+            mapView.evaluateJavascript(js, null);
+        } catch (Exception ignored) {}
     }
 
     private void setLoading(boolean show) {
@@ -577,7 +711,10 @@ public class CustomerTripActivity extends Activity {
 
     private String esc(String value) {
         if (value == null) return "";
-        return value.replace("\\", "\\\\").replace("'", "\\'").replace("\r", " ").replace("\n", " ");
+        return value.replace("\\", "\\\\")
+                .replace("'", "\\'")
+                .replace("\r", " ")
+                .replace("\n", " ");
     }
 
     private String firstNonEmpty(String... values) {
@@ -638,7 +775,11 @@ public class CustomerTripActivity extends Activity {
 
     private void showInfo(String title, String message) {
         try {
-            new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show();
+            new AlertDialog.Builder(this)
+                    .setTitle(title)
+                    .setMessage(message)
+                    .setPositiveButton("OK", null)
+                    .show();
         } catch (Exception ignored) {}
     }
 
@@ -649,7 +790,10 @@ public class CustomerTripActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        if (trackingStarted && !finishedCountdownStarted) mainHandler.postDelayed(trackingRunnable, TRACKING_MS);
+        if (trackingStarted && !finishedCountdownStarted) {
+            fetchDriverPosition();
+            mainHandler.postDelayed(trackingRunnable, TRACKING_MS);
+        }
     }
 
     @Override protected void onDestroy() {
@@ -657,6 +801,7 @@ public class CustomerTripActivity extends Activity {
         try {
             if (mapView != null) {
                 mapView.stopLoading();
+                mapView.loadUrl("about:blank");
                 mapView.destroy();
                 mapView = null;
             }
