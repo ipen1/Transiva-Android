@@ -122,11 +122,27 @@ public class CustomerTripActivity extends Activity {
 
     private double getDoubleExtraOrPref(Intent i, SharedPreferences sp, String key, double def) {
         try {
-            if (i != null && i.hasExtra(key)) return i.getDoubleExtra(key, def);
+            if (i != null && i.hasExtra(key)) {
+                Object raw = i.getExtras() != null ? i.getExtras().get(key) : null;
+                if (raw instanceof Number) return ((Number) raw).doubleValue();
+                if (raw != null) {
+                    String v = String.valueOf(raw).trim();
+                    if (v.length() > 0 && !"null".equalsIgnoreCase(v)) return Double.parseDouble(v);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            String v = sp.getString(key, "");
+            if (v != null && v.trim().length() > 0 && !"null".equalsIgnoreCase(v.trim())) {
+                return Double.parseDouble(v.trim());
+            }
+        } catch (Exception ignored) {}
+
+        try {
             return Double.longBitsToDouble(sp.getLong(key, Double.doubleToLongBits(def)));
-        } catch (Exception e) {
-            try { return Double.parseDouble(sp.getString(key, String.valueOf(def))); } catch (Exception ignored) {}
-        }
+        } catch (Exception ignored) {}
+
         return def;
     }
 
@@ -307,22 +323,42 @@ public class CustomerTripActivity extends Activity {
         JSONObject order = res.optJSONObject("order");
         if (order == null) order = new JSONObject();
 
-        String status = firstNonEmpty(order.optString("status", ""), res.optString("status", "")).toLowerCase(Locale.US);
-        String driverName = firstNonEmpty(driver.optString("name", ""), driver.optString("username", ""), order.optString("driver_username", ""), res.optString("driver_username", ""), "Driver");
+        String status = firstNonEmpty(res.optString("status", ""), order.optString("status", "")).toLowerCase(Locale.US).trim();
+        String driverName = firstNonEmpty(driver.optString("name", ""), driver.optString("username", ""), order.optString("driver", ""), order.optString("driver_username", ""), res.optString("driver", ""), res.optString("driver_username", ""), "Driver");
         String plate = firstNonEmpty(driver.optString("plate", ""), driver.optString("vehicle_plate", ""), order.optString("driver_plate", ""), "-");
         activeDriverType = resolveDriverType(order, driver);
 
-        double pLat = getJsonDouble(order, "pickup_lat", "pickupLatitude", "pickup_latitude");
-        double pLng = getJsonDouble(order, "pickup_lng", "pickupLongitude", "pickup_longitude");
-        double dLat = getJsonDouble(order, "delivery_lat", "deliveryLatitude", "delivery_latitude");
-        double dLng = getJsonDouble(order, "delivery_lng", "deliveryLongitude", "delivery_longitude");
+        double pLat = firstValidCoordPart(
+                getJsonDouble(order, "pickup_lat", "pickupLatitude", "pickup_latitude", "user_lat"),
+                getJsonDouble(res, "pickup_lat", "pickupLatitude", "pickup_latitude", "user_lat")
+        );
+        double pLng = firstValidCoordPart(
+                getJsonDouble(order, "pickup_lng", "pickupLongitude", "pickup_longitude", "user_lng"),
+                getJsonDouble(res, "pickup_lng", "pickupLongitude", "pickup_longitude", "user_lng")
+        );
+        double dLat = firstValidCoordPart(
+                getJsonDouble(order, "delivery_lat", "deliveryLatitude", "delivery_latitude"),
+                getJsonDouble(res, "delivery_lat", "deliveryLatitude", "delivery_latitude")
+        );
+        double dLng = firstValidCoordPart(
+                getJsonDouble(order, "delivery_lng", "deliveryLongitude", "delivery_longitude"),
+                getJsonDouble(res, "delivery_lng", "deliveryLongitude", "delivery_longitude")
+        );
         if (validCoord(pLat, pLng)) { pickupLat = pLat; pickupLng = pLng; }
         if (validCoord(dLat, dLng)) { deliveryLat = dLat; deliveryLng = dLng; }
         saveTripPrefs();
         pushInitialMarkers();
 
-        double lat = getJsonDouble(driver, "driver_lat", "latitude", "lat");
-        double lng = getJsonDouble(driver, "driver_lng", "longitude", "lng");
+        double lat = firstValidCoordPart(
+                getJsonDouble(driver, "driver_lat", "latitude", "lat"),
+                getJsonDouble(order, "driver_lat", "latitude", "lat"),
+                getJsonDouble(res, "driver_lat", "latitude", "lat")
+        );
+        double lng = firstValidCoordPart(
+                getJsonDouble(driver, "driver_lng", "longitude", "lng"),
+                getJsonDouble(order, "driver_lng", "longitude", "lng"),
+                getJsonDouble(res, "driver_lng", "longitude", "lng")
+        );
         boolean hasLocation = validCoord(lat, lng);
 
         driverNameText.setText(driverName);
@@ -414,10 +450,10 @@ public class CustomerTripActivity extends Activity {
             getSharedPreferences("transiva", MODE_PRIVATE).edit()
                     .putString("active_order_id", orderId)
                     .putString("active_driver_type", activeDriverType)
-                    .putLong("pickup_lat", Double.doubleToLongBits(pickupLat))
-                    .putLong("pickup_lng", Double.doubleToLongBits(pickupLng))
-                    .putLong("delivery_lat", Double.doubleToLongBits(deliveryLat))
-                    .putLong("delivery_lng", Double.doubleToLongBits(deliveryLng))
+                    .putString("pickup_lat", String.valueOf(pickupLat))
+                    .putString("pickup_lng", String.valueOf(pickupLng))
+                    .putString("delivery_lat", String.valueOf(deliveryLat))
+                    .putString("delivery_lng", String.valueOf(deliveryLng))
                     .apply();
         } catch (Exception ignored) {}
     }
@@ -471,6 +507,14 @@ public class CustomerTripActivity extends Activity {
         while ((line = reader.readLine()) != null) sb.append(line);
         reader.close();
         return sb.toString();
+    }
+
+    private double firstValidCoordPart(double... values) {
+        if (values == null) return 0;
+        for (double v : values) {
+            if (Double.isFinite(v) && v != 0) return v;
+        }
+        return 0;
     }
 
     private double getJsonDouble(JSONObject obj, String... keys) {
