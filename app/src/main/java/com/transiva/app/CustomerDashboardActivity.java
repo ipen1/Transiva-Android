@@ -942,8 +942,6 @@ public class CustomerDashboardActivity extends Activity {
         e.putString("active_service_name", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("service_name"), ""));
         e.apply();
 
-        String driverType = detectDriverType(order);
-
         Intent intent = new Intent(this, CustomerTripActivity.class);
         intent.putExtra("order_id", orderId);
         intent.putExtra("active_order_id", orderId);
