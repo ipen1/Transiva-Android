@@ -165,6 +165,13 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".PassengerCarActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".SearchDriverActivity"
             android:exported="false"
             android:screenOrientation="portrait"
