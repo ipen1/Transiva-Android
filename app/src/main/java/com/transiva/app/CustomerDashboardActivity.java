@@ -349,6 +349,20 @@ public class CustomerDashboardActivity extends Activity {
                 return;
             }
 
+            if ("TransCar".equalsIgnoreCase(title)
+                    || "Transcar".equalsIgnoreCase(title)
+                    || "Mobil".equalsIgnoreCase(title)) {
+
+                startActivity(
+                        new Intent(
+                                CustomerDashboardActivity.this,
+                                PassengerCarActivity.class
+                        )
+                );
+
+                return;
+            }
+
             if ("soon".equals(route)) {
                 showInfo(
                         "Segera Hadir",
@@ -704,6 +718,9 @@ public class CustomerDashboardActivity extends Activity {
             copyIfExists(res, order, "delivery_lng");
             copyIfExists(res, order, "driver_type");
             copyIfExists(res, order, "order_type");
+            copyIfExists(res, order, "service_type");
+            copyIfExists(res, order, "service_name");
+            copyIfExists(res, order, "price_mode");
 
             return order;
         } catch (Exception e) {
@@ -752,7 +769,10 @@ public class CustomerDashboardActivity extends Activity {
         e.putString("pickup_lng", firstNonEmpty(order.optString("pickup_lng"), order.optString("user_lng"), getStringPref("pickup_lng")));
         e.putString("delivery_lat", firstNonEmpty(order.optString("delivery_lat"), getStringPref("delivery_lat")));
         e.putString("delivery_lng", firstNonEmpty(order.optString("delivery_lng"), getStringPref("delivery_lng")));
-        e.putString("active_driver_type", detectDriverType(order));
+        String driverType = detectDriverType(order);
+        e.putString("active_driver_type", driverType);
+        e.putString("active_order_type", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("order_type"), "TransRide"));
+        e.putString("active_service_name", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("service_name"), ""));
         e.apply();
     }
 
@@ -773,8 +793,11 @@ public class CustomerDashboardActivity extends Activity {
         String orderType = order.optString("order_type", "").toLowerCase(Locale.US).trim();
 
         boolean isCar = orderType.equals("passenger_car")
+                || orderType.equals("transcar")
                 || orderType.equals("car")
                 || orderType.equals("mobil")
+                || order.optString("service_type", "").equalsIgnoreCase("Transcar")
+                || order.optString("service_name", "").equalsIgnoreCase("Transcar")
                 || order.optString("driver_type", "").equalsIgnoreCase("car");
 
         String vehicle = isCar ? "🚗" : "🛵";
@@ -913,16 +936,24 @@ public class CustomerDashboardActivity extends Activity {
         e.putString("pickup_lng", pickupLng);
         e.putString("delivery_lat", deliveryLat);
         e.putString("delivery_lng", deliveryLng);
-        e.putString("active_driver_type", detectDriverType(order));
+        String driverType = detectDriverType(order);
+        e.putString("active_driver_type", driverType);
+        e.putString("active_order_type", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("order_type"), "TransRide"));
+        e.putString("active_service_name", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("service_name"), ""));
         e.apply();
+
+        String driverType = detectDriverType(order);
 
         Intent intent = new Intent(this, CustomerTripActivity.class);
         intent.putExtra("order_id", orderId);
+        intent.putExtra("active_order_id", orderId);
         intent.putExtra("pickup_lat", pickupLat);
         intent.putExtra("pickup_lng", pickupLng);
         intent.putExtra("delivery_lat", deliveryLat);
         intent.putExtra("delivery_lng", deliveryLng);
-        intent.putExtra("driver_type", detectDriverType(order));
+        intent.putExtra("driver_type", driverType);
+        intent.putExtra("active_driver_type", driverType);
+        intent.putExtra("active_order_type", driverType.equals("car") ? "Transcar" : "TransRide");
         startActivity(intent);
     }
 
@@ -992,12 +1023,18 @@ public class CustomerDashboardActivity extends Activity {
     private String detectDriverType(JSONObject order) {
         String type = firstNonEmpty(
                 order.optString("driver_type"),
-                order.optString("price_mode"),
+                order.optString("service_type"),
+                order.optString("service_name"),
                 order.optString("order_type"),
+                order.optString("price_mode"),
                 "bike"
         ).toLowerCase(Locale.US).trim();
 
-        if (type.equals("car") || type.equals("mobil") || type.equals("passenger_car") || type.equals("transcar")) {
+        if (type.equals("car")
+                || type.equals("mobil")
+                || type.equals("passenger_car")
+                || type.equals("transcar")
+                || type.contains("transcar")) {
             return "car";
         }
 
