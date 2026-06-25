@@ -8,6 +8,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
@@ -24,6 +26,7 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -32,6 +35,7 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -40,13 +44,14 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import android.util.Base64;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class PassengerCarActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
-    private static final String CREATE_ORDER_URL = BASE_URL + "server/create_order.php";
+    private static final String CREATE_ORDER_URL = BASE_URL + "server/createOrder.php";
     private static final String RESOLVE_MAPS_URL = BASE_URL + "server/resolve_google_maps.php";
     private static final int REQ_LOCATION = 44;
     private static final int TIMEOUT_MS = 25000;
@@ -63,6 +68,7 @@ public class PassengerCarActivity extends Activity {
     private boolean ordering = false;
     private String mode = "pickup";
     private String username = "";
+    private int userId = 0;
 
     private double pickupLat = 0, pickupLng = 0;
     private double deliveryLat = 0, deliveryLng = 0;
@@ -83,11 +89,56 @@ public class PassengerCarActivity extends Activity {
 
     private void readUser() {
         SharedPreferences sp = getSharedPreferences("transiva", MODE_PRIVATE);
+
+        try {
+            SessionManager session = new SessionManager(this);
+            if (session.isLoggedIn()) {
+                username = firstNonEmpty(
+                        session.getUsername(),
+                        session.getName(),
+                        sp.getString("username", ""),
+                        sp.getString("user_username", ""),
+                        sp.getString("player_username", "")
+                );
+
+                try {
+                    userId = Integer.parseInt(firstNonEmpty(
+                            session.getId(),
+                            session.getUserId(),
+                            String.valueOf(sp.getInt("user_id", 0)),
+                            String.valueOf(sp.getInt("id", 0)),
+                            "0"
+                    ));
+                } catch (Exception ignored) {
+                    userId = 0;
+                }
+
+                return;
+            }
+        } catch (Exception ignored) {}
+
         username = firstNonEmpty(
                 sp.getString("username", ""),
                 sp.getString("user_username", ""),
                 sp.getString("player_username", "")
         );
+
+        userId = sp.getInt(
+                "user_id",
+                sp.getInt("id", 0)
+        );
+
+        if (userId <= 0) {
+            try {
+                userId = Integer.parseInt(firstNonEmpty(
+                        sp.getString("user_id", ""),
+                        sp.getString("id", ""),
+                        "0"
+                ));
+            } catch (Exception ignored) {
+                userId = 0;
+            }
+        }
     }
 
     private void buildLayout() {
@@ -96,64 +147,71 @@ public class PassengerCarActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(12), dp(14), dp(12), dp(12));
+        root.setPadding(dp(10), dp(10), dp(10), dp(10));
         page.addView(root, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout topCard = new LinearLayout(this);
         topCard.setOrientation(LinearLayout.VERTICAL);
-        topCard.setPadding(dp(14), dp(14), dp(14), dp(14));
-        topCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(22), 1));
+        topCard.setPadding(dp(10), dp(8), dp(10), dp(8));
+        topCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
         root.addView(topCard, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
         topCard.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
 
-        TextView title = text("Transcar", 23, "#0B3A78", true);
-        titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView title = text("Transcar", 18, "#0B3A78", true);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(34), 1));
 
         Button close = smallButton("×", "#FEE2E2", "#DC2626", "#FECACA");
-        titleRow.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        titleRow.addView(close, new LinearLayout.LayoutParams(dp(34), dp(34)));
         close.setOnClickListener(v -> finish());
 
-        modeText = text("Pilih lokasi jemput", 13, "#64748B", false);
-        modeText.setPadding(0, dp(2), 0, dp(8));
+        modeText = text("Geser peta lalu pilih titik jemput / tujuan", 11, "#64748B", false);
+        modeText.setPadding(0, 0, 0, dp(6));
         topCard.addView(modeText);
 
-        pickupBtn = rowButton("●  Lokasi Jemput", "#16A34A");
-        deliveryBtn = rowButton("●  Lokasi Tujuan", "#EF4444");
-        topCard.addView(pickupBtn, new LinearLayout.LayoutParams(-1, dp(46)));
-        topCard.addView(deliveryBtn, new LinearLayout.LayoutParams(-1, dp(46)));
+        LinearLayout pointRow = new LinearLayout(this);
+        pointRow.setOrientation(LinearLayout.HORIZONTAL);
+        topCard.addView(pointRow, new LinearLayout.LayoutParams(-1, dp(56)));
 
-        pickupText = text("Belum dipilih", 12, "#334155", false);
-        deliveryText = text("Belum dipilih", 12, "#334155", false);
-        pickupText.setPadding(dp(8), dp(4), dp(8), dp(2));
-        deliveryText.setPadding(dp(8), dp(2), dp(8), dp(8));
-        topCard.addView(pickupText);
-        topCard.addView(deliveryText);
+        pickupBtn = compactPointButton("●  Lokasi Jemput", "Belum dipilih", "#16A34A");
+        deliveryBtn = compactPointButton("●  Lokasi Tujuan", "Belum dipilih", "#EF4444");
+
+        pointRow.addView(pickupBtn, new LinearLayout.LayoutParams(0, -1, 1));
+
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(0, -1, 1);
+        dlp.setMargins(dp(6), 0, 0, 0);
+        pointRow.addView(deliveryBtn, dlp);
+
+        pickupText = text("Pickup: belum dipilih", 10, "#334155", false);
+        deliveryText = text("Tujuan: belum dipilih", 10, "#334155", false);
+        pickupText.setVisibility(View.GONE);
+        deliveryText.setVisibility(View.GONE);
 
         LinearLayout linkRow = new LinearLayout(this);
         linkRow.setOrientation(LinearLayout.HORIZONTAL);
         linkRow.setGravity(Gravity.CENTER_VERTICAL);
-        linkRow.setPadding(0, dp(8), 0, 0);
-        topCard.addView(linkRow, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams linkLp = new LinearLayout.LayoutParams(-1, dp(42));
+        linkLp.setMargins(0, dp(7), 0, 0);
+        topCard.addView(linkRow, linkLp);
 
         googleMapInput = new EditText(this);
         googleMapInput.setSingleLine(true);
-        googleMapInput.setTextSize(12);
-        googleMapInput.setHint("Paste link Google Maps tujuan...");
+        googleMapInput.setTextSize(11);
+        googleMapInput.setHint("🔗 Link Google Maps tujuan...");
         googleMapInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(14), 1));
         googleMapInput.setPadding(dp(10), 0, dp(10), 0);
-        linkRow.addView(googleMapInput, new LinearLayout.LayoutParams(0, dp(44), 1));
+        linkRow.addView(googleMapInput, new LinearLayout.LayoutParams(0, -1, 1));
 
         useLinkBtn = smallButton("Pakai", "#EAF4FF", "#0B7CFF", "#9DCAFF");
-        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(dp(74), dp(44));
-        ulp.setMargins(dp(8), 0, 0, 0);
+        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(dp(70), -1);
+        ulp.setMargins(dp(7), 0, 0, 0);
         linkRow.addView(useLinkBtn, ulp);
 
         FrameLayout mapBox = new FrameLayout(this);
         LinearLayout.LayoutParams mapLp = new LinearLayout.LayoutParams(-1, 0, 1);
-        mapLp.setMargins(0, dp(12), 0, dp(12));
+        mapLp.setMargins(0, dp(8), 0, dp(8));
         root.addView(mapBox, mapLp);
 
         mapView = new WebView(this);
@@ -169,45 +227,56 @@ public class PassengerCarActivity extends Activity {
         mapView.addJavascriptInterface(new MapBridge(), "AndroidCar");
         mapBox.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
 
-        TextView centerMarker = text("📍", 33, "#EF4444", true);
-        centerMarker.setGravity(Gravity.CENTER);
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(64), dp(64));
+        FrameLayout centerMarkerBox = new FrameLayout(this);
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(54), dp(62));
         clp.gravity = Gravity.CENTER;
-        mapBox.addView(centerMarker, clp);
+        mapBox.addView(centerMarkerBox, clp);
+
+        int centerPinId = getDrawableId("map_center_pin", "ic_center_pin", "center_pin", "map_destination_pin");
+        if (centerPinId > 0) {
+            ImageView centerMarker = new ImageView(this);
+            centerMarker.setImageResource(centerPinId);
+            centerMarker.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
+        } else {
+            TextView centerMarker = text("📍", 28, "#EF4444", true);
+            centerMarker.setGravity(Gravity.CENTER);
+            centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
+        }
 
         mapView.loadDataWithBaseURL(BASE_URL, mapHtml(), "text/html", "UTF-8", null);
 
         LinearLayout bottomCard = new LinearLayout(this);
         bottomCard.setOrientation(LinearLayout.VERTICAL);
-        bottomCard.setPadding(dp(14), dp(14), dp(14), dp(14));
-        bottomCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(22), 1));
+        bottomCard.setPadding(dp(10), dp(8), dp(10), dp(8));
+        bottomCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
         root.addView(bottomCard, new LinearLayout.LayoutParams(-1, -2));
 
-        fareText = text("Tarif dihitung server setelah order dibuat", 12, "#64748B", false);
+        fareText = text("Tarif dihitung server setelah order dibuat", 10, "#64748B", false);
         bottomCard.addView(fareText);
 
         noteInput = new EditText(this);
-        noteInput.setMinLines(2);
-        noteInput.setMaxLines(3);
-        noteInput.setTextSize(13);
+        noteInput.setSingleLine(true);
+        noteInput.setTextSize(12);
         noteInput.setHint("Catatan untuk driver mobil...");
         noteInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(14), 1));
-        noteInput.setPadding(dp(10), dp(8), dp(10), dp(8));
-        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-1, dp(64));
-        nlp.setMargins(0, dp(8), 0, dp(10));
+        noteInput.setPadding(dp(10), 0, dp(10), 0);
+        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-1, dp(42));
+        nlp.setMargins(0, dp(7), 0, dp(8));
         bottomCard.addView(noteInput, nlp);
 
         LinearLayout actionRow = new LinearLayout(this);
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
         bottomCard.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
 
-        backBtn = smallButton("Kembali", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        gpsBtn = smallButton("GPS", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        orderBtn = smallButton("Order Mobil", "#0B7CFF", "#FFFFFF", "#0B7CFF");
-        actionRow.addView(backBtn, new LinearLayout.LayoutParams(0, dp(48), 1));
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(dp(72), dp(48)); glp.setMargins(dp(8), 0, dp(8), 0);
+        backBtn = smallButton("← Kembali", "#FFFFFF", "#0B7CFF", "#9DCAFF");
+        gpsBtn = smallButton("⌖ GPS", "#FFFFFF", "#0B7CFF", "#9DCAFF");
+        orderBtn = smallButton("🚘 Order Mobil", "#0B7CFF", "#FFFFFF", "#0B7CFF");
+        actionRow.addView(backBtn, new LinearLayout.LayoutParams(0, dp(44), 1));
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(0, dp(44), 1);
+        glp.setMargins(dp(7), 0, dp(7), 0);
         actionRow.addView(gpsBtn, glp);
-        actionRow.addView(orderBtn, new LinearLayout.LayoutParams(0, dp(48), 1.3f));
+        actionRow.addView(orderBtn, new LinearLayout.LayoutParams(0, dp(44), 1.45f));
 
         progressBar = new ProgressBar(this);
         progressBar.setVisibility(View.GONE);
@@ -230,28 +299,36 @@ public class PassengerCarActivity extends Activity {
     }
 
     private String mapHtml() {
+        String pickupIcon = drawableDataUri("map_pickup_pin", "ic_pickup_pin", "pickup_pin", "pickup", "point_pickup", "ic_pickup");
+        String deliveryIcon = drawableDataUri("map_destination_pin", "map_delivery_pin", "ic_delivery_pin", "delivery_pin", "delivery", "point_delivery", "ic_delivery");
+        String carIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
+        String motorIcon = drawableDataUri("map_motor_top", "ic_motor_top", "motor_top", "ic_transbike", "transbike", "motor", "bike_marker");
+
         return "<!DOCTYPE html><html><head>" +
                 "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>" +
                 "<link rel='stylesheet' href='" + BASE_URL + "js/leaflet.css'>" +
                 "<script src='" + BASE_URL + "js/leaflet.js'></script>" +
-                "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef6ff;}" +
+                "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef6ff;overflow:hidden;}" +
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
-                ".leaflet-container{font-family:Arial,sans-serif;border-radius:22px;}" +
-                ".pin{font-size:30px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.30));}" +
-                ".car{width:44px;height:44px;object-fit:contain;filter:drop-shadow(0 4px 6px rgba(0,0,0,.38));}" +
+                ".leaflet-container{font-family:Arial,sans-serif;border-radius:18px;background:#eef6ff;}" +
+                ".pin{font-size:34px;text-align:center;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28));}" +
+                ".assetpin{width:48px;height:58px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".carpin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".route{stroke-linecap:round;stroke-linejoin:round;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map, pickup=null, delivery=null, route=null;" +
-                "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView(["+centerLat+","+centerLng+"],16);" +
+                "var map, pickup=null, delivery=null, car=null, route=null;" +
+                "var pickupIconData='" + js(pickupIcon) + "', deliveryIconData='" + js(deliveryIcon) + "', carIconData='" + js(carIcon) + "', motorIconData='" + js(motorIcon) + "';" +
+                "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView(["+centerLat+","+centerLng+"],17);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:''}).addTo(map);" +
                 "map.on('moveend',function(){var c=map.getCenter();try{AndroidCar.onCenterChanged(c.lat,c.lng);}catch(e){}});" +
                 "setTimeout(function(){map.invalidateSize();var c=map.getCenter();try{AndroidCar.onMapReady(c.lat,c.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
-                "function icon(t){return L.divIcon({html:'<div class=pin>'+t+'</div>',className:'',iconSize:[42,42],iconAnchor:[21,38]});}" +
-                "function setPickup(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:icon('🟢'),zIndexOffset:600}).addTo(map);draw();}" +
-                "function setDelivery(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:icon('🔴'),zIndexOffset:600}).addTo(map);draw();}" +
+                "function iconData(data, fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[48,58],iconAnchor:[24,55]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40]});}" +
+                "function carData(){if(carIconData&&carIconData.length>20){return L.divIcon({html:'<img class=carpin src=\"'+carIconData+'\">',className:'',iconSize:[46,46],iconAnchor:[23,23]});}return L.divIcon({html:'<div class=pin>🚘</div>',className:'',iconSize:[46,46],iconAnchor:[23,28]});}" +
+                "function setPickup(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:600}).addTo(map);draw();}" +
+                "function setDelivery(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:600}).addTo(map);draw();}" +
                 "function moveTo(lat,lng,z){if(!map)return;map.setView([+lat,+lng],z||17,{animate:true});}" +
-                "function draw(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){route=L.polyline([pickup.getLatLng(),delivery.getLatLng()],{color:'#0B7CFF',weight:5,opacity:.85,dashArray:'8,8',className:'route'}).addTo(map);map.fitBounds([pickup.getLatLng(),delivery.getLatLng()],{padding:[70,70],maxZoom:16,animate:true});}}" +
+                "function draw(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){route=L.polyline([pickup.getLatLng(),delivery.getLatLng()],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);var a=pickup.getLatLng(),b=delivery.getLatLng();if(!car){car=L.marker([(a.lat+b.lat)/2,(a.lng+b.lng)/2],{icon:carData(),zIndexOffset:800}).addTo(map);}else{car.setLatLng([(a.lat+b.lat)/2,(a.lng+b.lng)/2]);}map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
                 "ready();" +
                 "</script></body></html>";
     }
@@ -267,16 +344,22 @@ public class PassengerCarActivity extends Activity {
 
     private void setPointFromCenter() {
         if (!validCoord(centerLat, centerLng)) return;
+
         if ("pickup".equals(mode)) {
-            pickupLat = centerLat; pickupLng = centerLng;
+            pickupLat = centerLat;
+            pickupLng = centerLng;
             pickupText.setText(String.format(Locale.US, "Pickup: %.6f, %.6f", pickupLat, pickupLng));
+            pickupBtn.setText("●  Jemput\n" + shortCoord(pickupLat, pickupLng));
             eval("setPickup(" + pickupLat + "," + pickupLng + ")");
             mode = "delivery";
         } else {
-            deliveryLat = centerLat; deliveryLng = centerLng;
+            deliveryLat = centerLat;
+            deliveryLng = centerLng;
             deliveryText.setText(String.format(Locale.US, "Tujuan: %.6f, %.6f", deliveryLat, deliveryLng));
+            deliveryBtn.setText("●  Tujuan\n" + shortCoord(deliveryLat, deliveryLng));
             eval("setDelivery(" + deliveryLat + "," + deliveryLng + ")");
         }
+
         updateModeUI();
     }
 
@@ -355,40 +438,92 @@ public class PassengerCarActivity extends Activity {
 
     private void createOrder() {
         if (ordering) return;
-        if (!validCoord(pickupLat, pickupLng)) { toastDialog("Pilih lokasi jemput terlebih dahulu."); return; }
-        if (!validCoord(deliveryLat, deliveryLng)) { toastDialog("Pilih lokasi tujuan terlebih dahulu."); return; }
-        ordering = true; setLoading(true); orderBtn.setEnabled(false); orderBtn.setText("Proses...");
+
+        if (userId <= 0) {
+            readUser();
+        }
+
+        if (userId <= 0) {
+            toastDialog("User ID tidak ditemukan. Silakan login ulang.");
+            return;
+        }
+
+        if (!validCoord(pickupLat, pickupLng)) {
+            toastDialog("Pilih lokasi jemput terlebih dahulu.");
+            return;
+        }
+
+        if (!validCoord(deliveryLat, deliveryLng)) {
+            toastDialog("Pilih lokasi tujuan terlebih dahulu.");
+            return;
+        }
+
+        ordering = true;
+        setLoading(true);
+        orderBtn.setEnabled(false);
+        orderBtn.setText("Proses...");
+
         new Thread(() -> {
             try {
+                String orderId = "ORD-" + System.currentTimeMillis();
+
+                JSONObject pickup = new JSONObject();
+                pickup.put("latitude", pickupLat);
+                pickup.put("longitude", pickupLng);
+                pickup.put("address", "Lokasi Jemput");
+
+                JSONObject delivery = new JSONObject();
+                delivery.put("latitude", deliveryLat);
+                delivery.put("longitude", deliveryLng);
+                delivery.put("address", "Lokasi Tujuan");
+
+                JSONObject userLocation = new JSONObject();
+                userLocation.put("latitude", pickupLat);
+                userLocation.put("longitude", pickupLng);
+
                 JSONObject payload = new JSONObject();
+                payload.put("id", orderId);
+                payload.put("user_id", userId);
                 payload.put("username", username);
                 payload.put("customer", username);
-                payload.put("pickup_lat", pickupLat);
-                payload.put("pickup_lng", pickupLng);
-                payload.put("delivery_lat", deliveryLat);
-                payload.put("delivery_lng", deliveryLng);
-                payload.put("driver_type", "car");
                 payload.put("order_type", "Transcar");
+                payload.put("driver_type", "car");
                 payload.put("service_type", "Transcar");
                 payload.put("service_name", "Transcar");
                 payload.put("price_mode", "server");
+                payload.put("pickup", pickup);
+                payload.put("delivery", delivery);
+                payload.put("userLocation", userLocation);
                 payload.put("note", noteInput.getText().toString().trim());
+
                 JSONObject res = postJson(CREATE_ORDER_URL, payload);
                 mainHandler.post(() -> handleOrderResult(res));
             } catch (Exception e) {
-                mainHandler.post(() -> { resetOrderButton(); toastDialog("Gagal membuat order Transcar."); });
+                mainHandler.post(() -> {
+                    resetOrderButton();
+                    toastDialog("Gagal membuat order Transcar. " + cleanError(e.getMessage()));
+                });
             }
         }).start();
     }
 
     private void handleOrderResult(JSONObject res) {
         resetOrderButton();
+
         if (res == null || !res.optBoolean("success", false)) {
-            toastDialog(res != null ? res.optString("message", "Gagal membuat order mobil.") : "Gagal membuat order mobil.");
+            String msg = res != null
+                    ? res.optString("message", "Gagal membuat order mobil.")
+                    : "Gagal membuat order mobil.";
+            toastDialog(msg);
             return;
         }
+
         String orderId = firstNonEmpty(res.optString("order_id", ""), res.optString("id", ""));
-        if (orderId.length() == 0) { toastDialog("Order berhasil, tetapi ID order tidak ditemukan."); return; }
+        if (orderId.length() == 0) {
+            toastDialog("Order berhasil, tetapi ID order tidak ditemukan.");
+            return;
+        }
+
         getSharedPreferences("transiva", MODE_PRIVATE).edit()
                 .putString("active_order_id", orderId)
                 .putString("active_order_type", "Transcar")
@@ -398,12 +533,20 @@ public class PassengerCarActivity extends Activity {
                 .putString("pickup_lng", String.valueOf(pickupLng))
                 .putString("delivery_lat", String.valueOf(deliveryLat))
                 .putString("delivery_lng", String.valueOf(deliveryLng))
+                .putString("active_order_price", res.optString("price", ""))
                 .apply();
+
         try {
             Intent i = new Intent(this, SearchDriverActivity.class);
             i.putExtra("order_id", orderId);
+            i.putExtra("active_order_id", orderId);
             i.putExtra("active_driver_type", "car");
+            i.putExtra("driver_type", "car");
             i.putExtra("active_order_type", "Transcar");
+            i.putExtra("pickup_lat", String.valueOf(pickupLat));
+            i.putExtra("pickup_lng", String.valueOf(pickupLng));
+            i.putExtra("delivery_lat", String.valueOf(deliveryLat));
+            i.putExtra("delivery_lng", String.valueOf(deliveryLng));
             startActivity(i);
             finish();
         } catch (Exception e) {
@@ -444,8 +587,9 @@ public class PassengerCarActivity extends Activity {
 
     private void updateModeUI() {
         boolean p = "pickup".equals(mode);
-        modeText.setText(p ? "Geser peta lalu tekan Lokasi Jemput" : "Geser peta lalu tekan Lokasi Tujuan");
-        pickupBtn.setAlpha(p ? 1f : .72f); deliveryBtn.setAlpha(p ? .72f : 1f);
+        modeText.setText(p ? "Geser peta lalu tekan Jemput" : "Geser peta lalu tekan Tujuan");
+        pickupBtn.setAlpha(p ? 1f : .80f);
+        deliveryBtn.setAlpha(p ? .80f : 1f);
     }
 
     private void eval(String js) { if (mapView != null && mapReady) try { mapView.evaluateJavascript(js, null); } catch (Exception ignored) {} }
@@ -463,6 +607,65 @@ public class PassengerCarActivity extends Activity {
     private void hideKeyboard() { try { ((InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(googleMapInput.getWindowToken(), 0); } catch (Exception ignored) {} }
     private void toastDialog(String msg) { try { new AlertDialog.Builder(this).setTitle("Transiva").setMessage(msg).setPositiveButton("OK", null).show(); } catch (Exception ignored) {} }
     private String firstNonEmpty(String... v) { if (v == null) return ""; for (String s : v) if (s != null && s.trim().length() > 0 && !"null".equalsIgnoreCase(s.trim())) return s.trim(); return ""; }
+
+    private Button compactPointButton(String title, String sub, String color) {
+        Button b = new Button(this);
+        b.setText(title + "\n" + sub);
+        b.setAllCaps(false);
+        b.setTextSize(11);
+        b.setGravity(Gravity.CENTER_VERTICAL);
+        b.setPadding(dp(10), 0, dp(8), 0);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setTextColor(Color.parseColor(color));
+        b.setBackground(roundStroke("#FFFFFF", "#E2E8F0", dp(14), 1));
+        return b;
+    }
+
+    private String shortCoord(double lat, double lng) {
+        return String.format(Locale.US, "%.5f, %.5f", lat, lng);
+    }
+
+    private String cleanError(String value) {
+        String v = firstNonEmpty(value, "");
+        if (v.length() == 0) return "";
+        if (v.length() > 160) v = v.substring(0, 160);
+        return v;
+    }
+
+    private String js(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "");
+    }
+
+    private int getDrawableId(String... names) {
+        try {
+            for (String name : names) {
+                int id = getResources().getIdentifier(name, "drawable", getPackageName());
+                if (id > 0) return id;
+            }
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
+    private String drawableDataUri(String... names) {
+        try {
+            for (String name : names) {
+                int id = getResources().getIdentifier(name, "drawable", getPackageName());
+                if (id <= 0) continue;
+
+                Bitmap bm = BitmapFactory.decodeResource(getResources(), id);
+                if (bm == null) continue;
+
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                bm.compress(Bitmap.CompressFormat.PNG, 100, out);
+                String b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                try { bm.recycle(); } catch (Exception ignored) {}
+                return "data:image/png;base64," + b64;
+            }
+        } catch (Exception ignored) {}
+
+        return "";
+    }
 
     private Button rowButton(String value, String color) { Button b = smallButton(value, "#FFFFFF", color, "#E2E8F0"); b.setGravity(Gravity.CENTER_VERTICAL); b.setPadding(dp(12), 0, dp(12), 0); return b; }
     private Button smallButton(String value, String bg, String fg, String stroke) { Button b = new Button(this); b.setText(value); b.setAllCaps(false); b.setTextSize(13); b.setTypeface(Typeface.DEFAULT_BOLD); b.setTextColor(Color.parseColor(fg)); b.setBackground(roundStroke(bg, stroke, dp(16), 1)); return b; }
