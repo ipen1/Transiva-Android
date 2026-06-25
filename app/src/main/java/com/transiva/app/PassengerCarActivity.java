@@ -73,6 +73,7 @@ public class PassengerCarActivity extends Activity {
     private double pickupLat = 0, pickupLng = 0;
     private double deliveryLat = 0, deliveryLng = 0;
     private double centerLat = -0.018137, centerLng = 120.087380;
+    private double pickLat = 0, pickLng = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -312,49 +313,62 @@ public class PassengerCarActivity extends Activity {
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
                 ".leaflet-container{font-family:Arial,sans-serif;border-radius:18px;background:#eef6ff;}" +
                 ".pin{font-size:34px;text-align:center;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28));}" +
-                ".assetpin{width:48px;height:58px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".assetpin{width:52px;height:64px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".carpin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".route{stroke-linecap:round;stroke-linejoin:round;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map, pickup=null, delivery=null, car=null, route=null;" +
+                "var map, pickup=null, delivery=null, route=null, allowRoute=false;" +
                 "var pickupIconData='" + js(pickupIcon) + "', deliveryIconData='" + js(deliveryIcon) + "', carIconData='" + js(carIcon) + "', motorIconData='" + js(motorIcon) + "';" +
                 "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView(["+centerLat+","+centerLng+"],17);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:''}).addTo(map);" +
-                "map.on('moveend',function(){var c=map.getCenter();try{AndroidCar.onCenterChanged(c.lat,c.lng);}catch(e){}});" +
-                "setTimeout(function(){map.invalidateSize();var c=map.getCenter();try{AndroidCar.onMapReady(c.lat,c.lng);}catch(e){}},600);" +
+                "function notifyCenter(){var c=map.getCenter();var size=map.getSize();var tip=map.containerPointToLatLng([size.x/2,(size.y/2)+24]);try{AndroidCar.onCenterChanged(c.lat,c.lng,tip.lat,tip.lng);}catch(e){}}" +
+                "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
+                "setTimeout(function(){map.invalidateSize();var c=map.getCenter();var size=map.getSize();var tip=map.containerPointToLatLng([size.x/2,(size.y/2)+24]);try{AndroidCar.onMapReady(c.lat,c.lng,tip.lat,tip.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
-                "function iconData(data, fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[48,58],iconAnchor:[24,55]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40]});}" +
+                "function iconData(data, fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[52,64],iconAnchor:[26,52]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40]});}" +
                 "function carData(){if(carIconData&&carIconData.length>20){return L.divIcon({html:'<img class=carpin src=\"'+carIconData+'\">',className:'',iconSize:[46,46],iconAnchor:[23,23]});}return L.divIcon({html:'<div class=pin>🚘</div>',className:'',iconSize:[46,46],iconAnchor:[23,28]});}" +
-                "function setPickup(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:600}).addTo(map);draw();}" +
-                "function setDelivery(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:600}).addTo(map);draw();}" +
+                "function setPickup(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:600}).addTo(map);}" +
+                "function setDelivery(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:600}).addTo(map);}" +
                 "function moveTo(lat,lng,z){if(!map)return;map.setView([+lat,+lng],z||17,{animate:true});}" +
-                "function draw(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){route=L.polyline([pickup.getLatLng(),delivery.getLatLng()],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);var a=pickup.getLatLng(),b=delivery.getLatLng();if(!car){car=L.marker([(a.lat+b.lat)/2,(a.lng+b.lng)/2],{icon:carData(),zIndexOffset:800}).addTo(map);}else{car.setLatLng([(a.lat+b.lat)/2,(a.lng+b.lng)/2]);}map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
+                "function drawRouteAfterOrder(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();route=L.polyline([a,b],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
                 "ready();" +
                 "</script></body></html>";
     }
 
     public class MapBridge {
-        @JavascriptInterface public void onMapReady(double lat, double lng) {
-            mainHandler.post(() -> { mapReady = true; centerLat = lat; centerLng = lng; goToMyLocation(); });
+        @JavascriptInterface public void onMapReady(double lat, double lng, double pLat, double pLng) {
+            mainHandler.post(() -> {
+                mapReady = true;
+                centerLat = lat;
+                centerLng = lng;
+                pickLat = validCoord(pLat, pLng) ? pLat : lat;
+                pickLng = validCoord(pLat, pLng) ? pLng : lng;
+                goToMyLocation();
+            });
         }
-        @JavascriptInterface public void onCenterChanged(double lat, double lng) {
-            centerLat = lat; centerLng = lng;
+        @JavascriptInterface public void onCenterChanged(double lat, double lng, double pLat, double pLng) {
+            centerLat = lat;
+            centerLng = lng;
+            pickLat = validCoord(pLat, pLng) ? pLat : lat;
+            pickLng = validCoord(pLat, pLng) ? pLng : lng;
         }
     }
 
     private void setPointFromCenter() {
-        if (!validCoord(centerLat, centerLng)) return;
+        double selectedLat = validCoord(pickLat, pickLng) ? pickLat : centerLat;
+        double selectedLng = validCoord(pickLat, pickLng) ? pickLng : centerLng;
+        if (!validCoord(selectedLat, selectedLng)) return;
 
         if ("pickup".equals(mode)) {
-            pickupLat = centerLat;
-            pickupLng = centerLng;
+            pickupLat = selectedLat;
+            pickupLng = selectedLng;
             pickupText.setText(String.format(Locale.US, "Pickup: %.6f, %.6f", pickupLat, pickupLng));
             pickupBtn.setText("●  Jemput\n" + shortCoord(pickupLat, pickupLng));
             eval("setPickup(" + pickupLat + "," + pickupLng + ")");
             mode = "delivery";
         } else {
-            deliveryLat = centerLat;
-            deliveryLng = centerLng;
+            deliveryLat = selectedLat;
+            deliveryLng = selectedLng;
             deliveryText.setText(String.format(Locale.US, "Tujuan: %.6f, %.6f", deliveryLat, deliveryLng));
             deliveryBtn.setText("●  Tujuan\n" + shortCoord(deliveryLat, deliveryLng));
             eval("setDelivery(" + deliveryLat + "," + deliveryLng + ")");
@@ -379,7 +393,7 @@ public class PassengerCarActivity extends Activity {
                 } catch (Exception ignored) {}
             }
             if (best != null) {
-                centerLat = best.getLatitude(); centerLng = best.getLongitude();
+                centerLat = best.getLatitude(); centerLng = best.getLongitude(); pickLat = centerLat; pickLng = centerLng;
                 eval("moveTo(" + centerLat + "," + centerLng + ",17)");
                 if (!validCoord(pickupLat, pickupLng)) { mode = "pickup"; setPointFromCenter(); }
             } else {
