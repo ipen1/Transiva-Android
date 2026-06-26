@@ -306,7 +306,7 @@ public class TranstourActivity extends Activity {
     }
 
     private void renderTickets() {
-        root.removeViews(2, Math.max(0, root.getChildCount() - 2));
+        removeViewsAfter(2);
         if (tickets.isEmpty()) {
             addStatus("Belum memiliki tiket wisata.");
             return;
@@ -403,7 +403,7 @@ public class TranstourActivity extends Activity {
     }
 
     private void loadTickets() {
-        if (userId <= 0) { root.removeViews(2, Math.max(0, root.getChildCount() - 2)); addStatus("Silakan login ulang untuk melihat tiket."); return; }
+        if (userId <= 0) { removeViewsAfter(2); addStatus("Silakan login ulang untuk melihat tiket."); return; }
         setLoading(true);
         new Thread(() -> {
             try {
@@ -417,7 +417,7 @@ public class TranstourActivity extends Activity {
                 }
                 mainHandler.post(() -> { setLoading(false); if ("tickets".equals(currentPage)) renderTickets(); });
             } catch (Exception e) {
-                mainHandler.post(() -> { setLoading(false); if ("tickets".equals(currentPage)) { root.removeViews(2, Math.max(0, root.getChildCount() - 2)); addStatus("Gagal memuat tiket."); } });
+                mainHandler.post(() -> { setLoading(false); if ("tickets".equals(currentPage)) { removeViewsAfter(2); addStatus("Gagal memuat tiket."); } });
             }
         }).start();
     }
@@ -647,6 +647,14 @@ public class TranstourActivity extends Activity {
         GradientDrawable g = round(color, radius);
         g.setStroke(dp(sw), Color.parseColor(stroke));
         return g;
+    }
+
+    private void removeViewsAfter(int keepCount) {
+        if (root == null) return;
+        int count = root.getChildCount();
+        if (count > keepCount) {
+            root.removeViews(keepCount, count - keepCount);
+        }
     }
 
     private void addWithMargin(View v, int l, int t, int r, int b) {

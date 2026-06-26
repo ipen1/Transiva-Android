@@ -364,8 +364,13 @@ public class CustomerDashboardActivity extends Activity {
             }
 
             if ("TransFood".equalsIgnoreCase(title) || "Food".equalsIgnoreCase(title)) {
-    startActivity(new Intent(CustomerDashboardActivity.this, TransFoodActivity.class));
-    return;
+                startActivity(new Intent(CustomerDashboardActivity.this, TransFoodActivity.class));
+                return;
+            }
+
+            if ("TransTour".equalsIgnoreCase(title) || "Transtour".equalsIgnoreCase(title) || "Wisata".equalsIgnoreCase(title)) {
+                startActivity(new Intent(CustomerDashboardActivity.this, TranstourActivity.class));
+                return;
             }
 
             if ("soon".equals(route)) {
