@@ -55,8 +55,12 @@ public class TransFoodActivity extends Activity {
     private final List<JSONObject> menus = new ArrayList<>();
     private final List<CartItem> cart = new ArrayList<>();
     private final Map<String, Bitmap> imageCache = new HashMap<>();
+    private final List<MenuSearchItem> allMenuSearchItems = new ArrayList<>();
     private JSONObject activeRestaurant;
     private String menuSearchQuery = "";
+    private String homeSearchQuery = "";
+    private LinearLayout homeResultsBox;
+    private Runnable homeSearchRunnable;
 
     private int userId = 0;
     private String username = "User";
@@ -119,36 +123,114 @@ public class TransFoodActivity extends Activity {
 
     private void showRestaurantList() {
         root.removeAllViews();
+        activeRestaurant = null;
         buildTopBar("Trans Food", "Pesan makanan favorit di sekitar kamu", true);
+
         LinearLayout hero = card();
         hero.setPadding(dp(18), dp(16), dp(18), dp(16));
         hero.setBackground(roundGradient("#FFFFFF", "#EEF7FF", dp(24)));
         hero.addView(text("🍔 Trans Food", 22, "#0B3A78", true));
-        TextView sub = text("Pilih restoran, tambah menu, hitung ongkir, lalu checkout seperti versi web.", 13, "#64748B", false);
+        TextView sub = text("Cari nama makanan atau restoran, lalu pilih menu seperti versi web.", 13, "#64748B", false);
         sub.setPadding(0, dp(6), 0, 0);
         hero.addView(sub);
-        addWithMargin(hero, 0, 0, 0, dp(14));
+        addWithMargin(hero, 0, 0, 0, dp(12));
+
+        addHomeSearchBar();
+
+        homeResultsBox = new LinearLayout(this);
+        homeResultsBox.setOrientation(LinearLayout.VERTICAL);
+        root.addView(homeResultsBox, new LinearLayout.LayoutParams(-1, -2));
+        renderHomeResults();
+    }
+
+    private void addHomeSearchBar() {
+        EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setText(homeSearchQuery);
+        search.setTextSize(14);
+        search.setHint("Cari makanan atau nama restoran...");
+        search.setHintTextColor(Color.parseColor("#94A3B8"));
+        search.setTextColor(Color.parseColor("#0F172A"));
+        search.setPadding(dp(14), 0, dp(14), 0);
+        search.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(18), 1));
+        search.setSelection(search.getText().length());
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                homeSearchQuery = s == null ? "" : s.toString();
+                if (homeSearchRunnable != null) mainHandler.removeCallbacks(homeSearchRunnable);
+                homeSearchRunnable = () -> renderHomeResults();
+                mainHandler.postDelayed(homeSearchRunnable, 120);
+            }
+            @Override public void afterTextChanged(Editable e) {}
+        });
+        addWithMargin(search, 0, 0, 0, dp(14));
+    }
+
+    private void renderHomeResults() {
+        if (homeResultsBox == null) return;
+        homeResultsBox.removeAllViews();
 
         if (restaurants.isEmpty()) {
-            addStatus("Memuat restoran...");
+            addStatusTo(homeResultsBox, "Memuat restoran...");
+            return;
+        }
+
+        String q = homeSearchQuery == null ? "" : homeSearchQuery.trim().toLowerCase(Locale.ROOT);
+
+        List<MenuSearchItem> menuHits = new ArrayList<>();
+        if (q.length() > 0) {
+            for (MenuSearchItem item : allMenuSearchItems) {
+                if (contains(item.menuName, q) || contains(item.category, q) || contains(item.description, q) || contains(item.restaurantName, q)) {
+                    menuHits.add(item);
+                }
+            }
+        }
+
+        List<JSONObject> restoHits = new ArrayList<>();
+        for (JSONObject r : restaurants) {
+            if (q.length() == 0 || contains(r.optString("name"), q) || contains(r.optString("address"), q) || contains(r.optString("category"), q)) {
+                restoHits.add(r);
+            }
+        }
+
+        if (q.length() > 0) {
+            TextView menuTitle = text("Hasil menu makanan", 15, "#0B3A78", true);
+            addWithMarginTo(homeResultsBox, menuTitle, 0, 0, 0, dp(10));
+
+            if (menuHits.isEmpty()) {
+                String msg = allMenuSearchItems.isEmpty() ? "Index menu sedang dimuat, coba lanjut ketik atau tunggu sebentar." : "Menu tidak ditemukan untuk: " + homeSearchQuery;
+                addStatusTo(homeResultsBox, msg);
+            } else {
+                int limit = Math.min(menuHits.size(), 30);
+                for (int i = 0; i < limit; i++) addMenuSearchCard(homeResultsBox, menuHits.get(i));
+                if (menuHits.size() > limit) addStatusTo(homeResultsBox, "+" + (menuHits.size() - limit) + " menu lain. Ketik lebih spesifik agar hasil makin tepat.");
+            }
+
+            TextView restoTitle = text("Restoran terkait", 15, "#0B3A78", true);
+            addWithMarginTo(homeResultsBox, restoTitle, 0, dp(8), 0, dp(10));
+        }
+
+        if (restoHits.isEmpty()) {
+            addStatusTo(homeResultsBox, "Restoran tidak ditemukan untuk: " + homeSearchQuery);
         } else {
-            addRestaurantGrid();
+            addRestaurantGrid(homeResultsBox, restoHits);
         }
     }
 
-    private void addRestaurantGrid() {
-        for (int i = 0; i < restaurants.size(); i += 2) {
+    private void addRestaurantGrid(LinearLayout parent, List<JSONObject> data) {
+        for (int i = 0; i < data.size(); i += 2) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.TOP);
 
-            LinearLayout leftCard = createRestaurantCard(restaurants.get(i));
+            LinearLayout leftCard = createRestaurantCard(data.get(i));
             LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(0, -2, 1);
             leftLp.setMargins(0, 0, dp(7), dp(14));
             row.addView(leftCard, leftLp);
 
-            if (i + 1 < restaurants.size()) {
-                LinearLayout rightCard = createRestaurantCard(restaurants.get(i + 1));
+            if (i + 1 < data.size()) {
+                LinearLayout rightCard = createRestaurantCard(data.get(i + 1));
                 LinearLayout.LayoutParams rightLp = new LinearLayout.LayoutParams(0, -2, 1);
                 rightLp.setMargins(dp(7), 0, 0, dp(14));
                 row.addView(rightCard, rightLp);
@@ -159,8 +241,68 @@ public class TransFoodActivity extends Activity {
                 row.addView(empty, emptyLp);
             }
 
-            root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
         }
+    }
+
+    private void addMenuSearchCard(LinearLayout parent, MenuSearchItem item) {
+        LinearLayout card = card();
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setPadding(dp(10), dp(10), dp(10), dp(10));
+        card.setClickable(true);
+        card.setOnClickListener(v -> openRestaurantFromSearch(item));
+
+        ImageView img = new ImageView(this);
+        img.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        img.setBackgroundColor(Color.parseColor("#EAF4FF"));
+        card.addView(img, new LinearLayout.LayoutParams(dp(76), dp(76)));
+        loadImage(img, absoluteUrl(firstNonEmpty(item.image, "assets/no-image.png")));
+
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(12), 0, 0, 0);
+        card.addView(body, new LinearLayout.LayoutParams(0, -2, 1));
+
+        body.addView(text(firstNonEmpty(item.menuName, "Menu"), 16, "#0F172A", true));
+        TextView owner = text("Milik restoran: " + firstNonEmpty(item.restaurantName, "Restoran"), 12, "#64748B", false);
+        owner.setPadding(0, dp(3), 0, 0);
+        body.addView(owner);
+        TextView price = text(rupiah(item.price), 14, "#0B7CFF", true);
+        price.setPadding(0, dp(6), 0, 0);
+        body.addView(price);
+
+        TextView open = text("Buka menu", 11, "#0B7CFF", true);
+        open.setPadding(0, dp(5), 0, 0);
+        body.addView(open);
+
+        addWithMarginTo(parent, card, 0, 0, 0, dp(10));
+    }
+
+    private void openRestaurantFromSearch(MenuSearchItem item) {
+        JSONObject r = findRestaurantById(item.restaurantId);
+        if (r == null) r = item.restaurant;
+        if (r == null) {
+            showInfo("Restoran", "Data restoran untuk menu ini belum lengkap.");
+            return;
+        }
+        if (r.optInt("is_open", 1) != 1) {
+            showInfo("Restoran Tutup", "Restoran sedang tidak menerima orderan.");
+            return;
+        }
+        activeRestaurant = r;
+        cart.clear();
+        menuSearchQuery = item.menuName;
+        showMenuPage();
+        loadMenus(item.restaurantId);
+    }
+
+    private JSONObject findRestaurantById(int id) {
+        for (JSONObject r : restaurants) if (r.optInt("id", 0) == id) return r;
+        return null;
+    }
+
+    private boolean contains(String value, String q) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(q);
     }
 
     private LinearLayout createRestaurantCard(JSONObject r) {
@@ -225,27 +367,12 @@ public class TransFoodActivity extends Activity {
         resto.setPadding(dp(16), dp(14), dp(16), dp(14));
         resto.addView(text(firstNonEmpty(activeRestaurant.optString("name"), "Restoran"), 19, "#0B3A78", true));
         resto.addView(text((hasRestoLocation() ? "📍 Lokasi resto tersedia" : "⚠️ Lokasi resto belum tersedia"), 13, "#64748B", false));
-        addWithMargin(resto, 0, 0, 0, dp(12));
-
-        EditText search = new EditText(this);
-        search.setSingleLine(true);
-        search.setText(menuSearchQuery);
-        search.setTextSize(14);
-        search.setHint("Cari makanan, minuman, atau kategori...");
-        search.setHintTextColor(Color.parseColor("#94A3B8"));
-        search.setTextColor(Color.parseColor("#0F172A"));
-        search.setPadding(dp(14), 0, dp(14), 0);
-        search.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(18), 1));
-        search.setSelection(search.getText().length());
-        search.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                menuSearchQuery = s == null ? "" : s.toString();
-                renderMenus();
-            }
-            @Override public void afterTextChanged(Editable e) {}
-        });
-        addWithMargin(search, 0, 0, 0, dp(14));
+        if (menuSearchQuery != null && menuSearchQuery.trim().length() > 0) {
+            TextView fromSearch = text("Hasil pencarian: " + menuSearchQuery, 12, "#0B7CFF", true);
+            fromSearch.setPadding(0, dp(8), 0, 0);
+            resto.addView(fromSearch);
+        }
+        addWithMargin(resto, 0, 0, 0, dp(14));
 
         int shown = 0;
         String q = menuSearchQuery == null ? "" : menuSearchQuery.trim().toLowerCase(Locale.ROOT);
@@ -259,9 +386,7 @@ public class TransFoodActivity extends Activity {
             }
         }
 
-        if (shown == 0) {
-            addStatus("Menu tidak ditemukan untuk: " + menuSearchQuery);
-        }
+        if (shown == 0) addStatus("Menu tidak ditemukan untuk: " + menuSearchQuery);
 
         buildCartBar();
     }
@@ -416,11 +541,48 @@ public class TransFoodActivity extends Activity {
                 JSONArray arr = res.optJSONArray("restaurants");
                 if (res.optBoolean("success", false) && arr != null) {
                     for (int i = 0; i < arr.length(); i++) restaurants.add(arr.getJSONObject(i));
-                    mainHandler.post(() -> { setLoading(false); showRestaurantList(); });
+                    mainHandler.post(() -> { setLoading(false); showRestaurantList(); loadAllMenuIndex(); });
                 } else throw new Exception(firstNonEmpty(res.optString("message"), "Gagal memuat restoran"));
             } catch (Exception e) {
                 mainHandler.post(() -> { setLoading(false); root.removeAllViews(); buildTopBar("Trans Food", "", true); addStatus("Koneksi gagal memuat restoran"); showInfo("Gagal", e.getMessage()); });
             }
+        }).start();
+    }
+
+    private void loadAllMenuIndex() {
+        new Thread(() -> {
+            try {
+                List<MenuSearchItem> fresh = new ArrayList<>();
+                for (JSONObject r : restaurants) {
+                    int rid = r.optInt("id", 0);
+                    if (rid <= 0) continue;
+                    try {
+                        JSONObject res = getJson(BASE_URL + "server/get_food_menus.php?restaurant_id=" + rid + "&v=" + System.currentTimeMillis());
+                        JSONArray arr = res.optJSONArray("menus");
+                        if (arr == null) continue;
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject m = arr.getJSONObject(i);
+                            MenuSearchItem item = new MenuSearchItem();
+                            item.restaurantId = rid;
+                            item.restaurantName = firstNonEmpty(r.optString("name"), "Restoran");
+                            item.restaurant = r;
+                            item.menuId = m.optInt("id", 0);
+                            item.menuName = firstNonEmpty(m.optString("name"), "Menu");
+                            item.category = firstNonEmpty(m.optString("category"), "Menu");
+                            item.description = firstNonEmpty(m.optString("description"), "");
+                            item.image = firstNonEmpty(m.optString("image"), "assets/no-image.png");
+                            item.price = m.optDouble("price", 0);
+                            item.active = m.optInt("is_active", 1) == 1;
+                            if (item.active) fresh.add(item);
+                        }
+                    } catch (Exception ignored) {}
+                }
+                mainHandler.post(() -> {
+                    allMenuSearchItems.clear();
+                    allMenuSearchItems.addAll(fresh);
+                    if (activeRestaurant == null) renderHomeResults();
+                });
+            } catch (Exception ignored) {}
         }).start();
     }
 
@@ -641,11 +803,14 @@ public class TransFoodActivity extends Activity {
     private GradientDrawable roundGradient(String c1, String c2, int radius) { GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TL_BR, new int[]{Color.parseColor(c1), Color.parseColor(c2)}); g.setCornerRadius(radius); return g; }
 
     private void addWithMargin(View v, int l, int t, int r, int b) { LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(l,t,r,b); root.addView(v, lp); }
+    private void addWithMarginTo(LinearLayout parent, View v, int l, int t, int r, int b) { LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(l,t,r,b); parent.addView(v, lp); }
+    private void addStatusTo(LinearLayout parent, String message) { TextView t = text(message, 14, "#64748B", false); t.setGravity(Gravity.CENTER); t.setPadding(dp(16), dp(20), dp(16), dp(20)); t.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(20), 1)); addWithMarginTo(parent, t, 0, 0, 0, dp(12)); }
     private void setLoading(boolean b) { if (progressBar != null) progressBar.setVisibility(b ? View.VISIBLE : View.GONE); }
     private void showInfo(String title, String msg) { try { new AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); } catch (Exception ignored) {} }
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
     private String rupiah(double v) { return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format((long) v); }
     private String firstNonEmpty(String... values) { if (values == null) return ""; for (String s : values) if (s != null && s.trim().length() > 0 && !"null".equalsIgnoreCase(s.trim())) return s.trim(); return ""; }
 
+    private static class MenuSearchItem { int restaurantId; int menuId; String restaurantName; String menuName; String category; String description; String image; double price; boolean active; JSONObject restaurant; }
     private static class CartItem { int id; int restaurantId; String name; double price; int qty; }
 }
