@@ -229,8 +229,16 @@ public class PassengerCarActivity extends Activity {
         mapBox.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
 
         FrameLayout centerMarkerBox = new FrameLayout(this);
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(54), dp(62));
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(54), dp(66));
         clp.gravity = Gravity.CENTER;
+
+        /*
+         * Icon map_center_pin.png memiliki area target di bagian bawah.
+         * topMargin negatif membuat pusat target biru tepat berada di titik
+         * koordinat tengah peta, sehingga hasil Jemput/Tujuan tidak bergeser.
+         */
+        clp.topMargin = -dp(26);
+
         mapBox.addView(centerMarkerBox, clp);
 
         int centerPinId = getDrawableId("map_center_pin", "ic_center_pin", "center_pin", "map_destination_pin");
@@ -313,7 +321,7 @@ public class PassengerCarActivity extends Activity {
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
                 ".leaflet-container{font-family:Arial,sans-serif;border-radius:18px;background:#eef6ff;}" +
                 ".pin{font-size:34px;text-align:center;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28));}" +
-                ".assetpin{width:52px;height:64px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".assetpin{width:54px;height:66px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".carpin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".route{stroke-linecap:round;stroke-linejoin:round;}" +
                 "</style></head><body><div id='map'></div><script>" +
@@ -321,9 +329,9 @@ public class PassengerCarActivity extends Activity {
                 "var pickupIconData='" + js(pickupIcon) + "', deliveryIconData='" + js(deliveryIcon) + "', carIconData='" + js(carIcon) + "', motorIconData='" + js(motorIcon) + "';" +
                 "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView(["+centerLat+","+centerLng+"],17);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:''}).addTo(map);" +
-                "function notifyCenter(){var c=map.getCenter();var size=map.getSize();var tip=map.containerPointToLatLng([size.x/2,(size.y/2)+24]);try{AndroidCar.onCenterChanged(c.lat,c.lng,tip.lat,tip.lng);}catch(e){}}" +
+                "function notifyCenter(){var c=map.getCenter();try{AndroidCar.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
                 "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
-                "setTimeout(function(){map.invalidateSize();var c=map.getCenter();var size=map.getSize();var tip=map.containerPointToLatLng([size.x/2,(size.y/2)+24]);try{AndroidCar.onMapReady(c.lat,c.lng,tip.lat,tip.lng);}catch(e){}},600);" +
+                "setTimeout(function(){map.invalidateSize();var c=map.getCenter();try{AndroidCar.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
                 "function iconData(data, fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[52,64],iconAnchor:[26,52]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40]});}" +
                 "function carData(){if(carIconData&&carIconData.length>20){return L.divIcon({html:'<img class=carpin src=\"'+carIconData+'\">',className:'',iconSize:[46,46],iconAnchor:[23,23]});}return L.divIcon({html:'<div class=pin>🚘</div>',className:'',iconSize:[46,46],iconAnchor:[23,28]});}" +
