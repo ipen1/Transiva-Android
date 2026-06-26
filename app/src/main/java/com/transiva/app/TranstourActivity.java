@@ -67,6 +67,19 @@ public class TranstourActivity extends Activity {
     private Uri selectedProofUri;
     private String selectedProofName = "bukti_transfer.jpg";
     private String currentPage = "list";
+    private boolean ticketPollingActive = false;
+    private boolean ticketLoading = false;
+    private AlertDialog barcodeDialog;
+    private String openedBarcodeTicketCode = "";
+    private String ticketNoticeMessage = "";
+
+    private final Runnable ticketPollingRunnable = new Runnable() {
+        @Override public void run() {
+            if (!ticketPollingActive || !"tickets".equals(currentPage)) return;
+            loadTickets(false);
+            mainHandler.postDelayed(this, 3000);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -83,6 +96,15 @@ public class TranstourActivity extends Activity {
         buildBase();
         showHome();
         loadWisata();
+    }
+
+    @Override
+    protected void onDestroy() {
+        stopTicketPolling();
+        try {
+            if (barcodeDialog != null && barcodeDialog.isShowing()) barcodeDialog.dismiss();
+        } catch (Exception ignored) {}
+        super.onDestroy();
     }
 
     private void loadSession() {
@@ -125,6 +147,7 @@ public class TranstourActivity extends Activity {
     }
 
     private void showHome() {
+        stopTicketPolling();
         currentPage = "list";
         root.removeAllViews();
         buildTopBar("Transtour", "Tiket wisata & tempat liburan", true);
@@ -218,6 +241,7 @@ public class TranstourActivity extends Activity {
     }
 
     private void showPayment() {
+        stopTicketPolling();
         currentPage = "payment";
         root.removeAllViews();
         buildTopBar("Pembayaran Tiket", firstNonEmpty(selectedWisata.optString("name"), "Transtour"), true);
@@ -294,7 +318,7 @@ public class TranstourActivity extends Activity {
         Button listBtn = choiceButton("Daftar Wisata", false);
         Button statusBtn = choiceButton("Tiket Saya", true);
         listBtn.setOnClickListener(v -> showHome());
-        statusBtn.setOnClickListener(v -> loadTickets());
+        statusBtn.setOnClickListener(v -> loadTickets(true));
         tabs.addView(listBtn, new LinearLayout.LayoutParams(0, dp(52), 1));
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, dp(52), 1);
         slp.setMargins(dp(10), 0, 0, 0);
@@ -302,11 +326,26 @@ public class TranstourActivity extends Activity {
         addWithMargin(tabs, 0, 0, 0, dp(14));
 
         addStatus("Memuat tiket saya...");
-        loadTickets();
+        startTicketPolling();
+        loadTickets(true);
+    }
+
+    private void startTicketPolling() {
+        ticketPollingActive = true;
+        mainHandler.removeCallbacks(ticketPollingRunnable);
+        mainHandler.postDelayed(ticketPollingRunnable, 3000);
+    }
+
+    private void stopTicketPolling() {
+        ticketPollingActive = false;
+        mainHandler.removeCallbacks(ticketPollingRunnable);
     }
 
     private void renderTickets() {
         removeViewsAfter(2);
+        if (ticketNoticeMessage != null && ticketNoticeMessage.length() > 0) {
+            addClaimNotice(ticketNoticeMessage);
+        }
         if (tickets.isEmpty()) {
             addStatus("Belum memiliki tiket wisata.");
             return;
@@ -314,10 +353,18 @@ public class TranstourActivity extends Activity {
         for (JSONObject t : tickets) addTicketCard(t);
     }
 
+    private void addClaimNotice(String message) {
+        TextView notice = text(message, 15, "#16A34A", true);
+        notice.setGravity(Gravity.CENTER);
+        notice.setPadding(dp(14), dp(14), dp(14), dp(14));
+        notice.setBackground(roundStroke("#DCFCE7", "#86EFAC", dp(20), 1));
+        addWithMargin(notice, 0, 0, 0, dp(14));
+    }
+
     private void addTicketCard(JSONObject t) {
         String status = firstNonEmpty(t.optString("status"), "-");
         boolean active = "confirmed".equals(status) || "approved".equals(status) || "paid".equals(status);
-        boolean claimed = "claimed".equals(status);
+        boolean claimed = "claimed".equals(status) || "used".equals(status);
 
         LinearLayout card = card();
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
@@ -378,11 +425,18 @@ public class TranstourActivity extends Activity {
         code.setPadding(0, dp(12), 0, 0);
         box.addView(code);
 
-        new AlertDialog.Builder(this)
+        openedBarcodeTicketCode = firstNonEmpty(ticketCode, "");
+        if (!ticketPollingActive) startTicketPolling();
+        try {
+            if (barcodeDialog != null && barcodeDialog.isShowing()) barcodeDialog.dismiss();
+        } catch (Exception ignored) {}
+        barcodeDialog = new AlertDialog.Builder(this)
                 .setTitle("Barcode Tiket")
                 .setView(box)
                 .setPositiveButton("Tutup", null)
-                .show();
+                .create();
+        barcodeDialog.setOnDismissListener(d -> openedBarcodeTicketCode = "");
+        barcodeDialog.show();
     }
 
     private void loadWisata() {
@@ -402,24 +456,69 @@ public class TranstourActivity extends Activity {
         }).start();
     }
 
-    private void loadTickets() {
+    private void loadTickets(boolean showLoader) {
         if (userId <= 0) { removeViewsAfter(2); addStatus("Silakan login ulang untuk melihat tiket."); return; }
-        setLoading(true);
+        if (ticketLoading) return;
+        ticketLoading = true;
+        if (showLoader) setLoading(true);
         new Thread(() -> {
             try {
                 JSONObject payload = new JSONObject();
                 payload.put("user_id", userId);
-                JSONObject res = postJson(BASE_URL + "server/checkWisataTicket.php", payload);
-                tickets.clear();
+                JSONObject res = postJson(BASE_URL + "server/checkWisataTicket.php?_=" + System.currentTimeMillis(), payload);
+
+                List<JSONObject> freshTickets = new ArrayList<>();
                 JSONArray arr = res.optJSONArray("tickets");
                 if (res.optBoolean("success", false) && arr != null) {
-                    for (int i = 0; i < arr.length(); i++) tickets.add(arr.getJSONObject(i));
+                    for (int i = 0; i < arr.length(); i++) freshTickets.add(arr.getJSONObject(i));
                 }
-                mainHandler.post(() -> { setLoading(false); if ("tickets".equals(currentPage)) renderTickets(); });
+
+                String claimedCode = detectNewClaimedTicket(freshTickets);
+
+                mainHandler.post(() -> {
+                    ticketLoading = false;
+                    if (showLoader) setLoading(false);
+                    tickets.clear();
+                    tickets.addAll(freshTickets);
+
+                    if (claimedCode.length() > 0) {
+                        ticketNoticeMessage = "✅ Tiket berhasil di-claim oleh owner wisata.";
+                        try {
+                            if (barcodeDialog != null && barcodeDialog.isShowing()) barcodeDialog.dismiss();
+                        } catch (Exception ignored) {}
+                    }
+
+                    if ("tickets".equals(currentPage)) renderTickets();
+                });
             } catch (Exception e) {
-                mainHandler.post(() -> { setLoading(false); if ("tickets".equals(currentPage)) { removeViewsAfter(2); addStatus("Gagal memuat tiket."); } });
+                mainHandler.post(() -> {
+                    ticketLoading = false;
+                    if (showLoader) setLoading(false);
+                    if (showLoader && "tickets".equals(currentPage)) { removeViewsAfter(2); addStatus("Gagal memuat tiket."); }
+                });
             }
         }).start();
+    }
+
+    private String detectNewClaimedTicket(List<JSONObject> freshTickets) {
+        for (JSONObject fresh : freshTickets) {
+            String code = firstNonEmpty(fresh.optString("ticket_code"), fresh.optString("code"));
+            String status = firstNonEmpty(fresh.optString("status"), "").toLowerCase(Locale.ROOT);
+            if (!"claimed".equals(status) && !"used".equals(status)) continue;
+
+            boolean wasClaimed = false;
+            for (JSONObject old : tickets) {
+                String oldCode = firstNonEmpty(old.optString("ticket_code"), old.optString("code"));
+                if (!code.equals(oldCode)) continue;
+                String oldStatus = firstNonEmpty(old.optString("status"), "").toLowerCase(Locale.ROOT);
+                wasClaimed = "claimed".equals(oldStatus) || "used".equals(oldStatus);
+                break;
+            }
+
+            if (!wasClaimed) return code;
+            if (openedBarcodeTicketCode.length() > 0 && openedBarcodeTicketCode.equals(code)) return code;
+        }
+        return "";
     }
 
     private void submitPayment() {
@@ -691,7 +790,7 @@ public class TranstourActivity extends Activity {
         if ("approved".equals(status) || "confirmed".equals(status)) return "Tiket Aktif";
         if ("claimed".equals(status)) return "Tiket Sudah Diclaim";
         if ("rejected".equals(status)) return "Pembayaran Ditolak";
-        if ("used".equals(status)) return "Tiket Sudah Digunakan";
+        if ("used".equals(status)) return "Tiket Sudah Diclaim";
         return firstNonEmpty(status, "-");
     }
 
