@@ -252,7 +252,7 @@ public class PassengerCarActivity extends Activity {
          * Nilai ini dibuat lebih kecil agar icon biru tidak terlihat terlalu besar/naik.
          */
         clp.topMargin = -dp(18);
-        clp.leftMargin = 0;
+        clp.leftMargin = dp(4);
 
         mapBox.addView(centerMarkerBox, clp);
 
