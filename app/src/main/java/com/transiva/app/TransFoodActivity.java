@@ -125,14 +125,41 @@ public class TransFoodActivity extends Activity {
         if (restaurants.isEmpty()) {
             addStatus("Memuat restoran...");
         } else {
-            for (JSONObject r : restaurants) addRestaurantCard(r);
+            addRestaurantGrid();
         }
     }
 
-    private void addRestaurantCard(JSONObject r) {
+    private void addRestaurantGrid() {
+        for (int i = 0; i < restaurants.size(); i += 2) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.TOP);
+
+            LinearLayout leftCard = createRestaurantCard(restaurants.get(i));
+            LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(0, -2, 1);
+            leftLp.setMargins(0, 0, dp(7), dp(14));
+            row.addView(leftCard, leftLp);
+
+            if (i + 1 < restaurants.size()) {
+                LinearLayout rightCard = createRestaurantCard(restaurants.get(i + 1));
+                LinearLayout.LayoutParams rightLp = new LinearLayout.LayoutParams(0, -2, 1);
+                rightLp.setMargins(dp(7), 0, 0, dp(14));
+                row.addView(rightCard, rightLp);
+            } else {
+                View empty = new View(this);
+                LinearLayout.LayoutParams emptyLp = new LinearLayout.LayoutParams(0, 1, 1);
+                emptyLp.setMargins(dp(7), 0, 0, 0);
+                row.addView(empty, emptyLp);
+            }
+
+            root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+    }
+
+    private LinearLayout createRestaurantCard(JSONObject r) {
         boolean open = r.optInt("is_open", 1) == 1;
         LinearLayout card = card();
-        card.setPadding(0, 0, 0, dp(14));
+        card.setPadding(0, 0, 0, dp(12));
         card.setClickable(true);
         card.setAlpha(open ? 1f : 0.62f);
         card.setOnClickListener(v -> {
@@ -149,27 +176,31 @@ public class TransFoodActivity extends Activity {
         ImageView img = new ImageView(this);
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
         img.setBackgroundColor(Color.parseColor("#EAF4FF"));
-        card.addView(img, new LinearLayout.LayoutParams(-1, dp(132)));
+        card.addView(img, new LinearLayout.LayoutParams(-1, dp(104)));
         loadImage(img, absoluteUrl(firstNonEmpty(r.optString("banner"), "assets/default-food.png")));
 
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.setPadding(dp(14), dp(12), dp(14), 0);
+        body.setPadding(dp(10), dp(10), dp(10), 0);
         card.addView(body);
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        body.addView(row);
-        TextView name = text(firstNonEmpty(r.optString("name"), "Restoran"), 18, "#0F172A", true);
-        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView badge = text(open ? "Buka" : "Tutup", 11, open ? "#0B7CFF" : "#EF4444", true);
-        badge.setGravity(Gravity.CENTER);
-        badge.setPadding(dp(10), dp(5), dp(10), dp(5));
-        badge.setBackground(roundStroke(open ? "#EAF4FF" : "#FFF1F2", open ? "#B9DBFF" : "#FECACA", dp(20), 1));
-        row.addView(badge);
-        TextView info = text(open ? ("⭐ " + r.optString("rating", "0.0") + " • " + firstNonEmpty(r.optString("duration"), "15 menit")) : "🔴 Tidak menerima orderan", 13, "#64748B", false);
-        info.setPadding(0, dp(6), 0, 0);
+
+        TextView name = text(firstNonEmpty(r.optString("name"), "Restoran"), 15, "#0F172A", true);
+        name.setMaxLines(2);
+        body.addView(name);
+
+        TextView info = text(open ? ("⭐ " + r.optString("rating", "0.0") + " • " + firstNonEmpty(r.optString("duration"), "15 menit")) : "🔴 Tutup", 11, "#64748B", false);
+        info.setPadding(0, dp(5), 0, 0);
         body.addView(info);
-        addWithMargin(card, 0, 0, 0, dp(14));
+
+        TextView badge = text(open ? "Buka" : "Tutup", 10, open ? "#0B7CFF" : "#EF4444", true);
+        badge.setGravity(Gravity.CENTER);
+        badge.setPadding(dp(8), dp(4), dp(8), dp(4));
+        badge.setBackground(roundStroke(open ? "#EAF4FF" : "#FFF1F2", open ? "#B9DBFF" : "#FECACA", dp(20), 1));
+        LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(-2, -2);
+        badgeLp.setMargins(0, dp(8), 0, 0);
+        body.addView(badge, badgeLp);
+
+        return card;
     }
 
     private void showMenuPage() {
