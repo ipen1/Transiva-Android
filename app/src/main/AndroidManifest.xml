@@ -178,6 +178,12 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".TranstourActivity"
+            android:screenOrientation="portrait"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".SearchDriverActivity"
             android:exported="false"
             android:screenOrientation="portrait"
