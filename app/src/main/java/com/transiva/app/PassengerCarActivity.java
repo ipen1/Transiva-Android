@@ -229,15 +229,30 @@ public class PassengerCarActivity extends Activity {
         mapBox.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
 
         FrameLayout centerMarkerBox = new FrameLayout(this);
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(dp(54), dp(66));
+
+        /*
+         * Ukuran center marker dibuat sama dengan marker hijau/merah Leaflet.
+         * Jika ingin semua marker terlihat seimbang, cukup ubah CENTER_PIN_W/H
+         * dan pastikan nilainya sama dengan assetpin pada CSS mapHtml().
+         */
+        final int CENTER_PIN_W = 54;
+        final int CENTER_PIN_H = 66;
+
+        FrameLayout.LayoutParams clp =
+                new FrameLayout.LayoutParams(
+                        dp(CENTER_PIN_W),
+                        dp(CENTER_PIN_H)
+                );
+
         clp.gravity = Gravity.CENTER;
 
         /*
-         * Icon map_center_pin.png memiliki area target di bagian bawah.
-         * topMargin negatif membuat pusat target biru tepat berada di titik
-         * koordinat tengah peta, sehingga hasil Jemput/Tujuan tidak bergeser.
+         * Karena icon center berupa overlay native di atas WebView,
+         * topMargin mengatur posisi visual agar ujung pin berada di titik tengah map.
+         * Nilai ini dibuat lebih kecil agar icon biru tidak terlihat terlalu besar/naik.
          */
-        clp.topMargin = -dp(26);
+        clp.topMargin = -dp(18);
+        clp.leftMargin = 0;
 
         mapBox.addView(centerMarkerBox, clp);
 
@@ -246,6 +261,8 @@ public class PassengerCarActivity extends Activity {
             ImageView centerMarker = new ImageView(this);
             centerMarker.setImageResource(centerPinId);
             centerMarker.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            centerMarker.setAdjustViewBounds(false);
+            centerMarker.setPadding(0, 0, 0, 0);
             centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
         } else {
             TextView centerMarker = text("📍", 28, "#EF4444", true);
@@ -333,7 +350,7 @@ public class PassengerCarActivity extends Activity {
                 "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
                 "setTimeout(function(){map.invalidateSize();var c=map.getCenter();try{AndroidCar.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
-                "function iconData(data, fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[52,64],iconAnchor:[26,52]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40]});}" +
+                "function iconData(data, fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[54,66],iconAnchor:[27,54]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40]});}" +
                 "function carData(){if(carIconData&&carIconData.length>20){return L.divIcon({html:'<img class=carpin src=\"'+carIconData+'\">',className:'',iconSize:[46,46],iconAnchor:[23,23]});}return L.divIcon({html:'<div class=pin>🚘</div>',className:'',iconSize:[46,46],iconAnchor:[23,28]});}" +
                 "function setPickup(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:600}).addTo(map);}" +
                 "function setDelivery(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:600}).addTo(map);}" +
