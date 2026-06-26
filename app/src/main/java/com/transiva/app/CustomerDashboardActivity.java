@@ -363,6 +363,11 @@ public class CustomerDashboardActivity extends Activity {
                 return;
             }
 
+            if ("TransFood".equalsIgnoreCase(title) || "Food".equalsIgnoreCase(title)) {
+    startActivity(new Intent(CustomerDashboardActivity.this, TransFoodActivity.class));
+    return;
+            }
+
             if ("soon".equals(route)) {
                 showInfo(
                         "Segera Hadir",
