@@ -196,7 +196,7 @@
             android:theme="@style/AppTheme" />
 
         <activity
-            android:name=".CustomerChatActivity"
+            android:name=".TransLaundryActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme"
