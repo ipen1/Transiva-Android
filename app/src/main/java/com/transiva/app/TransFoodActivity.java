@@ -61,6 +61,7 @@ public class TransFoodActivity extends Activity {
     private String homeSearchQuery = "";
     private LinearLayout homeResultsBox;
     private Runnable homeSearchRunnable;
+    private int currentScreen = 0; // 0=home, 1=detail menu, 2=checkout
 
     private int userId = 0;
     private String username = "User";
@@ -122,18 +123,10 @@ public class TransFoodActivity extends Activity {
     }
 
     private void showRestaurantList() {
+        currentScreen = 0;
         root.removeAllViews();
         activeRestaurant = null;
         buildTopBar("Trans Food", "Pesan makanan favorit di sekitar kamu", true);
-
-        LinearLayout hero = card();
-        hero.setPadding(dp(18), dp(16), dp(18), dp(16));
-        hero.setBackground(roundGradient("#FFFFFF", "#EEF7FF", dp(24)));
-        hero.addView(text("🍔 Trans Food", 22, "#0B3A78", true));
-        TextView sub = text("Cari nama makanan atau restoran, lalu pilih menu seperti versi web.", 13, "#64748B", false);
-        sub.setPadding(0, dp(6), 0, 0);
-        hero.addView(sub);
-        addWithMargin(hero, 0, 0, 0, dp(12));
 
         addHomeSearchBar();
 
@@ -147,12 +140,14 @@ public class TransFoodActivity extends Activity {
         EditText search = new EditText(this);
         search.setSingleLine(true);
         search.setText(homeSearchQuery);
-        search.setTextSize(14);
+        search.setTextSize(16);
         search.setHint("Cari makanan atau nama restoran...");
         search.setHintTextColor(Color.parseColor("#94A3B8"));
         search.setTextColor(Color.parseColor("#0F172A"));
-        search.setPadding(dp(14), 0, dp(14), 0);
-        search.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(18), 1));
+        search.setGravity(Gravity.CENTER_VERTICAL);
+        search.setMinHeight(0);
+        search.setPadding(dp(18), 0, dp(18), 0);
+        search.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(20), 1));
         search.setSelection(search.getText().length());
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -164,7 +159,9 @@ public class TransFoodActivity extends Activity {
             }
             @Override public void afterTextChanged(Editable e) {}
         });
-        addWithMargin(search, 0, 0, 0, dp(14));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(58));
+        lp.setMargins(0, 0, 0, dp(16));
+        root.addView(search, lp);
     }
 
     private void renderHomeResults() {
@@ -354,6 +351,7 @@ public class TransFoodActivity extends Activity {
     }
 
     private void showMenuPage() {
+        currentScreen = 1;
         root.removeAllViews();
         buildTopBar("Detail Restoran", firstNonEmpty(activeRestaurant != null ? activeRestaurant.optString("name") : "", "Menu makanan"), true);
         if (menus.isEmpty()) addStatus("Memuat menu...");
@@ -420,9 +418,10 @@ public class TransFoodActivity extends Activity {
             Button plus = tinyButton("+");
             TextView value = text(String.valueOf(getQty(m.optInt("id", 0))), 15, "#0F172A", true);
             value.setGravity(Gravity.CENTER);
-            qty.addView(minus, new LinearLayout.LayoutParams(dp(36), dp(34)));
-            qty.addView(value, new LinearLayout.LayoutParams(dp(42), dp(34)));
-            qty.addView(plus, new LinearLayout.LayoutParams(dp(36), dp(34)));
+            value.setIncludeFontPadding(false);
+            qty.addView(minus, new LinearLayout.LayoutParams(dp(40), dp(40)));
+            qty.addView(value, new LinearLayout.LayoutParams(dp(46), dp(40)));
+            qty.addView(plus, new LinearLayout.LayoutParams(dp(40), dp(40)));
             body.addView(qty);
             minus.setOnClickListener(v -> { changeQty(m, -1); renderMenus(); });
             plus.setOnClickListener(v -> { changeQty(m, 1); renderMenus(); });
@@ -448,6 +447,7 @@ public class TransFoodActivity extends Activity {
     }
 
     private void showCheckout() {
+        currentScreen = 2;
         root.removeAllViews();
         buildTopBar("Checkout", "Cek pesanan dan pilih pengantaran", true);
         addStatus("Menghitung ongkir...");
@@ -766,9 +766,21 @@ public class TransFoodActivity extends Activity {
     }
 
     private void handleBack() {
-        if (activeRestaurant == null) { finish(); return; }
-        if (!cart.isEmpty() && root.getChildCount() > 0) { showMenuPage(); return; }
-        activeRestaurant = null; menus.clear(); cart.clear(); menuSearchQuery = ""; showRestaurantList();
+        if (currentScreen == 2) {
+            showMenuPage();
+            return;
+        }
+
+        if (currentScreen == 1 || activeRestaurant != null) {
+            activeRestaurant = null;
+            menus.clear();
+            cart.clear();
+            menuSearchQuery = "";
+            showRestaurantList();
+            return;
+        }
+
+        finish();
     }
 
     @Override public void onBackPressed() { handleBack(); }
@@ -795,7 +807,23 @@ public class TransFoodActivity extends Activity {
     }
 
     private Button primaryButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.WHITE); b.setTypeface(Typeface.DEFAULT, Typeface.BOLD); b.setBackground(round("#0B7CFF", dp(18))); return b; }
-    private Button tinyButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextSize(18); b.setTextColor(Color.parseColor("#0B7CFF")); b.setTypeface(Typeface.DEFAULT, Typeface.BOLD); b.setBackground(roundStroke("#EAF4FF", "#B9DBFF", dp(14), 1)); return b; }
+    private Button tinyButton(String s) {
+        Button b = new Button(this);
+        b.setText(s);
+        b.setAllCaps(false);
+        b.setTextSize(20);
+        b.setTextColor(Color.parseColor("#0B7CFF"));
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        b.setGravity(Gravity.CENTER);
+        b.setIncludeFontPadding(false);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setPadding(0, 0, 0, dp(1));
+        b.setBackground(roundStroke("#EAF4FF", "#B9DBFF", dp(15), 1));
+        return b;
+    }
     private Button choiceButton(String s, boolean active) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.parseColor(active ? "#FFFFFF" : "#0B3A78")); b.setTypeface(Typeface.DEFAULT, Typeface.BOLD); b.setBackground(roundStroke(active ? "#0B7CFF" : "#FFFFFF", active ? "#0B7CFF" : "#D7E6F8", dp(18), 1)); return b; }
 
     private GradientDrawable round(String color, int radius) { GradientDrawable g = new GradientDrawable(); g.setColor(Color.parseColor(color)); g.setCornerRadius(radius); return g; }
