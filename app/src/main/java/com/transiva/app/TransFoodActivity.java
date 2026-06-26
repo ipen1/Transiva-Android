@@ -20,6 +20,9 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.EditText;
+import android.text.Editable;
+import android.text.TextWatcher;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -35,6 +38,8 @@ import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.HashMap;
+import java.util.Map;
 
 public class TransFoodActivity extends Activity {
 
@@ -49,7 +54,9 @@ public class TransFoodActivity extends Activity {
     private final List<JSONObject> restaurants = new ArrayList<>();
     private final List<JSONObject> menus = new ArrayList<>();
     private final List<CartItem> cart = new ArrayList<>();
+    private final Map<String, Bitmap> imageCache = new HashMap<>();
     private JSONObject activeRestaurant;
+    private String menuSearchQuery = "";
 
     private int userId = 0;
     private String username = "User";
@@ -169,6 +176,7 @@ public class TransFoodActivity extends Activity {
             }
             activeRestaurant = r;
             cart.clear();
+            menuSearchQuery = "";
             showMenuPage();
             loadMenus(r.optInt("id", 0));
         });
@@ -212,12 +220,49 @@ public class TransFoodActivity extends Activity {
 
     private void renderMenus() {
         root.removeViews(1, Math.max(0, root.getChildCount() - 1));
+
         LinearLayout resto = card();
         resto.setPadding(dp(16), dp(14), dp(16), dp(14));
         resto.addView(text(firstNonEmpty(activeRestaurant.optString("name"), "Restoran"), 19, "#0B3A78", true));
         resto.addView(text((hasRestoLocation() ? "📍 Lokasi resto tersedia" : "⚠️ Lokasi resto belum tersedia"), 13, "#64748B", false));
-        addWithMargin(resto, 0, 0, 0, dp(14));
-        for (JSONObject m : menus) addMenuCard(m);
+        addWithMargin(resto, 0, 0, 0, dp(12));
+
+        EditText search = new EditText(this);
+        search.setSingleLine(true);
+        search.setText(menuSearchQuery);
+        search.setTextSize(14);
+        search.setHint("Cari makanan, minuman, atau kategori...");
+        search.setHintTextColor(Color.parseColor("#94A3B8"));
+        search.setTextColor(Color.parseColor("#0F172A"));
+        search.setPadding(dp(14), 0, dp(14), 0);
+        search.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(18), 1));
+        search.setSelection(search.getText().length());
+        search.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                menuSearchQuery = s == null ? "" : s.toString();
+                renderMenus();
+            }
+            @Override public void afterTextChanged(Editable e) {}
+        });
+        addWithMargin(search, 0, 0, 0, dp(14));
+
+        int shown = 0;
+        String q = menuSearchQuery == null ? "" : menuSearchQuery.trim().toLowerCase(Locale.ROOT);
+        for (JSONObject m : menus) {
+            String name = firstNonEmpty(m.optString("name"), "").toLowerCase(Locale.ROOT);
+            String category = firstNonEmpty(m.optString("category"), "").toLowerCase(Locale.ROOT);
+            String desc = firstNonEmpty(m.optString("description"), "").toLowerCase(Locale.ROOT);
+            if (q.length() == 0 || name.contains(q) || category.contains(q) || desc.contains(q)) {
+                addMenuCard(m);
+                shown++;
+            }
+        }
+
+        if (shown == 0) {
+            addStatus("Menu tidak ditemukan untuk: " + menuSearchQuery);
+        }
+
         buildCartBar();
     }
 
@@ -485,12 +530,30 @@ public class TransFoodActivity extends Activity {
     }
 
     private void loadImage(ImageView view, String urlText) {
+        String finalUrl = firstNonEmpty(urlText, "");
+        view.setTag(finalUrl);
+
+        Bitmap cached = imageCache.get(finalUrl);
+        if (cached != null) {
+            view.setImageBitmap(cached);
+            return;
+        }
+
+        // Jangan kosongkan ImageView saat render ulang qty, supaya gambar tidak kedip.
         new Thread(() -> {
             try {
-                HttpURLConnection c = (HttpURLConnection) new URL(urlText).openConnection();
-                c.setConnectTimeout(10000); c.setReadTimeout(10000);
+                HttpURLConnection c = (HttpURLConnection) new URL(finalUrl).openConnection();
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(10000);
                 Bitmap bm = BitmapFactory.decodeStream(c.getInputStream());
-                mainHandler.post(() -> { if (bm != null) view.setImageBitmap(bm); });
+                c.disconnect();
+                if (bm != null) imageCache.put(finalUrl, bm);
+                mainHandler.post(() -> {
+                    Object tag = view.getTag();
+                    if (bm != null && tag != null && finalUrl.equals(tag.toString())) {
+                        view.setImageBitmap(bm);
+                    }
+                });
             } catch (Exception ignored) {}
         }).start();
     }
@@ -543,7 +606,7 @@ public class TransFoodActivity extends Activity {
     private void handleBack() {
         if (activeRestaurant == null) { finish(); return; }
         if (!cart.isEmpty() && root.getChildCount() > 0) { showMenuPage(); return; }
-        activeRestaurant = null; menus.clear(); cart.clear(); showRestaurantList();
+        activeRestaurant = null; menus.clear(); cart.clear(); menuSearchQuery = ""; showRestaurantList();
     }
 
     @Override public void onBackPressed() { handleBack(); }
