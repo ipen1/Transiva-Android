@@ -290,7 +290,7 @@ public class CustomerDashboardActivity extends Activity {
         LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(0, dp(42), 1);
         rLp.setMargins(dp(10), 0, 0, 0);
         actions.addView(refresh, rLp);
-        topup.setOnClickListener(v -> openWeb("?route=deposit"));
+        topup.setOnClickListener(v -> startActivity(new Intent(CustomerDashboardActivity.this, CustomerTopUpActivity.class)));
         refresh.setOnClickListener(v -> loadBalance());
     }
 
