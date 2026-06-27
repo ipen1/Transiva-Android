@@ -448,7 +448,7 @@ public class CustomerDashboardActivity extends Activity {
         LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(0, dp(50), 1);
         pLp.setMargins(dp(10), 0, 0, 0);
         row.addView(profile, pLp);
-        history.setOnClickListener(v -> openWeb("?route=history"));
+        history.setOnClickListener(v -> startActivity(new Intent(CustomerDashboardActivity.this, CustomerHistoryActivity.class)));
         profile.setOnClickListener(v -> {Intent intent = new Intent(this, ProfileActivity.class);startActivity(intent);});
     }
 
