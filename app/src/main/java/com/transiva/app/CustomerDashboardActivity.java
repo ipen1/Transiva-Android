@@ -3,6 +3,9 @@ package com.transiva.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -16,6 +19,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -23,6 +27,8 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -32,6 +38,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -48,6 +55,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayList;
 
 public class CustomerDashboardActivity extends Activity {
 
@@ -55,6 +63,7 @@ public class CustomerDashboardActivity extends Activity {
     private static final String PREF_NAME = "transiva";
     private static final int TIMEOUT_MS = 20000;
     private static final int REQ_LOCATION = 1201;
+    private static final int REQ_NOTIFICATION = 1202;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -66,7 +75,18 @@ public class CustomerDashboardActivity extends Activity {
     private LinearLayout statusActionsBox;
     private TextView locationText;
     private EditText searchInput;
+    private LinearLayout searchResultsBox;
     private ProgressBar progressBar;
+
+    private final List<SearchItem> globalSearchItems = new ArrayList<>();
+    private Runnable globalSearchRunnable;
+    private boolean searchIndexLoading = false;
+
+    private double lastBalanceValue = -1;
+    private boolean firstBalanceLoaded = false;
+    private boolean balancePollingActive = false;
+    private boolean balanceLoading = false;
+    private String lastOrderStatusKey = "";
 
     private String username = "User";
     private int userId = 0;
@@ -83,6 +103,14 @@ public class CustomerDashboardActivity extends Activity {
         }
     };
 
+    private final Runnable balanceRunnable = new Runnable() {
+        @Override public void run() {
+            if (!balancePollingActive) return;
+            loadBalanceRealtime(true);
+            mainHandler.postDelayed(this, 5000);
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -94,9 +122,13 @@ public class CustomerDashboardActivity extends Activity {
 
         loadSession();
         buildLayout();
-        loadBalance();
+        createNotificationChannel();
+        requestNotificationPermissionIfNeeded();
+        loadBalanceRealtime(false);
+        startBalancePolling();
         startOrderStatusPolling();
         loadActualLocation();
+        loadGlobalSearchIndex();
     }
 
 
@@ -104,17 +136,21 @@ public class CustomerDashboardActivity extends Activity {
     protected void onResume() {
         super.onResume();
         startOrderStatusPolling();
+        startBalancePolling();
+        loadGlobalSearchIndex();
     }
 
     @Override
     protected void onPause() {
         stopOrderStatusPolling();
+        stopBalancePolling();
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
         stopOrderStatusPolling();
+        stopBalancePolling();
         super.onDestroy();
     }
 
@@ -227,20 +263,36 @@ public class CustomerDashboardActivity extends Activity {
     private void buildSearch() {
         searchInput = new EditText(this);
         searchInput.setSingleLine(true);
-        searchInput.setTextSize(14);
+        searchInput.setTextSize(15);
         searchInput.setTextColor(Color.parseColor("#0F172A"));
         searchInput.setHintTextColor(Color.parseColor("#94A3B8"));
-        searchInput.setHint("Cari makanan, toko, kurir...");
-        searchInput.setPadding(dp(16), 0, dp(16), 0);
+        searchInput.setHint("Cari makanan, restoran, wisata, laundry...");
+        searchInput.setPadding(dp(18), 0, dp(18), 0);
         searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        searchInput.setBackground(roundStroke("#FFFFFF", "#D8E4F2", dp(22), 1));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(48));
-        lp.setMargins(0, dp(16), 0, dp(14));
+        searchInput.setBackground(roundStroke("#FFFFFF", "#D8E4F2", dp(24), 1));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(54));
+        lp.setMargins(0, dp(16), 0, dp(10));
         root.addView(searchInput, lp);
+
+        searchResultsBox = new LinearLayout(this);
+        searchResultsBox.setOrientation(LinearLayout.VERTICAL);
+        searchResultsBox.setVisibility(View.GONE);
+        LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(-1, -2);
+        boxLp.setMargins(0, 0, 0, dp(12));
+        root.addView(searchResultsBox, boxLp);
+
+        searchInput.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                if (globalSearchRunnable != null) mainHandler.removeCallbacks(globalSearchRunnable);
+                globalSearchRunnable = () -> renderGlobalSearchResults(s == null ? "" : s.toString());
+                mainHandler.postDelayed(globalSearchRunnable, 120);
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+
         searchInput.setOnEditorActionListener((v, actionId, event) -> {
-            String q = searchInput.getText().toString().trim();
-            if (q.length() == 0) showInfo("Pencarian", "Masukkan kata kunci terlebih dahulu.");
-            else openWeb("?route=searchFood&keyword=" + Uri.encode(q));
+            renderGlobalSearchResults(searchInput.getText().toString());
             return true;
         });
     }
@@ -291,7 +343,7 @@ public class CustomerDashboardActivity extends Activity {
         rLp.setMargins(dp(10), 0, 0, 0);
         actions.addView(refresh, rLp);
         topup.setOnClickListener(v -> startActivity(new Intent(CustomerDashboardActivity.this, CustomerTopUpActivity.class)));
-        refresh.setOnClickListener(v -> loadBalance());
+        refresh.setOnClickListener(v -> loadBalanceRealtime(false));
     }
 
     private void buildWeatherCard() {
@@ -585,23 +637,227 @@ public class CustomerDashboardActivity extends Activity {
         return clean;
     }
 
-    private void loadBalance() {
-        if (loading) return;
-        loading = true;
-        progressBar.setVisibility(View.VISIBLE);
+    private void startBalancePolling() {
+        balancePollingActive = true;
+        mainHandler.removeCallbacks(balanceRunnable);
+        loadBalanceRealtime(true);
+        mainHandler.postDelayed(balanceRunnable, 5000);
+    }
+
+    private void stopBalancePolling() {
+        balancePollingActive = false;
+        mainHandler.removeCallbacks(balanceRunnable);
+    }
+
+    private void loadBalanceRealtime(boolean silent) {
+        if (balanceLoading) return;
+        balanceLoading = true;
+        if (!silent && progressBar != null) progressBar.setVisibility(View.VISIBLE);
         new Thread(() -> {
-            String result = rupiah(0);
+            double value = 0;
+            boolean ok = false;
             try {
-                JSONObject json = getJson(BASE_URL + "server/getBalance.php?username=" + Uri.encode(username));
-                if (json.optBoolean("success", false)) result = rupiah(json.optDouble("balance", 0));
+                JSONObject json = getJson(BASE_URL + "server/getBalance.php?username=" + Uri.encode(username) + "&_=" + System.currentTimeMillis());
+                if (json.optBoolean("success", false)) {
+                    value = json.optDouble("balance", 0);
+                    ok = true;
+                }
             } catch (Exception ignored) {}
-            String finalResult = result;
+
+            double finalValue = value;
+            boolean finalOk = ok;
             mainHandler.post(() -> {
-                loading = false;
-                progressBar.setVisibility(View.GONE);
-                balanceText.setText(finalResult);
+                balanceLoading = false;
+                if (!silent && progressBar != null) progressBar.setVisibility(View.GONE);
+                if (!finalOk) return;
+
+                if (balanceText != null) balanceText.setText(rupiah(finalValue));
+
+                if (firstBalanceLoaded && lastBalanceValue >= 0 && finalValue > lastBalanceValue) {
+                    double masuk = finalValue - lastBalanceValue;
+                    showLocalNotification("Saldo Masuk", "Saldo bertambah " + rupiah(masuk) + ". Saldo sekarang " + rupiah(finalValue));
+                }
+
+                if (firstBalanceLoaded && lastBalanceValue >= 0 && finalValue < lastBalanceValue) {
+                    showLocalNotification("Saldo Berubah", "Saldo sekarang " + rupiah(finalValue));
+                }
+
+                lastBalanceValue = finalValue;
+                firstBalanceLoaded = true;
             });
         }).start();
+    }
+
+    private void loadGlobalSearchIndex() {
+        if (searchIndexLoading) return;
+        searchIndexLoading = true;
+        new Thread(() -> {
+            ArrayList<SearchItem> fresh = new ArrayList<>();
+
+            try {
+                JSONObject food = getJson(BASE_URL + "server/get_food_restaurants.php?v=" + System.currentTimeMillis());
+                JSONArray restaurants = food.optJSONArray("restaurants");
+                if (restaurants != null) {
+                    for (int i = 0; i < restaurants.length(); i++) {
+                        JSONObject r = restaurants.optJSONObject(i);
+                        if (r == null) continue;
+                        int rid = r.optInt("id", 0);
+                        String restoName = firstNonEmpty(r.optString("name"), "Restoran");
+                        fresh.add(new SearchItem("restaurant", restoName, firstNonEmpty(r.optString("address"), "Restoran makanan"), "🍔", rid, 0, restoName));
+                        try {
+                            JSONObject menusJson = getJson(BASE_URL + "server/get_food_menus.php?restaurant_id=" + rid + "&v=" + System.currentTimeMillis());
+                            JSONArray menus = menusJson.optJSONArray("menus");
+                            if (menus != null) {
+                                for (int m = 0; m < menus.length(); m++) {
+                                    JSONObject menu = menus.optJSONObject(m);
+                                    if (menu == null || menu.optInt("is_active", 1) != 1) continue;
+                                    String menuName = firstNonEmpty(menu.optString("name"), "Menu makanan");
+                                    String sub = "Milik restoran: " + restoName + " • " + rupiah(menu.optDouble("price", 0));
+                                    fresh.add(new SearchItem("food", menuName, sub, "🍽️", rid, menu.optInt("id", 0), restoName));
+                                }
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            try {
+                JSONObject wisata = getJson(BASE_URL + "server/getWisataPlaces.php?v=" + System.currentTimeMillis());
+                JSONArray places = firstArray(wisata, "places", "data", "wisata", "items");
+                if (places != null) {
+                    for (int i = 0; i < places.length(); i++) {
+                        JSONObject p = places.optJSONObject(i);
+                        if (p == null) continue;
+                        String name = firstNonEmpty(p.optString("name"), p.optString("title"), "Tempat wisata");
+                        String sub = firstNonEmpty(p.optString("address"), p.optString("location"), "TransTour");
+                        fresh.add(new SearchItem("tour", name, sub, "🏝️", p.optInt("id", 0), 0, name));
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            try {
+                JSONObject laundry = getJson(BASE_URL + "server/get_laundries.php?v=" + System.currentTimeMillis());
+                JSONArray arr = firstArray(laundry, "laundries", "data", "items");
+                if (arr != null) {
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject l = arr.optJSONObject(i);
+                        if (l == null) continue;
+                        String name = firstNonEmpty(l.optString("name"), "Laundry");
+                        String sub = firstNonEmpty(l.optString("address"), "TransLaundry") + " • Mulai " + rupiah(l.optDouble("price", 0));
+                        fresh.add(new SearchItem("laundry", name, sub, "🧺", l.optInt("id", 0), 0, name));
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            mainHandler.post(() -> {
+                searchIndexLoading = false;
+                globalSearchItems.clear();
+                globalSearchItems.addAll(fresh);
+                if (searchInput != null && searchInput.getText().toString().trim().length() > 0) {
+                    renderGlobalSearchResults(searchInput.getText().toString());
+                }
+            });
+        }).start();
+    }
+
+    private JSONArray firstArray(JSONObject obj, String... keys) {
+        if (obj == null) return null;
+        for (String key : keys) {
+            JSONArray arr = obj.optJSONArray(key);
+            if (arr != null) return arr;
+        }
+        return null;
+    }
+
+    private void renderGlobalSearchResults(String raw) {
+        if (searchResultsBox == null) return;
+        searchResultsBox.removeAllViews();
+        String q = firstNonEmpty(raw, "").toLowerCase(Locale.US).trim();
+
+        if (q.length() == 0) {
+            searchResultsBox.setVisibility(View.GONE);
+            return;
+        }
+
+        searchResultsBox.setVisibility(View.VISIBLE);
+
+        if (searchIndexLoading && globalSearchItems.isEmpty()) {
+            addSearchStatus("Mengambil data makanan, restoran, wisata, dan laundry...");
+            return;
+        }
+
+        int count = 0;
+        for (SearchItem item : globalSearchItems) {
+            if (item.matches(q)) {
+                addSearchCard(item);
+                count++;
+                if (count >= 30) break;
+            }
+        }
+
+        if (count == 0) {
+            addSearchStatus("Tidak ada hasil untuk: " + raw + (searchIndexLoading ? "\nData masih dimuat, lanjut ketik atau coba sebentar lagi." : ""));
+        }
+    }
+
+    private void addSearchStatus(String message) {
+        TextView t = text(message, 13, "#64748B", false);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(14), dp(14), dp(14), dp(14));
+        t.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(18), 1));
+        searchResultsBox.addView(t, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private void addSearchCard(SearchItem item) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(12), dp(10), dp(12), dp(10));
+        card.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(18), 1));
+        card.setClickable(true);
+        card.setOnClickListener(v -> openSearchItem(item));
+
+        TextView icon = text(item.icon, 24, "#0B7CFF", true);
+        icon.setGravity(Gravity.CENTER);
+        card.addView(icon, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(10), 0, 0, 0);
+        card.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+
+        col.addView(text(item.title, 15, "#0F172A", true));
+        TextView sub = text(item.label() + " • " + item.sub, 12, "#64748B", false);
+        sub.setPadding(0, dp(3), 0, 0);
+        col.addView(sub);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(8));
+        searchResultsBox.addView(card, lp);
+    }
+
+    private void openSearchItem(SearchItem item) {
+        Intent intent;
+        if ("food".equals(item.type) || "restaurant".equals(item.type)) {
+            intent = new Intent(this, TransFoodActivity.class);
+            intent.putExtra("search_query", item.title);
+            intent.putExtra("restaurant_id", item.parentId);
+            startActivity(intent);
+            return;
+        }
+        if ("tour".equals(item.type)) {
+            intent = new Intent(this, TranstourActivity.class);
+            intent.putExtra("search_query", item.title);
+            intent.putExtra("place_id", item.parentId);
+            startActivity(intent);
+            return;
+        }
+        if ("laundry".equals(item.type)) {
+            intent = new Intent(this, TransLaundryActivity.class);
+            intent.putExtra("search_query", item.title);
+            intent.putExtra("laundry_id", item.parentId);
+            startActivity(intent);
+        }
     }
 
     private void loadOrderStatus() {
@@ -673,6 +929,11 @@ public class CustomerDashboardActivity extends Activity {
             mainHandler.post(() -> {
                 orderStatusLoading = false;
                 if (statusText != null) statusText.setText(finalText);
+                String newKey = finalOrder == null ? "" : firstNonEmpty(finalOrder.optString("order_id"), finalOrder.optString("id")) + ":" + firstNonEmpty(finalOrder.optString("status"));
+                if (newKey.length() > 0 && lastOrderStatusKey.length() > 0 && !newKey.equals(lastOrderStatusKey)) {
+                    showLocalNotification("Update Pesanan", finalText);
+                }
+                if (newKey.length() > 0) lastOrderStatusKey = newKey;
                 buildOrderActionButtons(finalOrder);
             });
         }).start();
@@ -1165,6 +1426,54 @@ public class CustomerDashboardActivity extends Activity {
         }
     }
 
+    private void requestNotificationPermissionIfNeeded() {
+        try {
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermissionSafe(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATION);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void createNotificationChannel() {
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                NotificationChannel channel = new NotificationChannel(
+                        "transiva_updates",
+                        "Transiva Updates",
+                        NotificationManager.IMPORTANCE_DEFAULT
+                );
+                channel.setDescription("Notifikasi saldo dan status pesanan Transiva");
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) nm.createNotificationChannel(channel);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void showLocalNotification(String title, String message) {
+        try {
+            Toast.makeText(this, title + ": " + message, Toast.LENGTH_LONG).show();
+
+            Intent intent = new Intent(this, CustomerDashboardActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            int flags = Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT;
+            PendingIntent pi = PendingIntent.getActivity(this, 2001, intent, flags);
+
+            android.app.Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                    ? new android.app.Notification.Builder(this, "transiva_updates")
+                    : new android.app.Notification.Builder(this);
+
+            b.setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle(title)
+                    .setContentText(message)
+                    .setStyle(new android.app.Notification.BigTextStyle().bigText(message))
+                    .setContentIntent(pi)
+                    .setAutoCancel(true);
+
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify((int) (System.currentTimeMillis() % 100000), b.build());
+        } catch (Exception ignored) {}
+    }
+
     private void showInfo(String title, String message) {
         new AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("OK", null).show();
     }
@@ -1251,6 +1560,39 @@ public class CustomerDashboardActivity extends Activity {
 
     private int getDrawableId(String name) {
         try { return getResources().getIdentifier(name, "drawable", getPackageName()); } catch (Exception e) { return 0; }
+    }
+
+    private static class SearchItem {
+        String type;
+        String title;
+        String sub;
+        String icon;
+        int parentId;
+        int itemId;
+        String owner;
+
+        SearchItem(String type, String title, String sub, String icon, int parentId, int itemId, String owner) {
+            this.type = type;
+            this.title = title == null ? "" : title;
+            this.sub = sub == null ? "" : sub;
+            this.icon = icon == null ? "🔎" : icon;
+            this.parentId = parentId;
+            this.itemId = itemId;
+            this.owner = owner == null ? "" : owner;
+        }
+
+        boolean matches(String q) {
+            String all = (title + " " + sub + " " + owner + " " + label()).toLowerCase(Locale.US);
+            return all.contains(q);
+        }
+
+        String label() {
+            if ("food".equals(type)) return "Makanan";
+            if ("restaurant".equals(type)) return "Restoran";
+            if ("tour".equals(type)) return "Wisata";
+            if ("laundry".equals(type)) return "Laundry";
+            return "Hasil";
+        }
     }
 
     private int dp(int v) {
