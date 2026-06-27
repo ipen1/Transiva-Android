@@ -374,7 +374,7 @@ public class CustomerDashboardActivity extends Activity {
         addMenu(grid, "TransFood", "ic_transfood", "?route=food");
         addMenu(grid, "TransTour", "ic_transtour", "?route=wisata");
         addMenu(grid, "TransLaundry", "ic_translaundry", "?route=laundry");
-        addMenu(grid, "Pickup", "ic_transpickup", "soon");
+        addMenu(grid, "TransPickup", "ic_transpickup", "pickup_native");
     }
 
     private void addMenu(GridLayout grid, String title, String iconName, String route) {
@@ -430,6 +430,11 @@ public class CustomerDashboardActivity extends Activity {
                 return;
             }
 
+            if ("TransPickup".equalsIgnoreCase(title) || "Pickup".equalsIgnoreCase(title)) {
+                startActivity(new Intent(CustomerDashboardActivity.this, TransPickupActivity.class));
+                return;
+            }
+
             if ("soon".equals(route)) {
                 showInfo(
                         "Segera Hadir",
@@ -464,7 +469,7 @@ public class CustomerDashboardActivity extends Activity {
         if ("TransFood".equalsIgnoreCase(title)) return "🍔";
         if ("TransTour".equalsIgnoreCase(title)) return "🏝️";
         if ("TransLaundry".equalsIgnoreCase(title) || "Laundry".equalsIgnoreCase(title)) return "🧺";
-        if ("Pickup".equalsIgnoreCase(title)) return "📦";
+        if ("Pickup".equalsIgnoreCase(title) || "TransPickup".equalsIgnoreCase(title)) return "📦";
         return "●";
     }
 
