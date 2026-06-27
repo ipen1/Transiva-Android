@@ -215,6 +215,13 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".TransPickupActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".DriverDashboardActivity"
             android:exported="false"
             android:screenOrientation="portrait"
