@@ -184,6 +184,12 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".CustomerHistoryActivity"
+            android:screenOrientation="portrait"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".SearchDriverActivity"
             android:exported="false"
             android:screenOrientation="portrait"
