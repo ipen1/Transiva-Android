@@ -178,6 +178,7 @@ public class DriverDashboardActivity extends Activity {
         if (sessionManager == null) sessionManager = new SessionManager(this);
         username = safe(sessionManager.getUsername());
         String role = safe(sessionManager.getRole());
+        String driverType = getDriverType();
 
         if (username.length() == 0) {
             nameText.setText("Driver belum login");
@@ -188,23 +189,43 @@ public class DriverDashboardActivity extends Activity {
         nameText.setText("Halo, " + username + " • " + (role.length() == 0 ? "driver" : role));
         gpsText.setText("📍 GPS Driver\nService lokasi aktif di background");
 
-        if (showText) statusText.setText("Memuat order dari orders dan pickup_orders...");
+        if (showText) statusText.setText("Memuat order reguler dan pickup...");
         loading = true;
 
         new Thread(() -> {
             String balanceJson = "{}";
-            String unifiedJson = "{}";
+            String ordersJson = "{}";
 
             try {
-                balanceJson = get(BASE + "getBalance.php?username=" + enc(username));
+                balanceJson = get(BASE + "getBalance.php?username=" + enc(username) + "&v=" + System.currentTimeMillis());
             } catch (Exception ignored) {}
 
+            /*
+             * Urutan dibuat aman:
+             * 1. Coba endpoint unified baru: orders + pickup_orders.
+             * 2. Jika belum di-upload / error, fallback ke endpoint web lama:
+             *    getActiveDriverOrder.php + getOrders.php seperti JS DriverView.
+             */
             try {
-                unifiedJson = get(BASE + "driver_get_unified_orders.php?driver=" + enc(username) + "&_=" + System.currentTimeMillis());
-            } catch (Exception ignored) {}
+                String unified = get(BASE + "driver_get_unified_orders.php?driver=" + enc(username)
+                        + "&driver_type=" + enc(driverType)
+                        + "&v=" + System.currentTimeMillis());
+                JSONObject u = new JSONObject(unified);
+                if (u.optBoolean("success", false)) {
+                    ordersJson = unified;
+                } else {
+                    ordersJson = buildFallbackOrdersJson(driverType);
+                }
+            } catch (Exception e) {
+                try {
+                    ordersJson = buildFallbackOrdersJson(driverType);
+                } catch (Exception ignored) {
+                    ordersJson = "{}";
+                }
+            }
 
             final String b = balanceJson;
-            final String u = unifiedJson;
+            final String u = ordersJson;
 
             runOnUiThread(() -> {
                 loading = false;
@@ -213,6 +234,96 @@ public class DriverDashboardActivity extends Activity {
                 statusText.setText("Dashboard driver siap • auto refresh 5 detik");
             });
         }).start();
+    }
+
+    private String buildFallbackOrdersJson(String driverType) throws Exception {
+        JSONArray active = new JSONArray();
+        JSONArray offers = new JSONArray();
+
+        try {
+            String activeJson = get(BASE + "getActiveDriverOrder.php?driver=" + enc(username)
+                    + "&v=" + System.currentTimeMillis());
+            JSONObject a = new JSONObject(activeJson);
+            JSONObject order = a.optJSONObject("order");
+            if (order == null) {
+                JSONArray arr = a.optJSONArray("orders");
+                if (arr != null && arr.length() > 0) order = arr.optJSONObject(0);
+            }
+            if (a.optBoolean("success", false) && order != null) {
+                active.put(normalizeClientOrder(order, "orders"));
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            String offerJson = get(BASE + "getOrders.php?driver=" + enc(username)
+                    + "&driver_type=" + enc(driverType)
+                    + "&v=" + System.currentTimeMillis());
+            JSONObject o = new JSONObject(offerJson);
+            JSONArray arr = o.optJSONArray("orders");
+            if (o.optBoolean("success", false) && arr != null) {
+                int max = Math.min(arr.length(), 20);
+                for (int i = 0; i < max; i++) {
+                    JSONObject order = arr.optJSONObject(i);
+                    if (order != null) offers.put(normalizeClientOrder(order, "orders"));
+                }
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            String pickupJson = get(BASE + "driver_get_pickup_orders.php?driver=" + enc(username)
+                    + "&driver_type=" + enc(driverType)
+                    + "&v=" + System.currentTimeMillis());
+            JSONObject p = new JSONObject(pickupJson);
+            JSONArray pActive = p.optJSONArray("active_orders");
+            JSONArray pOffers = p.optJSONArray("offer_orders");
+            if (pActive != null) for (int i = 0; i < pActive.length(); i++) if (pActive.optJSONObject(i) != null) active.put(normalizeClientOrder(pActive.optJSONObject(i), "pickup_orders"));
+            if (pOffers != null) for (int i = 0; i < pOffers.length(); i++) if (pOffers.optJSONObject(i) != null) offers.put(normalizeClientOrder(pOffers.optJSONObject(i), "pickup_orders"));
+        } catch (Exception ignored) {}
+
+        JSONObject out = new JSONObject();
+        out.put("success", true);
+        out.put("active_orders", active);
+        out.put("offer_orders", offers);
+        return out.toString();
+    }
+
+    private JSONObject normalizeClientOrder(JSONObject src, String defaultSource) {
+        JSONObject o = new JSONObject();
+        try {
+            String rawSource = firstNonEmpty(src.optString("source"), src.optString("table"), defaultSource);
+            String rawType = firstNonEmpty(src.optString("order_type"), src.optString("service_type"), src.optString("type"), "").toLowerCase(Locale.US);
+            boolean pickup = rawSource.equals("pickup_orders") || rawType.contains("pickup");
+            String source = pickup ? "pickup_orders" : "orders";
+            String id = firstNonEmpty(src.optString("id"), src.optString("order_id"));
+            o.put("source", source);
+            o.put("id", id);
+            o.put("order_id", id);
+            o.put("status", firstNonEmpty(src.optString("status"), "pending"));
+            o.put("service_name", firstNonEmpty(src.optString("service_name"), src.optString("service_type"), src.optString("order_type"), pickup ? "TransPickup" : "Order Reguler"));
+            o.put("order_type", firstNonEmpty(src.optString("order_type"), src.optString("type"), pickup ? "TransPickup" : "Order"));
+            o.put("customer_name", firstNonEmpty(src.optString("customer_name"), src.optString("username"), src.optString("user_name"), "Customer"));
+            o.put("pickup_address", firstNonEmpty(src.optString("pickup_address"), src.optString("pickup"), src.optString("from_address"), "-"));
+            o.put("destination_address", firstNonEmpty(src.optString("destination_address"), src.optString("delivery_address"), src.optString("destination"), src.optString("to_address"), "-"));
+            o.put("pickup_lat", firstNonEmpty(src.optString("pickup_lat"), src.optString("user_lat"), src.optString("from_lat"), ""));
+            o.put("pickup_lng", firstNonEmpty(src.optString("pickup_lng"), src.optString("user_lng"), src.optString("from_lng"), ""));
+            o.put("delivery_lat", firstNonEmpty(src.optString("delivery_lat"), src.optString("destination_lat"), src.optString("to_lat"), ""));
+            o.put("delivery_lng", firstNonEmpty(src.optString("delivery_lng"), src.optString("destination_lng"), src.optString("to_lng"), ""));
+            int price = src.optInt("driver_price", src.optInt("price", src.optInt("fare", src.optInt("total", src.optInt("total_price", 0)))));
+            o.put("driver_price", price);
+            o.put("price", price);
+            o.put("note", firstNonEmpty(src.optString("note"), src.optString("package_note"), ""));
+        } catch (Exception ignored) {}
+        return o;
+    }
+
+    private String getDriverType() {
+        String type = "";
+        try {
+            type = getSharedPreferences("transiva", MODE_PRIVATE).getString("driver_type", "");
+        } catch (Exception ignored) {}
+        type = safe(type).toLowerCase(Locale.US);
+        if (type.equals("car") || type.equals("mobil") || type.equals("transcar")) return "car";
+        return "motor";
     }
 
     private void showBalance(String json) {
@@ -381,11 +492,51 @@ public class DriverDashboardActivity extends Activity {
             payload.put("driver", username);
             payload.put("source", source);
             payload.put("id", id);
+            payload.put("driver_type", getDriverType());
 
-            postAction("driver_take_unified_order.php", payload);
+            postTakeOrder(source, payload);
         } catch (Exception e) {
             showInfo("Gagal", "Data order tidak lengkap.");
         }
+    }
+
+    private void postTakeOrder(String source, JSONObject payload) {
+        statusText.setText("Menerima order...");
+        new Thread(() -> {
+            boolean ok = false;
+            String msg = "Gagal menerima order.";
+            JSONObject order = null;
+            try {
+                JSONObject res;
+                if ("pickup_orders".equals(source)) {
+                    res = post(BASE + "driver_take_unified_order.php", payload);
+                } else {
+                    try {
+                        res = post(BASE + "takeOrder.php", payload);
+                    } catch (Exception oldEndpointError) {
+                        res = post(BASE + "driver_take_unified_order.php", payload);
+                    }
+                }
+                ok = res.optBoolean("success", false);
+                msg = firstNonEmpty(res.optString("message"), ok ? "Order berhasil diterima" : "Gagal menerima order");
+                order = res.optJSONObject("order");
+            } catch (Exception e) {
+                msg = "Koneksi gagal ke server.";
+            }
+
+            boolean finalOk = ok;
+            String finalMsg = msg;
+            JSONObject finalOrder = order;
+            runOnUiThread(() -> {
+                Toast.makeText(this, finalMsg, Toast.LENGTH_SHORT).show();
+                if (finalOk && finalOrder != null) {
+                    openTrip(finalOrder);
+                } else {
+                    if (!finalOk) showInfo("Info", finalMsg);
+                    loadDashboard(true);
+                }
+            });
+        }).start();
     }
 
     private void askOtpAndUpdate(JSONObject order, String nextStatus) {
