@@ -83,16 +83,34 @@ public class DriverTripActivity extends Activity {
         } catch (Exception ignored) {}
 
         sessionManager = new SessionManager(this);
-        driver = firstNonEmpty(sessionManager.getUsername(), sessionManager.getName(), "");
-        source = firstNonEmpty(getIntent().getStringExtra("source"), getIntent().getStringExtra("table"), "orders");
+        driver = firstNonEmpty(getIntent().getStringExtra("driver"), sessionManager.getUsername(), sessionManager.getName(), "");
+        source = firstNonEmpty(getIntent().getStringExtra("source"), getIntent().getStringExtra("table"), getIntent().getStringExtra("order_table"), "orders");
         orderId = firstNonEmpty(getIntent().getStringExtra("order_id"), getIntent().getStringExtra("id"), "");
         pickupLat = firstNonEmpty(getIntent().getStringExtra("pickup_lat"), "");
         pickupLng = firstNonEmpty(getIntent().getStringExtra("pickup_lng"), "");
         deliveryLat = firstNonEmpty(getIntent().getStringExtra("delivery_lat"), "");
         deliveryLng = firstNonEmpty(getIntent().getStringExtra("delivery_lng"), "");
 
+        try {
+            String orderJson = getIntent().getStringExtra("order_json");
+            if (orderJson != null && orderJson.trim().length() > 0) {
+                currentOrder = new JSONObject(orderJson);
+                source = firstNonEmpty(currentOrder.optString("source"), currentOrder.optString("table"), source);
+                orderId = firstNonEmpty(currentOrder.optString("id"), currentOrder.optString("order_id"), orderId);
+                pickupLat = firstNonEmpty(currentOrder.optString("pickup_lat"), currentOrder.optString("user_lat"), pickupLat);
+                pickupLng = firstNonEmpty(currentOrder.optString("pickup_lng"), currentOrder.optString("user_lng"), pickupLng);
+                deliveryLat = firstNonEmpty(currentOrder.optString("delivery_lat"), currentOrder.optString("destination_lat"), deliveryLat);
+                deliveryLng = firstNonEmpty(currentOrder.optString("delivery_lng"), currentOrder.optString("destination_lng"), deliveryLng);
+            }
+        } catch (Exception ignored) {}
+
         buildUi();
-        loadTrip(true);
+        if (currentOrder != null) {
+            bindOrder(currentOrder);
+            loadTrip(false);
+        } else {
+            loadTrip(true);
+        }
     }
 
     @Override protected void onResume() {
@@ -168,6 +186,9 @@ public class DriverTripActivity extends Activity {
                 JSONArray offers = res.optJSONArray("orders");
                 found = findOrder(active, orderId, source);
                 if (found == null) found = findOrder(offers, orderId, source);
+                if (found == null && currentOrder != null) {
+                    found = currentOrder;
+                }
                 if (found == null && orderId.length() > 0) {
                     found = new JSONObject();
                     found.put("id", orderId);
@@ -220,8 +241,8 @@ public class DriverTripActivity extends Activity {
         String type = firstNonEmpty(o.optString("order_type"), o.optString("type"), source.equals("pickup_orders") ? "TransPickup" : "Order");
         String status = firstNonEmpty(o.optString("status"), "-");
         String pickup = firstNonEmpty(o.optString("pickup_address"), o.optString("pickup"), "-");
-        String destination = firstNonEmpty(o.optString("destination_address"), o.optString("destination"), "-");
-        int price = o.optInt("price", o.optInt("fare", o.optInt("total", 0)));
+        String destination = firstNonEmpty(o.optString("delivery_address"), o.optString("destination_address"), o.optString("destination"), "-");
+        int price = (int) o.optDouble("price", o.optDouble("fare", o.optDouble("total", o.optDouble("total_price", 0))));
 
         statusText.setText(
                 "Order #" + orderId + "\n" +

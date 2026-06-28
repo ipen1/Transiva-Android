@@ -241,7 +241,8 @@ public class DriverDashboardActivity extends Activity {
     private void refreshDriverData() {
         if (loading) return;
         loading = true;
-        if (progressBar != null) progressBar.setVisibility(View.VISIBLE);
+        // Auto refresh dibuat silent agar dashboard tidak selalu menampilkan loading.
+        if (progressBar != null) progressBar.setVisibility(View.GONE);
 
         new Thread(() -> {
             String balanceJson = "";
@@ -516,14 +517,33 @@ public class DriverDashboardActivity extends Activity {
 
     private void openNativeTrip(JSONObject order, String table) {
         try {
+            if (order == null) {
+                showInfo("Order", "Data order tidak ditemukan.");
+                return;
+            }
+
+            String id = firstNonEmpty(order.optString("id"), order.optString("order_id"), "");
+            String pickupLat = firstNonEmpty(order.optString("pickup_lat"), order.optString("user_lat"), order.optString("latitude"));
+            String pickupLng = firstNonEmpty(order.optString("pickup_lng"), order.optString("user_lng"), order.optString("longitude"));
+            String deliveryLat = firstNonEmpty(order.optString("delivery_lat"), order.optString("destination_lat"), order.optString("to_lat"));
+            String deliveryLng = firstNonEmpty(order.optString("delivery_lng"), order.optString("destination_lng"), order.optString("to_lng"));
+
             Intent i = new Intent(this, DriverTripActivity.class);
             i.putExtra("order_json", order.toString());
             i.putExtra("order_table", table);
+            i.putExtra("source", table);
+            i.putExtra("table", table);
+            i.putExtra("order_id", id);
+            i.putExtra("id", id);
+            i.putExtra("pickup_lat", pickupLat);
+            i.putExtra("pickup_lng", pickupLng);
+            i.putExtra("delivery_lat", deliveryLat);
+            i.putExtra("delivery_lng", deliveryLng);
             i.putExtra("driver", username);
             i.putExtra("driver_type", driverType);
             startActivity(i);
         } catch (Exception e) {
-            openWeb(BASE_URL + "?app=1#driver_trip");
+            showInfo("Trip", "Gagal membuka Driver Trip native: " + e.getMessage());
         }
     }
 
