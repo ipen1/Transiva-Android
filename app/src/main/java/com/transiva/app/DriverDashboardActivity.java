@@ -453,14 +453,19 @@ public class DriverDashboardActivity extends Activity {
             String deliveryLat = firstNonEmpty(order.optString("delivery_lat"), order.optString("destination_lat"), "");
             String deliveryLng = firstNonEmpty(order.optString("delivery_lng"), order.optString("destination_lng"), "");
 
-            Intent intent = new Intent(this, DriverTripActivity.class);
-            intent.putExtra("source", source);
-            intent.putExtra("order_id", id);
-            intent.putExtra("pickup_lat", pickupLat);
-            intent.putExtra("pickup_lng", pickupLng);
-            intent.putExtra("delivery_lat", deliveryLat);
-            intent.putExtra("delivery_lng", deliveryLng);
-            startActivity(intent);
+            try {
+                Class<?> tripClass = Class.forName("com.transiva.app.DriverTripActivity");
+                Intent intent = new Intent(this, tripClass);
+                intent.putExtra("source", source);
+                intent.putExtra("order_id", id);
+                intent.putExtra("pickup_lat", pickupLat);
+                intent.putExtra("pickup_lng", pickupLng);
+                intent.putExtra("delivery_lat", deliveryLat);
+                intent.putExtra("delivery_lng", deliveryLng);
+                startActivity(intent);
+            } catch (Exception missingNativeTrip) {
+                openWeb(HOME_URL + "#driver_trip");
+            }
         } catch (Exception e) {
             openWeb(HOME_URL + "#driver_trip");
         }
