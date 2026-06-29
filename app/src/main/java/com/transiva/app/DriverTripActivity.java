@@ -4,10 +4,14 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -21,55 +25,49 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.EditText;
-import android.widget.Toast;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.util.Locale;
 
 public class DriverTripActivity extends Activity {
 
-    private static final String BASE = "https://transiva.my.id/server/";
+    private static final String BASE_URL = "https://transiva.my.id/server/";
+    private static final String PREF_NAME = "transiva";
     private static final int TIMEOUT_MS = 20000;
+    private static final float ARRIVE_RADIUS_METER = 100f;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private LinearLayout root;
     private ProgressBar progressBar;
-    private TextView statusText;
-    private LinearLayout actionBox;
 
-    private SessionManager sessionManager;
-    private String driver = "";
-    private String source = "orders";
-    private String orderId = "";
-    private String pickupLat = "";
-    private String pickupLng = "";
-    private String deliveryLat = "";
-    private String deliveryLng = "";
-    private JSONObject currentOrder;
-    private boolean running = false;
-    private boolean loading = false;
+    private TextView statusBadge;
+    private TextView distanceInfo;
+    private TextView distanceHint;
+    private Button chatBtn;
+    private Button navPickupBtn;
+    private Button navDeliveryBtn;
+    private Button arrivedPickupBtn;
+    private Button startDeliveryBtn;
+    private Button arrivedDeliveryBtn;
+    private Button finishBtn;
 
-    private final Runnable polling = new Runnable() {
-        @Override public void run() {
-            if (!running) return;
-            loadTrip(false);
-            mainHandler.postDelayed(this, 5000);
-        }
-    };
+    private JSONObject order;
+    private String orderKind = "order"; // order / pickup
+    private String driverUsername = "";
+    private LocationManager locationManager;
+    private LocationListener locationListener;
+    private double lastDriverLat = 0;
+    private double lastDriverLng = 0;
+    private boolean updatingStatus = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,374 +80,586 @@ public class DriverTripActivity extends Activity {
             }
         } catch (Exception ignored) {}
 
-        sessionManager = new SessionManager(this);
-        driver = firstNonEmpty(getIntent().getStringExtra("driver"), sessionManager.getUsername(), sessionManager.getName(), "");
-        source = firstNonEmpty(getIntent().getStringExtra("source"), getIntent().getStringExtra("table"), getIntent().getStringExtra("order_table"), "orders");
-        orderId = firstNonEmpty(getIntent().getStringExtra("order_id"), getIntent().getStringExtra("id"), "");
-        pickupLat = firstNonEmpty(getIntent().getStringExtra("pickup_lat"), "");
-        pickupLng = firstNonEmpty(getIntent().getStringExtra("pickup_lng"), "");
-        deliveryLat = firstNonEmpty(getIntent().getStringExtra("delivery_lat"), "");
-        deliveryLng = firstNonEmpty(getIntent().getStringExtra("delivery_lng"), "");
-
-        try {
-            String orderJson = getIntent().getStringExtra("order_json");
-            if (orderJson != null && orderJson.trim().length() > 0) {
-                currentOrder = new JSONObject(orderJson);
-                source = firstNonEmpty(currentOrder.optString("source"), currentOrder.optString("table"), source);
-                orderId = firstNonEmpty(currentOrder.optString("id"), currentOrder.optString("order_id"), orderId);
-                pickupLat = firstNonEmpty(currentOrder.optString("pickup_lat"), currentOrder.optString("user_lat"), pickupLat);
-                pickupLng = firstNonEmpty(currentOrder.optString("pickup_lng"), currentOrder.optString("user_lng"), pickupLng);
-                deliveryLat = firstNonEmpty(currentOrder.optString("delivery_lat"), currentOrder.optString("destination_lat"), deliveryLat);
-                deliveryLng = firstNonEmpty(currentOrder.optString("delivery_lng"), currentOrder.optString("destination_lng"), deliveryLng);
-            }
-        } catch (Exception ignored) {}
-
+        loadSession();
+        loadOrderFromIntentOrPrefs();
         buildUi();
-        if (currentOrder != null) {
-            bindOrder(currentOrder);
-            loadTrip(false);
-        } else {
-            loadTrip(true);
+
+        if (order == null) {
+            renderEmpty();
+            return;
+        }
+
+        renderOrder();
+        refreshButtonsByStatusAndDistance();
+        startLocationWatch();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (order != null) startLocationWatch();
+    }
+
+    @Override
+    protected void onPause() {
+        stopLocationWatch();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        stopLocationWatch();
+        super.onDestroy();
+    }
+
+    private void loadSession() {
+        try {
+            SessionManager session = new SessionManager(this);
+            driverUsername = firstNonEmpty(session.getUsername(), session.getName(), "");
+        } catch (Exception ignored) {}
+        if (driverUsername.length() == 0) {
+            driverUsername = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString("username", "");
         }
     }
 
-    @Override protected void onResume() {
-        super.onResume();
-        running = true;
-        mainHandler.removeCallbacks(polling);
-        mainHandler.postDelayed(polling, 5000);
-    }
+    private void loadOrderFromIntentOrPrefs() {
+        try {
+            String raw = firstNonEmpty(
+                    getIntent().getStringExtra("order_json"),
+                    getIntent().getStringExtra("active_order_json"),
+                    getStringPref("driver_active_order_json"),
+                    getStringPref("active_order_json"),
+                    getStringPref("activeOrder")
+            );
+            if (raw.length() > 0 && raw.trim().startsWith("{")) order = new JSONObject(raw);
+        } catch (Exception ignored) {}
 
-    @Override protected void onPause() {
-        running = false;
-        mainHandler.removeCallbacks(polling);
-        super.onPause();
+        if (order == null) {
+            String id = firstNonEmpty(getIntent().getStringExtra("order_id"), getStringPref("driver_active_order_id"));
+            if (id.length() > 0) {
+                order = new JSONObject();
+                try {
+                    order.put("id", id);
+                    order.put("order_id", id);
+                    order.put("status", firstNonEmpty(getStringPref("driver_active_order_status"), "taken"));
+                    order.put("pickup_address", getStringPref("driver_active_pickup_address"));
+                    order.put("delivery_address", getStringPref("driver_active_delivery_address"));
+                    order.put("pickup_lat", getStringPref("driver_active_pickup_lat"));
+                    order.put("pickup_lng", getStringPref("driver_active_pickup_lng"));
+                    order.put("delivery_lat", getStringPref("driver_active_delivery_lat"));
+                    order.put("delivery_lng", getStringPref("driver_active_delivery_lng"));
+                    order.put("price", getStringPref("driver_active_price"));
+                } catch (Exception ignored) {}
+            }
+        }
+
+        if (order != null) {
+            orderKind = firstNonEmpty(
+                    getIntent().getStringExtra("order_kind"),
+                    order.optString("order_kind"),
+                    order.optString("source_table"),
+                    order.optString("type"),
+                    getStringPref("driver_active_order_kind"),
+                    "order"
+            ).toLowerCase(Locale.US);
+            if (orderKind.contains("pickup")) orderKind = "pickup"; else orderKind = "order";
+            saveActiveOrder();
+        }
     }
 
     private void buildUi() {
         FrameLayout page = new FrameLayout(this);
-        page.setBackgroundColor(Color.parseColor("#F7FAFF"));
+        page.setBackgroundColor(Color.parseColor("#F3F8FF"));
+
         ScrollView scroll = new ScrollView(this);
         page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(18), dp(16), dp(28));
+        root.setPadding(dp(18), dp(26), dp(18), dp(30));
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
-
-        LinearLayout top = new LinearLayout(this);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        root.addView(top, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView back = text("‹", 34, "#0B3A78", true);
-        back.setGravity(Gravity.CENTER);
-        back.setBackground(round("#FFFFFF", dp(18)));
-        back.setOnClickListener(v -> finish());
-        top.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
-
-        LinearLayout titleBox = new LinearLayout(this);
-        titleBox.setOrientation(LinearLayout.VERTICAL);
-        titleBox.setPadding(dp(12), 0, 0, 0);
-        top.addView(titleBox, new LinearLayout.LayoutParams(0, -2, 1));
-        titleBox.addView(text("Driver Trip", 23, "#0B3A78", true));
-        titleBox.addView(text("Status perjalanan order native", 12, "#64748B", false));
-
-        statusText = text("Memuat trip...", 14, "#64748B", false);
-        LinearLayout statusCard = card();
-        statusCard.setPadding(dp(16), dp(14), dp(16), dp(14));
-        statusCard.addView(statusText);
-        addWithMargin(statusCard, 0, dp(16), 0, dp(12));
-
-        actionBox = new LinearLayout(this);
-        actionBox.setOrientation(LinearLayout.VERTICAL);
-        root.addView(actionBox, new LinearLayout.LayoutParams(-1, -2));
 
         progressBar = new ProgressBar(this);
         progressBar.setVisibility(View.GONE);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(52), dp(52));
-        lp.gravity = Gravity.CENTER;
-        page.addView(progressBar, lp);
+        FrameLayout.LayoutParams pp = new FrameLayout.LayoutParams(dp(50), dp(50));
+        pp.gravity = Gravity.CENTER;
+        page.addView(progressBar, pp);
+
         setContentView(page);
     }
 
-    private void loadTrip(boolean showLoading) {
-        if (loading) return;
-        loading = true;
-        if (showLoading) setLoading(true);
-        new Thread(() -> {
-            JSONObject found = null;
-            String error = "";
-            try {
-                String url = BASE + "driver_get_unified_orders.php?driver=" + enc(driver) + "&_=" + System.currentTimeMillis();
-                JSONObject res = getJson(url);
-                JSONArray active = res.optJSONArray("active_orders");
-                JSONArray offers = res.optJSONArray("orders");
-                found = findOrder(active, orderId, source);
-                if (found == null) found = findOrder(offers, orderId, source);
-                if (found == null && currentOrder != null) {
-                    found = currentOrder;
-                }
-                if (found == null && orderId.length() > 0) {
-                    found = new JSONObject();
-                    found.put("id", orderId);
-                    found.put("source", source);
-                    found.put("status", "taken");
-                    found.put("pickup_lat", pickupLat);
-                    found.put("pickup_lng", pickupLng);
-                    found.put("delivery_lat", deliveryLat);
-                    found.put("delivery_lng", deliveryLng);
-                }
-            } catch (Exception e) {
-                error = "Koneksi gagal memuat trip.";
-            }
-            JSONObject finalFound = found;
-            String finalError = error;
-            mainHandler.post(() -> {
-                loading = false;
-                setLoading(false);
-                if (finalFound != null) {
-                    currentOrder = finalFound;
-                    bindOrder(finalFound);
-                } else {
-                    statusText.setText(finalError.length() > 0 ? finalError : "Order tidak ditemukan.");
-                    actionBox.removeAllViews();
-                }
-            });
-        }).start();
+    private void renderEmpty() {
+        root.removeAllViews();
+        buildTop("Driver Trip", "Status perjalanan order native");
+        LinearLayout card = card();
+        card.setPadding(dp(18), dp(16), dp(18), dp(16));
+        card.addView(text("Order tidak ditemukan.", 17, "#64748B", false));
+        Button back = outlineButton("Kembali ke Dashboard");
+        back.setOnClickListener(v -> finish());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(50));
+        lp.setMargins(0, dp(14), 0, 0);
+        card.addView(back, lp);
+        add(card, 0, dp(8), 0, 0);
     }
 
-    private JSONObject findOrder(JSONArray arr, String id, String src) {
-        if (arr == null) return null;
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject o = arr.optJSONObject(i);
-            if (o == null) continue;
-            String oid = firstNonEmpty(o.optString("id"), o.optString("order_id"), "");
-            String osrc = firstNonEmpty(o.optString("source"), "orders");
-            if (id.length() == 0 || (id.equals(oid) && src.equalsIgnoreCase(osrc))) return o;
-        }
-        return null;
+    private void renderOrder() {
+        root.removeAllViews();
+        buildTop("Driver Trip", "Status perjalanan order native");
+
+        LinearLayout header = card();
+        header.setPadding(dp(18), dp(16), dp(18), dp(16));
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(top, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        top.addView(left, new LinearLayout.LayoutParams(0, -2, 1));
+        left.addView(text(serviceLabel(), 14, "#64748B", true));
+        left.addView(text("#" + orderId(), 24, "#0B3A78", true));
+
+        statusBadge = text(statusLabel(status()), 12, "#FFFFFF", true);
+        statusBadge.setGravity(Gravity.CENTER);
+        statusBadge.setPadding(dp(12), dp(7), dp(12), dp(7));
+        statusBadge.setBackground(round("#0B7CFF", dp(20)));
+        top.addView(statusBadge, new LinearLayout.LayoutParams(-2, -2));
+
+        add(header, 0, dp(8), 0, dp(12));
+
+        LinearLayout summary = card();
+        summary.setPadding(dp(18), dp(14), dp(18), dp(14));
+        summary.addView(row("💰 Total Bayar", rupiah(optDouble("price", "fare", "total"))));
+        summary.addView(row("🛵 Jarak Order", oneDecimal(optDouble("distance_km")) + " KM"));
+        summary.addView(row("⏱️ Estimasi", zeroDecimal(optDouble("duration_minutes")) + " menit"));
+        distanceInfo = text("📍 Mengukur jarak driver...", 13, "#64748B", false);
+        distanceInfo.setPadding(0, dp(8), 0, 0);
+        summary.addView(distanceInfo);
+        distanceHint = text("", 12, "#0B7CFF", true);
+        distanceHint.setPadding(0, dp(5), 0, 0);
+        summary.addView(distanceHint);
+        add(summary, 0, 0, 0, dp(12));
+
+        addLocationCard("📍 Lokasi Pickup", pickupAddress(), true);
+        addLocationCard("🏁 Lokasi Delivery", deliveryAddress(), false);
+        addNoteCard();
+        addActions();
     }
 
-    private void bindOrder(JSONObject o) {
-        source = firstNonEmpty(o.optString("source"), source, "orders");
-        orderId = firstNonEmpty(o.optString("id"), o.optString("order_id"), orderId);
-        pickupLat = firstNonEmpty(o.optString("pickup_lat"), o.optString("user_lat"), pickupLat);
-        pickupLng = firstNonEmpty(o.optString("pickup_lng"), o.optString("user_lng"), pickupLng);
-        deliveryLat = firstNonEmpty(o.optString("delivery_lat"), o.optString("destination_lat"), deliveryLat);
-        deliveryLng = firstNonEmpty(o.optString("delivery_lng"), o.optString("destination_lng"), deliveryLng);
-
-        String type = firstNonEmpty(o.optString("order_type"), o.optString("type"), source.equals("pickup_orders") ? "TransPickup" : "Order");
-        String status = firstNonEmpty(o.optString("status"), "-");
-        String pickup = firstNonEmpty(o.optString("pickup_address"), o.optString("pickup"), "-");
-        String destination = firstNonEmpty(o.optString("delivery_address"), o.optString("destination_address"), o.optString("destination"), "-");
-        int price = (int) o.optDouble("price", o.optDouble("fare", o.optDouble("total", o.optDouble("total_price", 0))));
-
-        statusText.setText(
-                "Order #" + orderId + "\n" +
-                "Layanan: " + type + "\n" +
-                "Status: " + status + "\n" +
-                "Jemput: " + pickup + "\n" +
-                "Tujuan: " + destination + "\n" +
-                "Harga: " + rupiah(price)
-        );
-
-        buildActions(status.toLowerCase(Locale.US));
+    private void buildTop(String title, String sub) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, dp(16));
+        TextView back = text("‹", 38, "#0B3A78", true);
+        back.setGravity(Gravity.CENTER);
+        back.setBackground(round("#FFFFFF", dp(22)));
+        back.setOnClickListener(v -> finish());
+        row.addView(back, new LinearLayout.LayoutParams(dp(58), dp(58)));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(14), 0, 0, 0);
+        col.addView(text(title, 28, "#0B3A78", true));
+        col.addView(text(sub, 14, "#64748B", false));
+        row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+        root.addView(row, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    private void buildActions(String status) {
-        actionBox.removeAllViews();
-
-        LinearLayout mapCard = card();
-        mapCard.setPadding(dp(14), dp(14), dp(14), dp(14));
-        mapCard.addView(text("Navigasi", 17, "#0B3A78", true));
-        Button pickup = outlineButton("📍 Buka Maps ke Pickup");
-        pickup.setOnClickListener(v -> openMaps(pickupLat, pickupLng));
-        LinearLayout.LayoutParams pLp = new LinearLayout.LayoutParams(-1, dp(50));
-        pLp.setMargins(0, dp(10), 0, 0);
-        mapCard.addView(pickup, pLp);
-        Button dest = primaryButton("🏁 Buka Maps ke Tujuan");
-        dest.setOnClickListener(v -> openMaps(deliveryLat, deliveryLng));
-        LinearLayout.LayoutParams dLp = new LinearLayout.LayoutParams(-1, dp(50));
-        dLp.setMargins(0, dp(8), 0, 0);
-        mapCard.addView(dest, dLp);
-        addWithMargin(mapCard, 0, 0, 0, dp(12));
-
-        LinearLayout progress = card();
-        progress.setPadding(dp(14), dp(14), dp(14), dp(14));
-        progress.addView(text("Update Status", 17, "#0B3A78", true));
-
-        if (status.equals("taken") || status.equals("accepted") || status.equals("driver_accepted")) {
-            addStatusButton(progress, "✅ Tiba di Lokasi Pickup", "arrived_pickup");
-        } else if (status.equals("arrived_pickup")) {
-            addStatusButton(progress, "📦 Mulai Antar / Ambil Paket", "on_delivery");
-        } else if (status.equals("on_delivery")) {
-            addStatusButton(progress, "🏁 Tiba di Tujuan", "arrived_delivery");
-        } else if (status.equals("arrived_delivery")) {
-            if (source.equals("pickup_orders")) {
-                Button otp = primaryButton("🔐 Selesaikan dengan OTP Penerima");
-                otp.setOnClickListener(v -> askOtpAndFinish());
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(52));
-                lp.setMargins(0, dp(10), 0, 0);
-                progress.addView(otp, lp);
-            } else {
-                addStatusButton(progress, "✅ Selesaikan Order", "finished");
-            }
-        } else if (status.equals("finished") || status.equals("completed")) {
-            TextView done = text("✅ Order sudah selesai.", 14, "#16A34A", true);
-            done.setPadding(0, dp(10), 0, 0);
-            progress.addView(done);
-        } else {
-            addStatusButton(progress, "✅ Tiba di Lokasi Pickup", "arrived_pickup");
-        }
-
-        addWithMargin(progress, 0, 0, 0, dp(12));
-
-        Button refresh = outlineButton("Refresh Status");
-        refresh.setOnClickListener(v -> loadTrip(true));
-        root.addView(refresh, new LinearLayout.LayoutParams(-1, dp(50)));
+    private void addLocationCard(String title, String body, boolean pickup) {
+        LinearLayout c = card();
+        c.setPadding(dp(18), dp(14), dp(18), dp(14));
+        c.addView(text(title, 15, "#0B3A78", true));
+        TextView b = text(firstNonEmpty(body, "-"), 15, "#111827", false);
+        b.setPadding(0, dp(6), 0, 0);
+        c.addView(b);
+        Button nav = outlineButton(pickup ? "Navigasi ke Pickup" : "Navigasi ke Delivery");
+        nav.setOnClickListener(v -> openMaps(pickup));
+        if (pickup) navPickupBtn = nav; else navDeliveryBtn = nav;
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(46));
+        lp.setMargins(0, dp(12), 0, 0);
+        c.addView(nav, lp);
+        add(c, 0, 0, 0, dp(12));
     }
 
-    private void addStatusButton(LinearLayout parent, String label, String status) {
-        Button b = primaryButton(label);
-        b.setOnClickListener(v -> updateStatus(status, ""));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(52));
-        lp.setMargins(0, dp(10), 0, 0);
+    private void addNoteCard() {
+        String note = firstNonEmpty(order.optString("note"), order.optString("item_note"), order.optString("description"), "-");
+        LinearLayout c = card();
+        c.setPadding(dp(18), dp(14), dp(18), dp(14));
+        c.addView(text(orderKind.equals("pickup") ? "📦 Detail Paket" : "📝 Catatan Customer", 15, "#0B3A78", true));
+        TextView n = text(note, 14, "#111827", false);
+        n.setPadding(0, dp(6), 0, 0);
+        c.addView(n);
+        add(c, 0, 0, 0, dp(12));
+    }
+
+    private void addActions() {
+        LinearLayout c = card();
+        c.setPadding(dp(16), dp(16), dp(16), dp(16));
+        c.addView(text("Aksi Perjalanan", 17, "#0B3A78", true));
+
+        chatBtn = primaryButton("💬 Chat Customer");
+        chatBtn.setOnClickListener(v -> openChat());
+        addButtonTo(c, chatBtn, dp(12));
+
+        arrivedPickupBtn = primaryButton("📍 Tiba di Lokasi Pickup");
+        arrivedPickupBtn.setOnClickListener(v -> confirmUpdate("Tiba di lokasi pickup?", "arrived_pickup"));
+        addButtonTo(c, arrivedPickupBtn, dp(10));
+
+        startDeliveryBtn = primaryButton(orderKind.equals("pickup") ? "📦 Paket Sudah Diambil" : "🛵 Lanjutkan Perjalanan");
+        startDeliveryBtn.setOnClickListener(v -> confirmUpdate("Mulai perjalanan ke lokasi delivery?", "on_delivery"));
+        addButtonTo(c, startDeliveryBtn, dp(10));
+
+        arrivedDeliveryBtn = primaryButton("🏁 Tiba di Lokasi Delivery");
+        arrivedDeliveryBtn.setOnClickListener(v -> confirmUpdate("Tiba di lokasi delivery?", "arrived_delivery"));
+        addButtonTo(c, arrivedDeliveryBtn, dp(10));
+
+        finishBtn = primaryButton(orderKind.equals("pickup") ? "✅ Selesaikan dengan OTP" : "✅ Selesaikan Order");
+        finishBtn.setOnClickListener(v -> confirmUpdate("Selesaikan order ini sekarang?", "finished"));
+        addButtonTo(c, finishBtn, dp(10));
+
+        Button back = outlineButton("Kembali");
+        back.setOnClickListener(v -> finish());
+        addButtonTo(c, back, dp(10));
+
+        add(c, 0, 0, 0, dp(18));
+    }
+
+    private void addButtonTo(LinearLayout parent, Button b, int top) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(50));
+        lp.setMargins(0, top, 0, 0);
         parent.addView(b, lp);
     }
 
-    private void askOtpAndFinish() {
-        EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setTextSize(18);
-        input.setGravity(Gravity.CENTER);
-        input.setHint("OTP penerima");
-        input.setPadding(dp(12), dp(8), dp(12), dp(8));
-        input.setBackground(roundStroke("#FFFFFF", "#B9DBFF", dp(16), 1));
+    private void startLocationWatch() {
+        if (order == null) return;
+        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 701);
+            return;
+        }
+        try {
+            locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+            if (locationManager == null) return;
+            stopLocationWatch();
+            locationListener = new LocationListener() {
+                @Override public void onLocationChanged(Location location) {
+                    if (location == null) return;
+                    lastDriverLat = location.getLatitude();
+                    lastDriverLng = location.getLongitude();
+                    updateDriverLocation(location);
+                    refreshButtonsByStatusAndDistance();
+                }
+                @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
+                @Override public void onProviderEnabled(String provider) {}
+                @Override public void onProviderDisabled(String provider) {}
+            };
+            try { locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000, 2, locationListener, Looper.getMainLooper()); } catch (Exception ignored) {}
+            try { locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000, 2, locationListener, Looper.getMainLooper()); } catch (Exception ignored) {}
+            Location last = null;
+            try { last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER); } catch (Exception ignored) {}
+            if (last == null) try { last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER); } catch (Exception ignored) {}
+            if (last != null) {
+                lastDriverLat = last.getLatitude();
+                lastDriverLng = last.getLongitude();
+                refreshButtonsByStatusAndDistance();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void stopLocationWatch() {
+        try {
+            if (locationManager != null && locationListener != null) locationManager.removeUpdates(locationListener);
+        } catch (Exception ignored) {}
+        locationListener = null;
+    }
+
+    private void refreshButtonsByStatusAndDistance() {
+        if (arrivedPickupBtn == null || startDeliveryBtn == null || arrivedDeliveryBtn == null || finishBtn == null) return;
+
+        String st = status();
+        float pickupDistance = distanceToPickup();
+        float deliveryDistance = distanceToDelivery();
+
+        arrivedPickupBtn.setVisibility(View.GONE);
+        startDeliveryBtn.setVisibility(View.GONE);
+        arrivedDeliveryBtn.setVisibility(View.GONE);
+        finishBtn.setVisibility(View.GONE);
+        if (navPickupBtn != null) navPickupBtn.setVisibility(View.VISIBLE);
+        if (navDeliveryBtn != null) navDeliveryBtn.setVisibility(View.VISIBLE);
+
+        if (statusBadge != null) statusBadge.setText(statusLabel(st));
+
+        if (st.equals("taken")) {
+            if (navDeliveryBtn != null) navDeliveryBtn.setVisibility(View.GONE);
+            if (validCoord(lastDriverLat, lastDriverLng) && pickupDistance >= 0) {
+                distanceInfo.setText("📍 Jarak ke pickup: " + meterText(pickupDistance));
+                if (pickupDistance <= ARRIVE_RADIUS_METER) {
+                    distanceHint.setText("Kamu sudah dekat pickup. Tombol tiba pickup aktif.");
+                    arrivedPickupBtn.setVisibility(View.VISIBLE);
+                } else {
+                    distanceHint.setText("Tombol tiba pickup aktif saat jarak ≤ " + (int)ARRIVE_RADIUS_METER + " meter.");
+                }
+            } else {
+                distanceInfo.setText("📍 Menunggu GPS untuk mengukur jarak pickup...");
+                distanceHint.setText("Pastikan GPS aktif dan izin lokasi diberikan.");
+            }
+            return;
+        }
+
+        if (st.equals("arrived_pickup")) {
+            distanceInfo.setText("✅ Driver sudah tiba di pickup.");
+            distanceHint.setText("Lanjutkan perjalanan setelah pesanan/paket siap.");
+            startDeliveryBtn.setVisibility(View.VISIBLE);
+            return;
+        }
+
+        if (st.equals("on_delivery")) {
+            if (navPickupBtn != null) navPickupBtn.setVisibility(View.GONE);
+            if (validCoord(lastDriverLat, lastDriverLng) && deliveryDistance >= 0) {
+                distanceInfo.setText("🏁 Jarak ke delivery: " + meterText(deliveryDistance));
+                if (deliveryDistance <= ARRIVE_RADIUS_METER) {
+                    distanceHint.setText("Kamu sudah dekat delivery. Tombol tiba delivery aktif.");
+                    arrivedDeliveryBtn.setVisibility(View.VISIBLE);
+                } else {
+                    distanceHint.setText("Tombol tiba delivery aktif saat jarak ≤ " + (int)ARRIVE_RADIUS_METER + " meter.");
+                }
+            } else {
+                distanceInfo.setText("🏁 Menunggu GPS untuk mengukur jarak delivery...");
+                distanceHint.setText("Pastikan GPS aktif dan koordinat delivery tersedia.");
+            }
+            return;
+        }
+
+        if (st.equals("arrived_delivery")) {
+            if (navPickupBtn != null) navPickupBtn.setVisibility(View.GONE);
+            distanceInfo.setText("🏁 Driver sudah tiba di delivery.");
+            distanceHint.setText("Selesaikan order setelah barang/pesanan diterima customer.");
+            finishBtn.setVisibility(View.VISIBLE);
+            return;
+        }
+
+        if (st.equals("finished") || st.equals("completed")) {
+            distanceInfo.setText("✅ Order selesai.");
+            distanceHint.setText("Terima kasih sudah menyelesaikan perjalanan.");
+            if (navPickupBtn != null) navPickupBtn.setVisibility(View.GONE);
+            if (navDeliveryBtn != null) navDeliveryBtn.setVisibility(View.GONE);
+            return;
+        }
+    }
+
+    private float distanceToPickup() {
+        return distanceTo(coord("pickup_lat", "user_lat"), coord("pickup_lng", "user_lng"));
+    }
+
+    private float distanceToDelivery() {
+        return distanceTo(coord("delivery_lat", "destination_lat"), coord("delivery_lng", "destination_lng"));
+    }
+
+    private float distanceTo(double lat, double lng) {
+        if (!validCoord(lastDriverLat, lastDriverLng) || !validCoord(lat, lng)) return -1;
+        float[] result = new float[1];
+        Location.distanceBetween(lastDriverLat, lastDriverLng, lat, lng, result);
+        return result[0];
+    }
+
+    private void confirmUpdate(String msg, String nextStatus) {
+        if (updatingStatus) return;
         new AlertDialog.Builder(this)
-                .setTitle("OTP Penerima")
-                .setMessage("Masukkan OTP dari penerima untuk menyelesaikan TransPickup.")
-                .setView(input)
+                .setTitle("Konfirmasi")
+                .setMessage(msg)
                 .setNegativeButton("Batal", null)
-                .setPositiveButton("Selesai", (d, w) -> updateStatus("finished", input.getText().toString().trim()))
+                .setPositiveButton("Ya", (d, w) -> updateStatus(nextStatus))
                 .show();
     }
 
-    private void updateStatus(String status, String otp) {
-        if (orderId.length() == 0) {
-            showInfo("Gagal", "Order ID tidak ditemukan.");
-            return;
-        }
+    private void updateStatus(String nextStatus) {
+        updatingStatus = true;
         setLoading(true);
         new Thread(() -> {
-            boolean ok = false;
-            String msg = "";
             try {
                 JSONObject payload = new JSONObject();
-                payload.put("source", source);
-                payload.put("order_id", orderId);
-                payload.put("driver", driver);
-                payload.put("status", status);
-                if (otp != null && otp.length() > 0) payload.put("receiver_otp", otp);
-                JSONObject res = postJson(BASE + "driver_update_unified_status.php", payload);
-                ok = res.optBoolean("success", false);
-                msg = firstNonEmpty(res.optString("message"), ok ? "Status diperbarui" : "Gagal update status");
+                payload.put("id", internalId());
+                payload.put("order_id", orderId());
+                payload.put("driver", driverUsername);
+                payload.put("order_kind", orderKind);
+                payload.put("status", nextStatus);
+
+                String endpoint = orderKind.equals("pickup") ? "driver_update_pickup_status.php" : endpointForRegular(nextStatus);
+                JSONObject res;
+                try {
+                    res = postJson(BASE_URL + endpoint, payload);
+                } catch (Exception firstFail) {
+                    res = postJson(BASE_URL + "driver_update_unified_status.php", payload);
+                }
+
+                boolean ok = res.optBoolean("success", false);
+                String message = firstNonEmpty(res.optString("message"), ok ? "Status berhasil diperbarui." : "Gagal update status.");
+                mainHandler.post(() -> {
+                    updatingStatus = false;
+                    setLoading(false);
+                    if (ok) {
+                        try { order.put("status", nextStatus); } catch (Exception ignored) {}
+                        saveActiveOrder();
+                        refreshButtonsByStatusAndDistance();
+                        showInfo("Berhasil", message);
+                        if (nextStatus.equals("finished") || nextStatus.equals("completed")) {
+                            clearActiveOrder();
+                            finish();
+                        }
+                    } else showInfo("Gagal", message);
+                });
             } catch (Exception e) {
-                msg = "Koneksi gagal update status.";
+                mainHandler.post(() -> {
+                    updatingStatus = false;
+                    setLoading(false);
+                    showInfo("Koneksi gagal", "Tidak bisa update status ke server.");
+                });
             }
-            boolean finalOk = ok;
-            String finalMsg = msg;
-            mainHandler.post(() -> {
-                setLoading(false);
-                Toast.makeText(this, finalMsg, Toast.LENGTH_SHORT).show();
-                if (!finalOk) showInfo("Info", finalMsg);
-                loadTrip(false);
-            });
         }).start();
     }
 
-    private void openMaps(String lat, String lng) {
+    private String endpointForRegular(String nextStatus) {
+        if (nextStatus.equals("arrived_pickup")) return "driverArrivedPickup.php";
+        if (nextStatus.equals("on_delivery")) return "driverStartDelivery.php";
+        if (nextStatus.equals("arrived_delivery")) return "driverArrivedDelivery.php";
+        if (nextStatus.equals("finished") || nextStatus.equals("completed")) return "finishOrder.php";
+        return "driver_update_unified_status.php";
+    }
+
+    private void updateDriverLocation(Location loc) {
+        new Thread(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("username", driverUsername);
+                payload.put("driver", driverUsername);
+                payload.put("order_id", orderId());
+                payload.put("latitude", loc.getLatitude());
+                payload.put("longitude", loc.getLongitude());
+                postJson(BASE_URL + "updateDriverLocation.php", payload);
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void openMaps(boolean pickup) {
+        double lat = pickup ? coord("pickup_lat", "user_lat") : coord("delivery_lat", "destination_lat");
+        double lng = pickup ? coord("pickup_lng", "user_lng") : coord("delivery_lng", "destination_lng");
         if (!validCoord(lat, lng)) {
             showInfo("Lokasi", "Koordinat belum tersedia.");
             return;
         }
+        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + lat + "," + lng));
+        i.setPackage("com.google.android.apps.maps");
+        try { startActivity(i); } catch (Exception e) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=" + lat + "," + lng))); }
+    }
+
+    private void openChat() {
         try {
-            Uri uri = Uri.parse("google.navigation:q=" + lat + "," + lng);
-            Intent i = new Intent(Intent.ACTION_VIEW, uri);
-            i.setPackage("com.google.android.apps.maps");
+            Intent i = new Intent(this, CustomerChatActivity.class);
+            i.putExtra("order_id", orderId());
             startActivity(i);
         } catch (Exception e) {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/maps?q=" + lat + "," + lng)));
+            showInfo("Chat", "Halaman chat belum tersedia di native.");
         }
     }
 
-    private boolean validCoord(String lat, String lng) {
-        try {
-            double a = Double.parseDouble(firstNonEmpty(lat, "0"));
-            double b = Double.parseDouble(firstNonEmpty(lng, "0"));
-            return a != 0 && b != 0;
-        } catch (Exception e) { return false; }
+    private void saveActiveOrder() {
+        if (order == null) return;
+        getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit()
+                .putString("driver_active_order_json", order.toString())
+                .putString("driver_active_order_id", orderId())
+                .putString("driver_active_order_kind", orderKind)
+                .putString("driver_active_order_status", status())
+                .putString("driver_active_pickup_address", pickupAddress())
+                .putString("driver_active_delivery_address", deliveryAddress())
+                .putString("driver_active_pickup_lat", String.valueOf(coord("pickup_lat", "user_lat")))
+                .putString("driver_active_pickup_lng", String.valueOf(coord("pickup_lng", "user_lng")))
+                .putString("driver_active_delivery_lat", String.valueOf(coord("delivery_lat", "destination_lat")))
+                .putString("driver_active_delivery_lng", String.valueOf(coord("delivery_lng", "destination_lng")))
+                .putString("driver_active_price", String.valueOf(optDouble("price", "fare", "total")))
+                .apply();
     }
 
-    private JSONObject getJson(String urlText) throws Exception {
-        HttpURLConnection c = null;
-        try {
-            c = (HttpURLConnection) new URL(urlText).openConnection();
-            c.setConnectTimeout(TIMEOUT_MS);
-            c.setReadTimeout(TIMEOUT_MS);
-            c.setRequestMethod("GET");
-            c.setRequestProperty("Accept", "application/json");
-            InputStream is = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
-            return new JSONObject(readStream(is));
-        } finally { if (c != null) c.disconnect(); }
+    private void clearActiveOrder() {
+        getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit()
+                .remove("driver_active_order_json")
+                .remove("driver_active_order_id")
+                .remove("driver_active_order_kind")
+                .remove("driver_active_order_status")
+                .apply();
+    }
+
+    private String orderId() { return firstNonEmpty(order.optString("order_id"), order.optString("id"), "-"); }
+    private String internalId() { return firstNonEmpty(order.optString("id"), order.optString("order_id"), ""); }
+    private String status() { return firstNonEmpty(order.optString("status"), "taken").toLowerCase(Locale.US).trim(); }
+    private String pickupAddress() { return firstNonEmpty(order.optString("pickup_address"), order.optString("pickup"), order.optString("sender_address"), "-"); }
+    private String deliveryAddress() { return firstNonEmpty(order.optString("delivery_address"), order.optString("destination_address"), order.optString("destination"), order.optString("receiver_address"), "-"); }
+    private String serviceLabel() { return orderKind.equals("pickup") ? "📦 TransPickup" : firstNonEmpty(order.optString("service_name"), order.optString("order_type"), "🛵 Transiva Order"); }
+
+    private double coord(String a, String b) {
+        try { return Double.parseDouble(firstNonEmpty(order.optString(a), order.optString(b), "0")); } catch (Exception e) { return 0; }
+    }
+
+    private double optDouble(String... keys) {
+        for (String k : keys) {
+            try { if (order.has(k)) return Double.parseDouble(order.optString(k, "0")); } catch (Exception ignored) {}
+        }
+        return 0;
+    }
+
+    private String statusLabel(String s) {
+        if (s.equals("taken")) return "Menuju Pickup";
+        if (s.equals("arrived_pickup")) return "Tiba di Pickup";
+        if (s.equals("on_delivery")) return "Menuju Delivery";
+        if (s.equals("arrived_delivery")) return "Tiba di Delivery";
+        if (s.equals("finished") || s.equals("completed")) return "Selesai";
+        return firstNonEmpty(s, "Menuju Pickup");
+    }
+
+    private LinearLayout row(String label, String value) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(0, dp(5), 0, dp(5));
+        r.addView(text(label, 14, "#64748B", false), new LinearLayout.LayoutParams(0, -2, 1));
+        r.addView(text(value, 15, "#111827", true));
+        return r;
     }
 
     private JSONObject postJson(String urlText, JSONObject payload) throws Exception {
-        HttpURLConnection c = null;
-        try {
-            c = (HttpURLConnection) new URL(urlText).openConnection();
-            c.setConnectTimeout(TIMEOUT_MS);
-            c.setReadTimeout(TIMEOUT_MS);
-            c.setRequestMethod("POST");
-            c.setDoInput(true);
-            c.setDoOutput(true);
-            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-            c.setRequestProperty("Accept", "application/json");
-            OutputStream os = c.getOutputStream();
-            BufferedWriter w = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
-            w.write(payload == null ? "{}" : payload.toString());
-            w.flush(); w.close(); os.close();
-            InputStream is = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
-            return new JSONObject(readStream(is));
-        } finally { if (c != null) c.disconnect(); }
-    }
-
-    private String readStream(InputStream is) throws Exception {
-        if (is == null) return "{}";
+        HttpURLConnection c = (HttpURLConnection) new URL(urlText).openConnection();
+        c.setConnectTimeout(TIMEOUT_MS);
+        c.setReadTimeout(TIMEOUT_MS);
+        c.setRequestMethod("POST");
+        c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        c.setRequestProperty("Accept", "application/json");
+        c.setDoOutput(true);
+        OutputStream os = c.getOutputStream();
+        os.write(payload.toString().getBytes(StandardCharsets.UTF_8));
+        os.flush(); os.close();
+        InputStream is = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
         BufferedReader br = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
         StringBuilder sb = new StringBuilder();
         String line;
         while ((line = br.readLine()) != null) sb.append(line);
-        br.close();
+        br.close(); c.disconnect();
         String body = sb.toString().trim();
-        return body.length() == 0 ? "{}" : body;
+        if (body.length() == 0) return new JSONObject();
+        return new JSONObject(body);
     }
 
-    private String enc(String value) {
-        try { return URLEncoder.encode(value == null ? "" : value, "UTF-8"); }
-        catch (Exception e) { return ""; }
-    }
-
-    private void setLoading(boolean b) { if (progressBar != null) progressBar.setVisibility(b ? View.VISIBLE : View.GONE); }
-    private void showInfo(String title, String msg) { new AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); }
-    private LinearLayout card() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); v.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(22), 1)); v.setElevation(dp(2)); return v; }
-    private void addWithMargin(View v, int l, int t, int r, int b) { LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(l,t,r,b); root.addView(v, lp); }
-    private TextView text(String s, int sp, String color, boolean bold) { TextView t = new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(Color.parseColor(color)); if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD); return t; }
-    private Button primaryButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.WHITE); b.setTypeface(Typeface.DEFAULT, Typeface.BOLD); b.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(18))); return b; }
-    private Button outlineButton(String s) { Button b = primaryButton(s); b.setTextColor(Color.parseColor("#0B7CFF")); b.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(18), 1)); return b; }
-    private GradientDrawable round(String color, int radius) { GradientDrawable g = new GradientDrawable(); g.setColor(Color.parseColor(color)); g.setCornerRadius(radius); return g; }
-    private GradientDrawable roundStroke(String color, String stroke, int radius, int width) { GradientDrawable g = round(color, radius); g.setStroke(dp(width), Color.parseColor(stroke)); return g; }
-    private GradientDrawable roundGradient(String start, String end, int radius) { GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.parseColor(start), Color.parseColor(end)}); g.setCornerRadius(radius); return g; }
+    private String getStringPref(String key) { try { return getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString(key, ""); } catch (Exception e) { return ""; } }
+    private boolean validCoord(double lat, double lng) { return lat != 0 && lng != 0 && !Double.isNaN(lat) && !Double.isNaN(lng); }
+    private String meterText(float m) { return m >= 1000 ? oneDecimal(m / 1000.0) + " km" : Math.round(m) + " meter"; }
+    private String rupiah(double v) { return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format((long) v); }
+    private String oneDecimal(double v) { return String.format(Locale.US, "%.1f", v); }
+    private String zeroDecimal(double v) { return String.format(Locale.US, "%.0f", v); }
+    private String firstNonEmpty(String... values) { if (values == null) return ""; for (String s : values) if (s != null && s.trim().length() > 0 && !"null".equalsIgnoreCase(s.trim())) return s.trim(); return ""; }
     private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
-    private String rupiah(int value) { return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format(value); }
-    private String firstNonEmpty(String... values) { if (values == null) return ""; for (String v : values) if (v != null && v.trim().length() > 0 && !"null".equalsIgnoreCase(v.trim())) return v.trim(); return ""; }
+
+    private void add(View v, int l, int t, int r, int b) { LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(l, t, r, b); root.addView(v, lp); }
+    private LinearLayout card() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); v.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(24), 1)); v.setElevation(dp(2)); return v; }
+    private TextView text(String s, int sp, String color, boolean bold) { TextView t = new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(Color.parseColor(color)); if (bold) t.setTypeface(Typeface.DEFAULT_BOLD); return t; }
+    private Button primaryButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.WHITE); b.setTypeface(Typeface.DEFAULT_BOLD); b.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(18))); return b; }
+    private Button outlineButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.parseColor("#0B7CFF")); b.setTypeface(Typeface.DEFAULT_BOLD); b.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(18), 1)); return b; }
+    private GradientDrawable round(String color, int radius) { GradientDrawable g = new GradientDrawable(); g.setColor(Color.parseColor(color)); g.setCornerRadius(radius); return g; }
+    private GradientDrawable roundStroke(String color, String stroke, int radius, int sw) { GradientDrawable g = round(color, radius); g.setStroke(dp(sw), Color.parseColor(stroke)); return g; }
+    private GradientDrawable roundGradient(String c1, String c2, int radius) { GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.parseColor(c1), Color.parseColor(c2)}); g.setCornerRadius(radius); return g; }
+    private void setLoading(boolean b) { if (progressBar != null) progressBar.setVisibility(b ? View.VISIBLE : View.GONE); }
+    private void showInfo(String t, String m) { try { new AlertDialog.Builder(this).setTitle(t).setMessage(m).setPositiveButton("OK", null).show(); } catch (Exception ignored) {} }
 }
