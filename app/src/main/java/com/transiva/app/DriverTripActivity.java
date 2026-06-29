@@ -19,6 +19,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -52,6 +54,7 @@ public class DriverTripActivity extends Activity {
     private TextView statusBadge;
     private TextView distanceInfo;
     private TextView distanceHint;
+    private WebView mapView;
     private Button chatBtn;
     private Button navPickupBtn;
     private Button navDeliveryBtn;
@@ -109,6 +112,7 @@ public class DriverTripActivity extends Activity {
     @Override
     protected void onDestroy() {
         stopLocationWatch();
+        try { if (mapView != null) { mapView.destroy(); mapView = null; } } catch (Exception ignored) {}
         super.onDestroy();
     }
 
@@ -241,6 +245,7 @@ public class DriverTripActivity extends Activity {
 
         addLocationCard("📍 Lokasi Pickup", pickupAddress(), true);
         addLocationCard("🏁 Lokasi Delivery", deliveryAddress(), false);
+        addLeafletMapCard();
         addNoteCard();
         addActions();
     }
@@ -277,6 +282,109 @@ public class DriverTripActivity extends Activity {
         lp.setMargins(0, dp(12), 0, 0);
         c.addView(nav, lp);
         add(c, 0, 0, 0, dp(12));
+    }
+
+
+    private void addLeafletMapCard() {
+        LinearLayout c = card();
+        c.setPadding(dp(12), dp(12), dp(12), dp(12));
+        c.addView(text("🗺️ Peta Perjalanan", 16, "#0B3A78", true));
+        TextView sub = text("Marker pickup, delivery, dan kendaraan memakai icon drawable aplikasi.", 12, "#64748B", false);
+        sub.setPadding(0, dp(4), 0, dp(10));
+        c.addView(sub);
+
+        mapView = new WebView(this);
+        mapView.setBackgroundColor(Color.TRANSPARENT);
+        try {
+            WebSettings st = mapView.getSettings();
+            st.setJavaScriptEnabled(true);
+            st.setDomStorageEnabled(true);
+            st.setLoadWithOverviewMode(true);
+            st.setUseWideViewPort(true);
+            st.setBuiltInZoomControls(false);
+            st.setDisplayZoomControls(false);
+            if (Build.VERSION.SDK_INT >= 21) st.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        } catch (Exception ignored) {}
+        mapView.loadDataWithBaseURL("https://transiva.my.id/", leafletHtml(), "text/html", "UTF-8", null);
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-1, dp(260));
+        mp.setMargins(0, dp(10), 0, 0);
+        c.addView(mapView, mp);
+
+        LinearLayout navRow = new LinearLayout(this);
+        navRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button p = outlineButton("📍 Pickup");
+        Button d = outlineButton("🏁 Delivery");
+        p.setOnClickListener(v -> openMaps(true));
+        d.setOnClickListener(v -> openMaps(false));
+        navRow.addView(p, new LinearLayout.LayoutParams(0, dp(46), 1));
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(0, dp(46), 1);
+        dl.setMargins(dp(10), 0, 0, 0);
+        navRow.addView(d, dl);
+        LinearLayout.LayoutParams nrp = new LinearLayout.LayoutParams(-1, -2);
+        nrp.setMargins(0, dp(10), 0, 0);
+        c.addView(navRow, nrp);
+        add(c, 0, 0, 0, dp(12));
+
+        mainHandler.postDelayed(this::updateLeafletMap, 900);
+    }
+
+    private String leafletHtml() {
+        String startIcon = drawableUri("ic_pickup_marker", "ic_marker_start", "marker_start", "ic_start_marker", "ic_transride");
+        String endIcon = drawableUri("ic_destination_marker", "ic_marker_end", "marker_end", "ic_end_marker", "ic_transcar");
+        String driverIcon = drawableUri("ic_driver_motor", "ic_driver_marker", "ic_vehicle_marker", "ic_transride");
+        double pLat = coord("pickup_lat", "user_lat");
+        double pLng = coord("pickup_lng", "user_lng");
+        double dLat = coord("delivery_lat", "destination_lat");
+        double dLng = coord("delivery_lng", "destination_lng");
+        double centerLat = validCoord(pLat, pLng) ? pLat : (validCoord(dLat, dLng) ? dLat : -0.9);
+        double centerLng = validCoord(pLat, pLng) ? pLng : (validCoord(dLat, dLng) ? dLng : 119.87);
+        return "<!doctype html><html><head>" +
+                "<meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1'>" +
+                "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>" +
+                "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>" +
+                "<style>html,body,#map{height:100%;width:100%;margin:0;background:#eaf4ff;} .leaflet-control-attribution{display:none;} .pinShadow{filter:drop-shadow(0 7px 8px rgba(15,23,42,.25));}</style>" +
+                "</head><body><div id='map'></div><script>" +
+                "var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([" + centerLat + "," + centerLng + "],15);" +
+                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);" +
+                "function ico(u,s){return L.icon({iconUrl:u,iconSize:[s,s],iconAnchor:[s/2,s],popupAnchor:[0,-s]});}" +
+                "var startIcon=ico('" + startIcon + "',44), endIcon=ico('" + endIcon + "',44), driverIcon=ico('" + driverIcon + "',46);" +
+                "var pickup=null,delivery=null,driver=null,line=null;" +
+                "function ok(a,b){return !isNaN(a)&&!isNaN(b)&&a!=0&&b!=0;}" +
+                "function update(dl,dk,pl,pk,el,ek){" +
+                "var pts=[];" +
+                "if(ok(pl,pk)){ if(!pickup) pickup=L.marker([pl,pk],{icon:startIcon}).addTo(map).bindPopup('Pickup'); else pickup.setLatLng([pl,pk]); pts.push([pl,pk]); }" +
+                "if(ok(el,ek)){ if(!delivery) delivery=L.marker([el,ek],{icon:endIcon}).addTo(map).bindPopup('Delivery'); else delivery.setLatLng([el,ek]); pts.push([el,ek]); }" +
+                "if(ok(dl,dk)){ if(!driver) driver=L.marker([dl,dk],{icon:driverIcon}).addTo(map).bindPopup('Driver'); else driver.setLatLng([dl,dk]); pts.push([dl,dk]); }" +
+                "var route=[]; if(ok(dl,dk)) route.push([dl,dk]); if(ok(pl,pk)) route.push([pl,pk]); if(ok(el,ek)) route.push([el,ek]);" +
+                "if(line) line.remove(); if(route.length>=2) line=L.polyline(route,{weight:5,opacity:.75}).addTo(map);" +
+                "if(pts.length>1) map.fitBounds(pts,{padding:[35,35],maxZoom:17}); else if(pts.length==1) map.setView(pts[0],16);" +
+                "}" +
+                "window.updateTripMap=update;" +
+                "setTimeout(function(){update(" + lastDriverLat + "," + lastDriverLng + "," + pLat + "," + pLng + "," + dLat + "," + dLng + ");},300);" +
+                "</script></body></html>";
+    }
+
+    private void updateLeafletMap() {
+        if (mapView == null || order == null) return;
+        double pLat = coord("pickup_lat", "user_lat");
+        double pLng = coord("pickup_lng", "user_lng");
+        double dLat = coord("delivery_lat", "destination_lat");
+        double dLng = coord("delivery_lng", "destination_lng");
+        String js = "if(window.updateTripMap){updateTripMap(" + lastDriverLat + "," + lastDriverLng + "," + pLat + "," + pLng + "," + dLat + "," + dLng + ");}";
+        try {
+            if (Build.VERSION.SDK_INT >= 19) mapView.evaluateJavascript(js, null);
+            else mapView.loadUrl("javascript:" + js);
+        } catch (Exception ignored) {}
+    }
+
+    private String drawableUri(String... names) {
+        for (String n : names) {
+            try {
+                int id = getResources().getIdentifier(n, "drawable", getPackageName());
+                if (id != 0) return "android.resource://" + getPackageName() + "/drawable/" + n;
+            } catch (Exception ignored) {}
+        }
+        return "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png";
     }
 
     private void addNoteCard() {
@@ -345,6 +453,7 @@ public class DriverTripActivity extends Activity {
                     lastDriverLng = location.getLongitude();
                     updateDriverLocation(location);
                     refreshButtonsByStatusAndDistance();
+                    updateLeafletMap();
                 }
                 @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
                 @Override public void onProviderEnabled(String provider) {}
@@ -359,6 +468,7 @@ public class DriverTripActivity extends Activity {
                 lastDriverLat = last.getLatitude();
                 lastDriverLng = last.getLongitude();
                 refreshButtonsByStatusAndDistance();
+                updateLeafletMap();
             }
         } catch (Exception ignored) {}
     }
@@ -551,11 +661,48 @@ public class DriverTripActivity extends Activity {
 
     private void openChat() {
         try {
-            Intent i = new Intent(this, CustomerChatActivity.class);
+            String roomId = firstNonEmpty(
+                    order.optString("room_id"),
+                    getStringPref("active_chat_room_id"),
+                    "ROOM-" + orderId()
+            );
+            roomId = roomId.trim().replace("_", "-").toUpperCase(Locale.US).replaceAll("[^A-Z0-9\\-]", "");
+            if (!roomId.startsWith("ROOM-")) roomId = "ROOM-" + roomId;
+
+            String customerName = firstNonEmpty(
+                    order.optString("customer_name"),
+                    order.optString("customer"),
+                    order.optString("username"),
+                    order.optString("user_id"),
+                    "Customer"
+            );
+
+            getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit()
+                    .putString("active_order_id", orderId())
+                    .putString("active_chat_order_id", orderId())
+                    .putString("active_chat_room_id", roomId)
+                    .putString("active_chat_driver_name", driverUsername)
+                    .putString("active_chat_customer_name", customerName)
+                    .putString("active_chat_order_status", status())
+                    .apply();
+
+            Intent i = new Intent();
+            i.setClassName(getPackageName(), "com.transiva.app.CustomerChatActivity");
             i.putExtra("order_id", orderId());
+            i.putExtra("room_id", roomId);
+            i.putExtra("driver_name", driverUsername);
+            i.putExtra("customer_name", customerName);
+            i.putExtra("order_status", status());
             startActivity(i);
         } catch (Exception e) {
-            showInfo("Chat", "Halaman chat belum tersedia di native.");
+            try {
+                Intent web = new Intent(this, MainActivity.class);
+                web.putExtra("native_route", "?route=chat");
+                web.putExtra("url", "https://transiva.my.id/?route=chat");
+                startActivity(web);
+            } catch (Exception ignored) {
+                showInfo("Chat", "Halaman chat belum tersedia di native.");
+            }
         }
     }
 
