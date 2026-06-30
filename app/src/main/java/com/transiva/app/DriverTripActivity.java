@@ -212,6 +212,7 @@ public class DriverTripActivity extends Activity {
 
         LinearLayout header = card();
         header.setPadding(dp(18), dp(16), dp(18), dp(16));
+
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
         header.addView(top, new LinearLayout.LayoutParams(-1, -2));
@@ -219,29 +220,43 @@ public class DriverTripActivity extends Activity {
         LinearLayout left = new LinearLayout(this);
         left.setOrientation(LinearLayout.VERTICAL);
         top.addView(left, new LinearLayout.LayoutParams(0, -2, 1));
-        left.addView(text(serviceLabel(), 14, "#64748B", true));
-        left.addView(text("#" + orderId(), 24, "#0B3A78", true));
+        left.addView(text(serviceLabel().replace("📦 ", "").replace("🛵 ", ""), 14, "#64748B", true));
+        TextView oid = text("#" + orderId(), 26, "#0B3A78", true);
+        oid.setMaxLines(2);
+        left.addView(oid);
 
-        statusBadge = text(statusLabel(status()), 12, "#FFFFFF", true);
+        statusBadge = text("➤  " + statusLabel(status()), 12, "#FFFFFF", true);
         statusBadge.setGravity(Gravity.CENTER);
-        statusBadge.setPadding(dp(12), dp(7), dp(12), dp(7));
-        statusBadge.setBackground(round("#0B7CFF", dp(20)));
+        statusBadge.setPadding(dp(13), dp(9), dp(13), dp(9));
+        statusBadge.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(18)));
         top.addView(statusBadge, new LinearLayout.LayoutParams(-2, -2));
 
-        add(header, 0, dp(8), 0, dp(12));
+        LinearLayout metricRow = new LinearLayout(this);
+        metricRow.setOrientation(LinearLayout.HORIZONTAL);
+        metricRow.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams mrp = new LinearLayout.LayoutParams(-1, -2);
+        mrp.setMargins(0, dp(16), 0, 0);
+        header.addView(metricRow, mrp);
 
-        LinearLayout summary = card();
-        summary.setPadding(dp(18), dp(14), dp(18), dp(14));
-        summary.addView(row("💰 Total Bayar", rupiah(optDouble("price", "fare", "total"))));
-        summary.addView(row("🛵 Jarak Order", oneDecimal(optDouble("distance_km")) + " KM"));
-        summary.addView(row("⏱️ Estimasi", zeroDecimal(optDouble("duration_minutes")) + " menit"));
+        metricRow.addView(metricBox("💰", "Total Bayar", rupiah(optDouble("price", "fare", "total"))), new LinearLayout.LayoutParams(0, -2, 1));
+        metricRow.addView(metricDivider(), new LinearLayout.LayoutParams(dp(1), dp(54)));
+        metricRow.addView(metricBox("🛵", "Jarak Order", oneDecimal(optDouble("distance_km")) + " KM"), new LinearLayout.LayoutParams(0, -2, 1));
+        metricRow.addView(metricDivider(), new LinearLayout.LayoutParams(dp(1), dp(54)));
+        metricRow.addView(metricBox("⏱️", "Estimasi", zeroDecimal(optDouble("duration_minutes")) + " menit"), new LinearLayout.LayoutParams(0, -2, 1));
+        metricRow.addView(metricDivider(), new LinearLayout.LayoutParams(dp(1), dp(54)));
+        metricRow.addView(metricBox("📍", "Jarak ke pickup", "..."), new LinearLayout.LayoutParams(0, -2, 1));
+
         distanceInfo = text("📍 Mengukur jarak driver...", 13, "#64748B", false);
-        distanceInfo.setPadding(0, dp(8), 0, 0);
-        summary.addView(distanceInfo);
-        distanceHint = text("", 12, "#0B7CFF", true);
-        distanceHint.setPadding(0, dp(5), 0, 0);
-        summary.addView(distanceHint);
-        add(summary, 0, 0, 0, dp(12));
+        distanceInfo.setPadding(0, dp(12), 0, 0);
+        header.addView(distanceInfo);
+        distanceHint = text("", 13, "#059669", true);
+        distanceHint.setPadding(dp(12), dp(9), dp(12), dp(9));
+        distanceHint.setBackground(roundStroke("#ECFDF5", "#86EFAC", dp(12), 1));
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2);
+        hp.setMargins(0, dp(8), 0, 0);
+        header.addView(distanceHint, hp);
+
+        add(header, 0, dp(8), 0, dp(12));
 
         addLocationCard("📍 Lokasi Pickup", pickupAddress(), true);
         addLocationCard("🏁 Lokasi Delivery", deliveryAddress(), false);
@@ -253,18 +268,28 @@ public class DriverTripActivity extends Activity {
     private void buildTop(String title, String sub) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, 0, 0, dp(16));
-        TextView back = text("‹", 38, "#0B3A78", true);
+        row.setPadding(0, 0, 0, dp(18));
+
+        TextView back = text("‹", 40, "#0B3A78", true);
         back.setGravity(Gravity.CENTER);
         back.setBackground(round("#FFFFFF", dp(22)));
+        back.setElevation(dp(3));
         back.setOnClickListener(v -> finish());
         row.addView(back, new LinearLayout.LayoutParams(dp(58), dp(58)));
+
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(dp(14), 0, 0, 0);
-        col.addView(text(title, 28, "#0B3A78", true));
+        col.addView(text(title, 29, "#0B3A78", true));
         col.addView(text(sub, 14, "#64748B", false));
         row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView online = text("● Online", 12, "#16A34A", true);
+        online.setGravity(Gravity.CENTER);
+        online.setPadding(dp(12), dp(8), dp(12), dp(8));
+        online.setBackground(round("#DCFCE7", dp(22)));
+        row.addView(online, new LinearLayout.LayoutParams(-2, -2));
+
         root.addView(row, new LinearLayout.LayoutParams(-1, -2));
     }
 
@@ -275,7 +300,7 @@ public class DriverTripActivity extends Activity {
         TextView b = text(firstNonEmpty(body, "-"), 15, "#111827", false);
         b.setPadding(0, dp(6), 0, 0);
         c.addView(b);
-        Button nav = outlineButton(pickup ? "Navigasi ke Pickup" : "Navigasi ke Delivery");
+        Button nav = outlineButton("➤  Navigasi");
         nav.setOnClickListener(v -> openMaps(pickup));
         if (pickup) navPickupBtn = nav; else navDeliveryBtn = nav;
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(46));
@@ -329,9 +354,9 @@ public class DriverTripActivity extends Activity {
     }
 
     private String leafletHtml() {
-        String startIcon = drawableUri("ic_pickup_marker", "ic_marker_start", "marker_start", "ic_start_marker", "ic_transride");
-        String endIcon = drawableUri("ic_destination_marker", "ic_marker_end", "marker_end", "ic_end_marker", "ic_transcar");
-        String driverIcon = drawableUri("ic_driver_motor", "ic_driver_marker", "ic_vehicle_marker", "ic_transride");
+        String startIcon = drawableUri("map_pickup_pin", "ic_pickup_marker", "ic_marker_start", "marker_start", "ic_start_marker");
+        String endIcon = drawableUri("map_destination_pin", "ic_destination_marker", "ic_marker_end", "marker_end", "ic_end_marker");
+        String driverIcon = drawableUri("map_motor_top", "map_car_top", "map_center_pin", "ic_driver_motor", "ic_driver_marker", "ic_vehicle_marker");
         double pLat = coord("pickup_lat", "user_lat");
         double pLng = coord("pickup_lng", "user_lng");
         double dLat = coord("delivery_lat", "destination_lat");
@@ -342,7 +367,7 @@ public class DriverTripActivity extends Activity {
                 "<meta name='viewport' content='width=device-width, initial-scale=1, maximum-scale=1'>" +
                 "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>" +
                 "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>" +
-                "<style>html,body,#map{height:100%;width:100%;margin:0;background:#eaf4ff;} .leaflet-control-attribution{display:none;} .pinShadow{filter:drop-shadow(0 7px 8px rgba(15,23,42,.25));}</style>" +
+                "<style>html,body,#map{height:100%;width:100%;margin:0;background:#eaf4ff;} .leaflet-control-attribution{display:none;} .leaflet-container{font-family:Arial,sans-serif;} .leaflet-marker-icon{filter:drop-shadow(0 6px 6px rgba(15,23,42,.25));}</style>" +
                 "</head><body><div id='map'></div><script>" +
                 "var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([" + centerLat + "," + centerLng + "],15);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);" +
@@ -356,7 +381,7 @@ public class DriverTripActivity extends Activity {
                 "if(ok(el,ek)){ if(!delivery) delivery=L.marker([el,ek],{icon:endIcon}).addTo(map).bindPopup('Delivery'); else delivery.setLatLng([el,ek]); pts.push([el,ek]); }" +
                 "if(ok(dl,dk)){ if(!driver) driver=L.marker([dl,dk],{icon:driverIcon}).addTo(map).bindPopup('Driver'); else driver.setLatLng([dl,dk]); pts.push([dl,dk]); }" +
                 "var route=[]; if(ok(dl,dk)) route.push([dl,dk]); if(ok(pl,pk)) route.push([pl,pk]); if(ok(el,ek)) route.push([el,ek]);" +
-                "if(line) line.remove(); if(route.length>=2) line=L.polyline(route,{weight:5,opacity:.75}).addTo(map);" +
+                "if(line) line.remove(); if(route.length>=2) line=L.polyline(route,{color:'#0B7CFF',weight:6,opacity:.85}).addTo(map);" +
                 "if(pts.length>1) map.fitBounds(pts,{padding:[35,35],maxZoom:17}); else if(pts.length==1) map.setView(pts[0],16);" +
                 "}" +
                 "window.updateTripMap=update;" +
@@ -401,13 +426,13 @@ public class DriverTripActivity extends Activity {
     private void addActions() {
         LinearLayout c = card();
         c.setPadding(dp(16), dp(16), dp(16), dp(16));
-        c.addView(text("Aksi Perjalanan", 17, "#0B3A78", true));
+        c.addView(text("⚡ Aksi Perjalanan", 17, "#0B3A78", true));
 
         chatBtn = primaryButton("💬 Chat Customer");
         chatBtn.setOnClickListener(v -> openChat());
         addButtonTo(c, chatBtn, dp(12));
 
-        arrivedPickupBtn = primaryButton("📍 Tiba di Lokasi Pickup");
+        arrivedPickupBtn = greenButton("📍 Tiba di Lokasi Pickup");
         arrivedPickupBtn.setOnClickListener(v -> confirmUpdate("Tiba di lokasi pickup?", "arrived_pickup"));
         addButtonTo(c, arrivedPickupBtn, dp(10));
 
@@ -423,7 +448,7 @@ public class DriverTripActivity extends Activity {
         finishBtn.setOnClickListener(v -> confirmUpdate("Selesaikan order ini sekarang?", "finished"));
         addButtonTo(c, finishBtn, dp(10));
 
-        Button back = outlineButton("Kembali");
+        Button back = outlineButton("←  Kembali ke Dashboard");
         back.setOnClickListener(v -> finish());
         addButtonTo(c, back, dp(10));
 
@@ -654,9 +679,65 @@ public class DriverTripActivity extends Activity {
             showInfo("Lokasi", "Koordinat belum tersedia.");
             return;
         }
-        Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + lat + "," + lng));
-        i.setPackage("com.google.android.apps.maps");
-        try { startActivity(i); } catch (Exception e) { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=" + lat + "," + lng))); }
+        showNavigationMode(pickup);
+    }
+
+    private void showNavigationMode(boolean pickup) {
+        root.removeAllViews();
+
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, 0, 0, dp(12));
+
+        TextView back = text("‹", 34, "#0B3A78", true);
+        back.setGravity(Gravity.CENTER);
+        back.setBackground(round("#FFFFFF", dp(18)));
+        back.setOnClickListener(v -> renderOrder());
+        row.addView(back, new LinearLayout.LayoutParams(dp(46), dp(46)));
+
+        TextView title = text(pickup ? "Navigasi ke Pickup" : "Navigasi ke Delivery", 20, "#0B3A78", true);
+        title.setPadding(dp(12), 0, 0, 0);
+        row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+
+        TextView close = text("×", 28, "#0B3A78", true);
+        close.setGravity(Gravity.CENTER);
+        close.setOnClickListener(v -> renderOrder());
+        row.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout info = card();
+        info.setPadding(dp(14), dp(12), dp(14), dp(12));
+        String dist = pickup ? meterText(distanceToPickup()) : meterText(distanceToDelivery());
+        info.addView(text("🧭 Ikuti rute peta menuju lokasi " + (pickup ? "pickup" : "delivery"), 13, "#0B3A78", true));
+        info.addView(text("Jarak: " + dist + " • Estimasi: " + zeroDecimal(optDouble("duration_minutes")) + " menit", 12, "#64748B", false));
+        add(info, 0, 0, 0, dp(10));
+
+        mapView = new WebView(this);
+        try {
+            WebSettings st = mapView.getSettings();
+            st.setJavaScriptEnabled(true);
+            st.setDomStorageEnabled(true);
+            st.setLoadWithOverviewMode(true);
+            st.setUseWideViewPort(true);
+            st.setBuiltInZoomControls(false);
+            st.setDisplayZoomControls(false);
+            if (Build.VERSION.SDK_INT >= 21) st.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        } catch (Exception ignored) {}
+        mapView.loadDataWithBaseURL("https://transiva.my.id/", leafletHtml(), "text/html", "UTF-8", null);
+        root.addView(mapView, new LinearLayout.LayoutParams(-1, dp(440)));
+
+        LinearLayout bottom = card();
+        bottom.setPadding(dp(16), dp(14), dp(16), dp(14));
+        bottom.addView(text(pickup ? "📍 Lokasi Pickup" : "🏁 Lokasi Delivery", 15, "#0B3A78", true));
+        TextView addr = text(pickup ? pickupAddress() : deliveryAddress(), 13, "#111827", false);
+        addr.setPadding(0, dp(6), 0, dp(12));
+        bottom.addView(addr);
+        Button done = outlineButton("✅ Selesai Navigasi");
+        done.setOnClickListener(v -> renderOrder());
+        bottom.addView(done, new LinearLayout.LayoutParams(-1, dp(50)));
+        add(bottom, 0, dp(12), 0, dp(18));
+
+        mainHandler.postDelayed(this::updateLeafletMap, 900);
     }
 
     private void openChat() {
@@ -759,6 +840,30 @@ public class DriverTripActivity extends Activity {
         return firstNonEmpty(s, "Menuju Pickup");
     }
 
+    private LinearLayout metricBox(String icon, String label, String value) {
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.VERTICAL);
+        b.setGravity(Gravity.CENTER);
+        TextView i = text(icon, 23, "#0B3A78", true);
+        i.setGravity(Gravity.CENTER);
+        b.addView(i);
+        TextView l = text(label, 11, "#64748B", false);
+        l.setGravity(Gravity.CENTER);
+        l.setMaxLines(1);
+        b.addView(l);
+        TextView v = text(value, 12, "#111827", true);
+        v.setGravity(Gravity.CENTER);
+        v.setMaxLines(1);
+        b.addView(v);
+        return b;
+    }
+
+    private View metricDivider() {
+        View v = new View(this);
+        v.setBackgroundColor(Color.parseColor("#D7E6F8"));
+        return v;
+    }
+
     private LinearLayout row(String label, String value) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
@@ -792,7 +897,7 @@ public class DriverTripActivity extends Activity {
 
     private String getStringPref(String key) { try { return getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString(key, ""); } catch (Exception e) { return ""; } }
     private boolean validCoord(double lat, double lng) { return lat != 0 && lng != 0 && !Double.isNaN(lat) && !Double.isNaN(lng); }
-    private String meterText(float m) { return m >= 1000 ? oneDecimal(m / 1000.0) + " km" : Math.round(m) + " meter"; }
+    private String meterText(float m) { if (m < 0) return "-"; return m >= 1000 ? oneDecimal(m / 1000.0) + " km" : Math.round(m) + " meter"; }
     private String rupiah(double v) { return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format((long) v); }
     private String oneDecimal(double v) { return String.format(Locale.US, "%.1f", v); }
     private String zeroDecimal(double v) { return String.format(Locale.US, "%.0f", v); }
@@ -803,6 +908,7 @@ public class DriverTripActivity extends Activity {
     private LinearLayout card() { LinearLayout v = new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); v.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(24), 1)); v.setElevation(dp(2)); return v; }
     private TextView text(String s, int sp, String color, boolean bold) { TextView t = new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(Color.parseColor(color)); if (bold) t.setTypeface(Typeface.DEFAULT_BOLD); return t; }
     private Button primaryButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.WHITE); b.setTypeface(Typeface.DEFAULT_BOLD); b.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(18))); return b; }
+    private Button greenButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.WHITE); b.setTypeface(Typeface.DEFAULT_BOLD); b.setBackground(roundGradient("#10B981", "#04A969", dp(18))); return b; }
     private Button outlineButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextColor(Color.parseColor("#0B7CFF")); b.setTypeface(Typeface.DEFAULT_BOLD); b.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(18), 1)); return b; }
     private GradientDrawable round(String color, int radius) { GradientDrawable g = new GradientDrawable(); g.setColor(Color.parseColor(color)); g.setCornerRadius(radius); return g; }
     private GradientDrawable roundStroke(String color, String stroke, int radius, int sw) { GradientDrawable g = round(color, radius); g.setStroke(dp(sw), Color.parseColor(stroke)); return g; }
