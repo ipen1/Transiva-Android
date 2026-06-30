@@ -11,6 +11,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -42,6 +43,7 @@ import java.util.Locale;
 
 public class LoginActivity extends Activity {
 
+    private static final String TAG = "TRANSIVA_LOGIN_FCM";
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String LOGIN_URL = BASE_URL + "server/login.php";
     private static final String SAVE_FCM_URL = BASE_URL + "server/save_fcm_token.php";
@@ -311,6 +313,13 @@ public class LoginActivity extends Activity {
             payload.put("username", username);
             payload.put("password", password);
 
+            String cachedFcmToken = getCachedFcmToken();
+            if (!cachedFcmToken.isEmpty()) {
+                payload.put("fcm_token", cachedFcmToken);
+                payload.put("token", cachedFcmToken);
+                payload.put("platform", "android_native");
+            }
+
             OutputStream os = conn.getOutputStream();
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
             writer.write(payload.toString());
@@ -349,33 +358,56 @@ public class LoginActivity extends Activity {
 
     private void saveFcmTokenAfterLogin(JSONObject user) {
         try {
-            final int userId = user.optInt("id", 0);
-            final String username = user.optString("username", "").trim();
+            final int userId = firstPositiveInt(
+                    user.optInt("id", 0),
+                    user.optInt("user_id", 0),
+                    user.optInt("uid", 0)
+            );
+            final String username = firstNotEmpty(
+                    user.optString("username", ""),
+                    user.optString("user_name", ""),
+                    user.optString("name", "")
+            );
             final String role = normalizeRole(user.optString("role", "customer"));
+
+            String cachedToken = getCachedFcmToken();
+            if (!cachedToken.isEmpty()) {
+                saveTokenLocal(cachedToken, userId, username, role);
+                uploadFcmToken(userId, username, role, cachedToken);
+            }
 
             FirebaseMessaging.getInstance().getToken()
                     .addOnSuccessListener(token -> {
-                        if (token == null || token.trim().isEmpty()) return;
+                        String cleanToken = token == null ? "" : token.trim();
+                        if (cleanToken.isEmpty()) {
+                            Log.e(TAG, "Firebase token kosong");
+                            return;
+                        }
 
-                        try {
-                            getSharedPreferences("transiva_fcm", MODE_PRIVATE)
-                                    .edit()
-                                    .putString("fcm_token", token)
-                                    .putInt("user_id", userId)
-                                    .putString("username", username)
-                                    .putString("role", role)
-                                    .apply();
-                        } catch (Exception ignored) {}
-
-                        uploadFcmToken(userId, username, role, token);
+                        saveTokenLocal(cleanToken, userId, username, role);
+                        uploadFcmToken(userId, username, role, cleanToken);
                     })
-                    .addOnFailureListener(e -> {
-                        // Token akan dicoba lagi oleh Firebase service saat onNewToken dipanggil.
-                    });
-        } catch (Exception ignored) {}
+                    .addOnFailureListener(e -> Log.e(TAG, "Gagal mengambil FCM token", e));
+
+        } catch (Exception e) {
+            Log.e(TAG, "saveFcmTokenAfterLogin error", e);
+        }
     }
 
     private void uploadFcmToken(int userId, String username, String role, String token) {
+        final String cleanToken = token == null ? "" : token.trim();
+        final String cleanUsername = username == null ? "" : username.trim();
+
+        if (cleanToken.isEmpty()) {
+            Log.e(TAG, "Upload FCM dibatalkan: token kosong");
+            return;
+        }
+
+        if (userId <= 0 && cleanUsername.isEmpty()) {
+            Log.e(TAG, "Upload FCM dibatalkan: user_id dan username kosong");
+            return;
+        }
+
         new Thread(() -> {
             HttpURLConnection conn = null;
 
@@ -392,10 +424,12 @@ public class LoginActivity extends Activity {
                 conn.setRequestProperty("Accept", "application/json");
 
                 JSONObject payload = new JSONObject();
-                payload.put("token", token);
+                payload.put("token", cleanToken);
+                payload.put("fcm_token", cleanToken);
                 payload.put("user_id", userId);
-                payload.put("username", username);
-                payload.put("role", role);
+                payload.put("id", userId);
+                payload.put("username", cleanUsername);
+                payload.put("role", role == null ? "" : role);
                 payload.put("platform", "android_native");
 
                 OutputStream os = conn.getOutputStream();
@@ -407,13 +441,84 @@ public class LoginActivity extends Activity {
 
                 int code = conn.getResponseCode();
                 InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
-                readStream(is);
+                String body = readStream(is).trim();
 
-            } catch (Exception ignored) {
+                Log.d(TAG, "save_fcm_token code=" + code + " body=" + body);
+
+                try {
+                    JSONObject json = new JSONObject(body);
+                    if (!json.optBoolean("success", false)) {
+                        Log.e(TAG, "Server menolak FCM token: " + body);
+                    }
+                } catch (Exception ignored) {}
+
+            } catch (Exception e) {
+                Log.e(TAG, "Upload FCM token gagal", e);
             } finally {
                 if (conn != null) conn.disconnect();
             }
         }).start();
+    }
+
+    private String getCachedFcmToken() {
+        try {
+            String token = getSharedPreferences("transiva_fcm", MODE_PRIVATE)
+                    .getString("fcm_token", "");
+            if (token != null && !token.trim().isEmpty()) return token.trim();
+        } catch (Exception ignored) {}
+
+        try {
+            String token = getSharedPreferences("transiva", MODE_PRIVATE)
+                    .getString("fcm_token", "");
+            if (token != null && !token.trim().isEmpty()) return token.trim();
+        } catch (Exception ignored) {}
+
+        try {
+            String token = new SessionManager(this).getFcmToken();
+            if (token != null && !token.trim().isEmpty()) return token.trim();
+        } catch (Exception ignored) {}
+
+        return "";
+    }
+
+    private void saveTokenLocal(String token, int userId, String username, String role) {
+        try {
+            getSharedPreferences("transiva_fcm", MODE_PRIVATE)
+                    .edit()
+                    .putString("fcm_token", token == null ? "" : token.trim())
+                    .putInt("user_id", userId)
+                    .putString("username", username == null ? "" : username.trim())
+                    .putString("role", role == null ? "" : role)
+                    .putLong("fcm_token_saved_at", System.currentTimeMillis())
+                    .apply();
+        } catch (Exception ignored) {}
+
+        try {
+            getSharedPreferences("transiva", MODE_PRIVATE)
+                    .edit()
+                    .putString("fcm_token", token == null ? "" : token.trim())
+                    .apply();
+        } catch (Exception ignored) {}
+
+        try {
+            new SessionManager(this).saveFcmToken(token == null ? "" : token.trim());
+        } catch (Exception ignored) {}
+    }
+
+    private int firstPositiveInt(int... values) {
+        if (values == null) return 0;
+        for (int value : values) {
+            if (value > 0) return value;
+        }
+        return 0;
+    }
+
+    private String firstNotEmpty(String... values) {
+        if (values == null) return "";
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) return value.trim();
+        }
+        return "";
     }
 
     private String readStream(InputStream stream) throws Exception {
