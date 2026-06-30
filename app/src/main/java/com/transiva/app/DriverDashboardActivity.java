@@ -3,11 +3,18 @@ package com.transiva.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -47,12 +54,14 @@ public class DriverDashboardActivity extends Activity {
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String SERVER = BASE_URL + "server/";
     private static final int TIMEOUT_MS = 15000;
+    private static final int REQ_NOTIFICATION = 8701;
+    private static final String CHANNEL_ORDER = "transiva_driver_orders";
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private SessionManager sessionManager;
 
     private LinearLayout root, orderBox, activeBox;
-    private TextView nameText, levelText, balanceText, statusText, onlineText;
+    private TextView nameText, levelText, balanceText, onlineText;
     private Switch onlineSwitch;
     private ProgressBar progressBar;
 
@@ -65,7 +74,7 @@ public class DriverDashboardActivity extends Activity {
 
     private final Runnable refreshRunnable = new Runnable() {
         @Override public void run() {
-            refreshDriverData();
+            refreshDriverData(false);
             mainHandler.postDelayed(this, 5000);
         }
     };
@@ -82,17 +91,21 @@ public class DriverDashboardActivity extends Activity {
 
         sessionManager = new SessionManager(this);
         loadSession();
+        createOrderChannel();
+        askNotificationPermissionIfNeeded();
         buildUi();
-        startNativeServices();
-        refreshDriverData();
+
+        // Produksi: jangan start foreground LocationService dari dashboard,
+        // supaya notifikasi permanen "tracking lokasi aktif" tidak selalu muncul.
+        // Lokasi tetap diupdate dari DriverTripActivity saat order berjalan.
+        refreshDriverData(true);
     }
 
     @Override protected void onResume() {
         super.onResume();
         mainHandler.removeCallbacks(refreshRunnable);
+        refreshDriverData(false);
         mainHandler.postDelayed(refreshRunnable, 5000);
-        startNativeServices();
-        refreshDriverData();
     }
 
     @Override protected void onPause() {
@@ -137,8 +150,6 @@ public class DriverDashboardActivity extends Activity {
         buildHeader();
         buildWalletCard();
         buildActions();
-        statusText = text("Dashboard driver siap • auto refresh 5 detik", 14, "#64748B", false);
-        add(root, statusText, 0, dp(10), 0, dp(18));
 
         root.addView(section("Order Aktif"));
         activeBox = new LinearLayout(this);
@@ -199,14 +210,11 @@ public class DriverDashboardActivity extends Activity {
         balanceText = text("Rp 0", 30, "#FFFFFF", true);
         add(card, balanceText, 0, dp(5), 0, 0);
 
-        TextView note = text("Saldo otomatis diperbarui saat transaksi masuk.", 12, "#EAF4FF", false);
-        add(card, note, 0, dp(6), 0, 0);
-
         LinearLayout onlineRow = new LinearLayout(this);
         onlineRow.setGravity(Gravity.CENTER_VERTICAL);
         onlineRow.setPadding(0, dp(14), 0, 0);
 
-        onlineText = text("Status: OFFLINE", 15, "#FFFFFF", true);
+        onlineText = text("OFFLINE", 15, "#FFFFFF", true);
         onlineRow.addView(onlineText, new LinearLayout.LayoutParams(0, -2, 1));
 
         onlineSwitch = new Switch(this);
@@ -226,7 +234,7 @@ public class DriverDashboardActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
 
         Button refresh = outlineButton("Refresh");
-        refresh.setOnClickListener(v -> refreshDriverData());
+        refresh.setOnClickListener(v -> refreshDriverData(true));
         row.addView(refresh, new LinearLayout.LayoutParams(0, dp(52), 1));
 
         Button history = outlineButton("Riwayat");
@@ -238,23 +246,22 @@ public class DriverDashboardActivity extends Activity {
         root.addView(row, new LinearLayout.LayoutParams(-1, -2));
     }
 
-    private void refreshDriverData() {
+    private void refreshDriverData(boolean showLoading) {
         if (loading) return;
         loading = true;
-        // Auto refresh dibuat silent agar dashboard tidak selalu menampilkan loading.
-        if (progressBar != null) progressBar.setVisibility(View.GONE);
+        if (showLoading && progressBar != null) progressBar.setVisibility(View.VISIBLE);
 
         new Thread(() -> {
             String balanceJson = "";
             String statusJson = "";
             String activeJson = "";
             String ordersJson = "";
+            String pickupJson = "";
 
             try { statusJson = get(SERVER + "getDriverStatus.php?username=" + enc(username) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
             try { balanceJson = get(SERVER + "getBalance.php?username=" + enc(username) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
 
             try {
-                // Sama seperti JS web: driver wajib online, lalu assignNextDriver, baru getOrders.
                 if (parseOnline(statusJson)) {
                     get(SERVER + "assignNextDriver.php?driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis());
                 }
@@ -262,9 +269,6 @@ public class DriverDashboardActivity extends Activity {
 
             try { activeJson = get(SERVER + "getActiveDriverOrder.php?driver=" + enc(username) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
             try { ordersJson = get(SERVER + "getOrders.php?driver=" + enc(username) + "&driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
-
-            // Tambahan pickup_orders dari endpoint baru. Jika belum ada, tidak membuat dashboard gagal.
-            String pickupJson = "";
             try { pickupJson = get(SERVER + "driver_get_pickup_orders.php?driver=" + enc(username) + "&driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
 
             final String fBalance = balanceJson;
@@ -280,7 +284,6 @@ public class DriverDashboardActivity extends Activity {
                 showBalance(fBalance);
                 showActive(fActive);
                 showOffers(fOrders, fPickup);
-                statusText.setText("Dashboard driver siap • auto refresh 5 detik");
             });
         }).start();
     }
@@ -304,12 +307,11 @@ public class DriverDashboardActivity extends Activity {
                 setDriverOnline(isChecked);
             });
         }
-        if (onlineText != null) {
-            onlineText.setText(driverOnline ? "Status: ONLINE" : "Status: OFFLINE");
-        }
+        if (onlineText != null) onlineText.setText(driverOnline ? "ONLINE" : "OFFLINE");
         if (levelText != null) {
-            levelText.setText(driverOnline ? "ONLINE menerima order" : "OFFLINE");
+            levelText.setText(driverOnline ? "ONLINE" : "OFFLINE");
             levelText.setTextColor(Color.parseColor(driverOnline ? "#0B7CFF" : "#EF4444"));
+            levelText.setBackground(roundStroke(driverOnline ? "#EAF4FF" : "#FFF1F2", driverOnline ? "#B9DBFF" : "#FECACA", dp(20), 1));
         }
     }
 
@@ -340,23 +342,20 @@ public class DriverDashboardActivity extends Activity {
         orderBox.removeAllViews();
 
         if (!driverOnline) {
-            orderBox.addView(emptyCard("Driver masih OFFLINE. Aktifkan ONLINE untuk menerima order."));
+            orderBox.addView(emptyCard("Driver OFFLINE. Aktifkan ONLINE untuk menerima order."));
+            firstLoadDone = true;
             return;
         }
 
         int count = 0;
-
         try {
             JSONObject o = new JSONObject(ordersJson);
             JSONArray arr = o.optJSONArray("orders");
             if (o.optBoolean("success", false) && arr != null) {
-                checkNotify(arr);
+                notifyNewOrders(arr, "orders");
                 for (int i = 0; i < arr.length() && count < 8; i++) {
                     JSONObject order = arr.optJSONObject(i);
-                    if (order != null) {
-                        orderBox.addView(orderCard(order, false, "orders"));
-                        count++;
-                    }
+                    if (order != null) { orderBox.addView(orderCard(order, false, "orders")); count++; }
                 }
             }
         } catch (Exception ignored) {}
@@ -366,25 +365,19 @@ public class DriverDashboardActivity extends Activity {
             JSONArray arr = p.optJSONArray("orders");
             if (arr == null) arr = p.optJSONArray("pickup_orders");
             if (p.optBoolean("success", false) && arr != null) {
-                checkNotify(arr);
+                notifyNewOrders(arr, "pickup_orders");
                 for (int i = 0; i < arr.length() && count < 8; i++) {
                     JSONObject order = arr.optJSONObject(i);
-                    if (order != null) {
-                        orderBox.addView(orderCard(order, false, "pickup_orders"));
-                        count++;
-                    }
+                    if (order != null) { orderBox.addView(orderCard(order, false, "pickup_orders")); count++; }
                 }
             }
         } catch (Exception ignored) {}
 
-        if (count == 0) {
-            orderBox.addView(emptyCard("Belum ada tawaran order."));
-        }
-
+        if (count == 0) orderBox.addView(emptyCard("Belum ada tawaran order."));
         firstLoadDone = true;
     }
 
-    private void checkNotify(JSONArray arr) {
+    private void notifyNewOrders(JSONArray arr, String table) {
         try {
             Set<String> current = new HashSet<>();
             for (int i = 0; i < arr.length(); i++) {
@@ -392,13 +385,77 @@ public class DriverDashboardActivity extends Activity {
                 if (o == null) continue;
                 String id = safe(o.optString("order_id", o.optString("id", "")));
                 if (id.length() == 0) continue;
-                current.add(id);
-                if (!notifiedIds.contains(id)) {
-                    if (firstLoadDone) Toast.makeText(this, "Order baru masuk #" + id, Toast.LENGTH_SHORT).show();
-                    notifiedIds.add(id);
+                String key = table + "-" + id;
+                current.add(key);
+                if (!notifiedIds.contains(key)) {
+                    if (firstLoadDone) showOrderNotification(o, table);
+                    notifiedIds.add(key);
                 }
             }
         } catch (Exception ignored) {}
+    }
+
+    private void showOrderNotification(JSONObject order, String table) {
+        try {
+            String id = safe(order.optString("order_id", order.optString("id", "")));
+            String service = detectService(order, table);
+            String pickup = firstNonEmpty(order.optString("pickup_address"), order.optString("pickup"), "Lokasi pickup");
+
+            Intent intent = new Intent(this, DriverDashboardActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            PendingIntent pi = PendingIntent.getActivity(
+                    this,
+                    id.hashCode(),
+                    intent,
+                    Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE : PendingIntent.FLAG_UPDATE_CURRENT
+            );
+
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26
+                    ? new Notification.Builder(this, CHANNEL_ORDER)
+                    : new Notification.Builder(this);
+
+            b.setSmallIcon(getAppIcon())
+                    .setContentTitle("Order baru masuk")
+                    .setContentText(service.replace("📦 ", "").replace("🍔 ", "").replace("🚗 ", "").replace("🛵 ", "") + " #" + id + " • " + pickup)
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+                    .setVibrate(new long[]{0, 250, 120, 250})
+                    .setPriority(Notification.PRIORITY_HIGH);
+
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.notify(Math.abs((table + id).hashCode()), b.build());
+            try { Toast.makeText(this, "Order baru masuk #" + id, Toast.LENGTH_SHORT).show(); } catch (Exception ignored) {}
+        } catch (Exception ignored) {}
+    }
+
+    private int getAppIcon() {
+        try {
+            int id = getResources().getIdentifier("transiva_icon_192", "drawable", getPackageName());
+            if (id != 0) return id;
+        } catch (Exception ignored) {}
+        return android.R.drawable.ic_dialog_info;
+    }
+
+    private void createOrderChannel() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel ch = new NotificationChannel(CHANNEL_ORDER, "Order Driver", NotificationManager.IMPORTANCE_HIGH);
+            ch.setDescription("Notifikasi order baru untuk driver Transiva");
+            ch.enableVibration(true);
+            ch.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), null);
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.createNotificationChannel(ch);
+        }
+    }
+
+    private void askNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            try {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATION);
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
     private View orderCard(JSONObject order, boolean active, String table) {
@@ -447,12 +504,8 @@ public class DriverDashboardActivity extends Activity {
     }
 
     private void takeOrder(String id, String table) {
-        if (id.length() == 0) {
-            showInfo("Gagal", "Order ID tidak ditemukan.");
-            return;
-        }
-
-        setBusy(true);
+        if (id.length() == 0) { showInfo("Gagal", "Order ID tidak ditemukan."); return; }
+        setBusy(true, true);
         new Thread(() -> {
             try {
                 JSONObject payload = new JSONObject();
@@ -468,27 +521,25 @@ public class DriverDashboardActivity extends Activity {
                 JSONObject order = res.optJSONObject("order");
 
                 mainHandler.post(() -> {
-                    setBusy(false);
+                    setBusy(false, false);
                     Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
                     if (ok) {
                         if (order != null) openNativeTrip(order, table);
-                        else refreshDriverData();
-                    } else {
-                        refreshDriverData();
-                    }
+                        else refreshDriverData(false);
+                    } else refreshDriverData(false);
                 });
             } catch (Exception e) {
                 mainHandler.post(() -> {
-                    setBusy(false);
+                    setBusy(false, false);
                     showInfo("Gagal", "Koneksi gagal mengambil order.");
-                    refreshDriverData();
+                    refreshDriverData(false);
                 });
             }
         }).start();
     }
 
     private void setDriverOnline(boolean online) {
-        setBusy(true);
+        setBusy(true, true);
         new Thread(() -> {
             try {
                 JSONObject p = new JSONObject();
@@ -499,17 +550,15 @@ public class DriverDashboardActivity extends Activity {
                 boolean ok = res.optBoolean("success", false);
 
                 mainHandler.post(() -> {
-                    setBusy(false);
-                    if (!ok) {
-                        showInfo("Gagal", firstNonEmpty(res.optString("message"), "Gagal mengubah status driver."));
-                    }
-                    refreshDriverData();
+                    setBusy(false, false);
+                    if (!ok) showInfo("Gagal", firstNonEmpty(res.optString("message"), "Gagal mengubah status driver."));
+                    refreshDriverData(false);
                 });
             } catch (Exception e) {
                 mainHandler.post(() -> {
-                    setBusy(false);
+                    setBusy(false, false);
                     showInfo("Gagal", "Koneksi gagal mengubah status driver.");
-                    refreshDriverData();
+                    refreshDriverData(false);
                 });
             }
         }).start();
@@ -517,33 +566,19 @@ public class DriverDashboardActivity extends Activity {
 
     private void openNativeTrip(JSONObject order, String table) {
         try {
-            if (order == null) {
-                showInfo("Order", "Data order tidak ditemukan.");
-                return;
-            }
-
-            String id = firstNonEmpty(order.optString("id"), order.optString("order_id"), "");
-            String pickupLat = firstNonEmpty(order.optString("pickup_lat"), order.optString("user_lat"), order.optString("latitude"));
-            String pickupLng = firstNonEmpty(order.optString("pickup_lng"), order.optString("user_lng"), order.optString("longitude"));
-            String deliveryLat = firstNonEmpty(order.optString("delivery_lat"), order.optString("destination_lat"), order.optString("to_lat"));
-            String deliveryLng = firstNonEmpty(order.optString("delivery_lng"), order.optString("destination_lng"), order.optString("to_lng"));
-
+            getSharedPreferences("transiva", MODE_PRIVATE)
+                    .edit()
+                    .putString("driver_active_order_json", order.toString())
+                    .putString("driver_active_order_kind", table.contains("pickup") ? "pickup" : "order")
+                    .apply();
             Intent i = new Intent(this, DriverTripActivity.class);
             i.putExtra("order_json", order.toString());
             i.putExtra("order_table", table);
-            i.putExtra("source", table);
-            i.putExtra("table", table);
-            i.putExtra("order_id", id);
-            i.putExtra("id", id);
-            i.putExtra("pickup_lat", pickupLat);
-            i.putExtra("pickup_lng", pickupLng);
-            i.putExtra("delivery_lat", deliveryLat);
-            i.putExtra("delivery_lng", deliveryLng);
             i.putExtra("driver", username);
             i.putExtra("driver_type", driverType);
             startActivity(i);
         } catch (Exception e) {
-            showInfo("Trip", "Gagal membuka Driver Trip native: " + e.getMessage());
+            openWeb(BASE_URL + "?app=1#driver_trip");
         }
     }
 
@@ -569,20 +604,6 @@ public class DriverDashboardActivity extends Activity {
         finish();
     }
 
-    private void startNativeServices() {
-        try {
-            if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 90);
-                return;
-            }
-            Intent location = new Intent(this, LocationService.class);
-            location.setAction(LocationService.ACTION_START);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(location);
-            else startService(location);
-            try { BackgroundSyncService.start(this); } catch (Exception ignored) {}
-        } catch (Exception ignored) {}
-    }
-
     private void openWeb(String url) {
         Intent i = new Intent(this, MainActivity.class);
         i.putExtra("url", url);
@@ -605,9 +626,9 @@ public class DriverDashboardActivity extends Activity {
         return t;
     }
 
-    private void setBusy(boolean b) {
+    private void setBusy(boolean b, boolean show) {
         loading = b;
-        if (progressBar != null) progressBar.setVisibility(b ? View.VISIBLE : View.GONE);
+        if (progressBar != null) progressBar.setVisibility(b && show ? View.VISIBLE : View.GONE);
     }
 
     private String get(String link) throws Exception {
@@ -633,9 +654,7 @@ public class DriverDashboardActivity extends Activity {
         OutputStream os = c.getOutputStream();
         BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
         bw.write(payload == null ? "{}" : payload.toString());
-        bw.flush();
-        bw.close();
-        os.close();
+        bw.flush(); bw.close(); os.close();
         InputStream is = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
         String body = read(is);
         c.disconnect();
@@ -699,27 +718,11 @@ public class DriverDashboardActivity extends Activity {
         return g;
     }
 
-    private String rupiah(double v) {
-        return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format((long) v);
-    }
-
-    private String enc(String v) {
-        try { return URLEncoder.encode(v == null ? "" : v, "UTF-8"); } catch (Exception e) { return ""; }
-    }
-
+    private String rupiah(double v) { return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format((long) v); }
+    private String enc(String v) { try { return URLEncoder.encode(v == null ? "" : v, "UTF-8"); } catch (Exception e) { return ""; } }
     private String safe(String v) { return v == null ? "" : v.trim(); }
-
-    private String firstNonEmpty(String... vals) {
-        if (vals == null) return "";
-        for (String v : vals) if (v != null && v.trim().length() > 0 && !"null".equalsIgnoreCase(v.trim())) return v.trim();
-        return "";
-    }
-
+    private String firstNonEmpty(String... vals) { if (vals == null) return ""; for (String v : vals) if (v != null && v.trim().length() > 0 && !"null".equalsIgnoreCase(v.trim())) return v.trim(); return ""; }
     private String driverLabel() { return "car".equals(driverType) ? "Driver Mobil" : "Driver Motor"; }
-
-    private void showInfo(String title, String msg) {
-        try { new AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); } catch (Exception ignored) {}
-    }
-
+    private void showInfo(String title, String msg) { try { new AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); } catch (Exception ignored) {} }
     private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density + 0.5f); }
 }
