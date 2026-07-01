@@ -60,7 +60,7 @@ public class DriverDashboardActivity extends Activity {
     private SessionManager sessionManager;
 
     private LinearLayout root, orderBox, activeBox;
-    private TextView nameText, levelText, balanceText, onlineText, pendingDepositText;
+    private TextView nameText, levelText, balanceText, onlineText, pendingDepositText, pendingWithdrawText;
     private Switch onlineSwitch;
     private ProgressBar progressBar;
 
@@ -138,7 +138,7 @@ public class DriverDashboardActivity extends Activity {
 
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(18), dp(26), dp(18), dp(30));
+        root.setPadding(dp(14), dp(18), dp(14), dp(24));
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
         buildHeader();
@@ -176,8 +176,8 @@ public class DriverDashboardActivity extends Activity {
         left.setOrientation(LinearLayout.VERTICAL);
         header.addView(left, new LinearLayout.LayoutParams(0, -2, 1));
 
-        left.addView(text("Transiva Driver", 30, "#0B3A78", true));
-        nameText = text("Halo, " + username + " • " + driverLabel(), 17, "#64748B", false);
+        left.addView(text("Transiva Driver", 24, "#0B3A78", true));
+        nameText = text("Halo, " + username + " • " + driverLabel(), 14, "#64748B", false);
         add(left, nameText, 0, dp(4), 0, 0);
 
         levelText = text("Siap menerima order", 12, "#0B7CFF", true);
@@ -194,19 +194,35 @@ public class DriverDashboardActivity extends Activity {
     private void buildWalletCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(18), dp(16), dp(18), dp(16));
-        card.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(28)));
+        card.setPadding(dp(16), dp(14), dp(16), dp(14));
+        card.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(22)));
         card.setElevation(dp(3));
 
         TextView label = text("Saldo Driver", 14, "#EAF4FF", true);
         card.addView(label);
 
-        balanceText = text("Rp 0", 30, "#FFFFFF", true);
+        balanceText = text("Rp 0", 26, "#FFFFFF", true);
         add(card, balanceText, 0, dp(5), 0, 0);
 
-        pendingDepositText = text("Deposit pending: 0", 12, "#EAF4FF", true);
+        pendingDepositText = text("Deposit pending: Rp 0", 12, "#EAF4FF", true);
         pendingDepositText.setPadding(0, dp(4), 0, 0);
         card.addView(pendingDepositText);
+
+        pendingWithdrawText = text("Withdraw pending: Rp 0", 12, "#EAF4FF", true);
+        pendingWithdrawText.setPadding(0, dp(2), 0, dp(10));
+        card.addView(pendingWithdrawText);
+
+        LinearLayout moneyRow = new LinearLayout(this);
+        moneyRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button depositBtn = whiteMiniButton("Deposit");
+        depositBtn.setOnClickListener(v -> startActivity(new Intent(this, DriverTopUpActivity.class)));
+        moneyRow.addView(depositBtn, new LinearLayout.LayoutParams(0, dp(44), 1));
+        Button withdrawBtn = whiteMiniButton("Withdraw");
+        withdrawBtn.setOnClickListener(v -> startActivity(new Intent(this, DriverWithdrawActivity.class)));
+        LinearLayout.LayoutParams wdlp = new LinearLayout.LayoutParams(0, dp(44), 1);
+        wdlp.setMargins(dp(8), 0, 0, 0);
+        moneyRow.addView(withdrawBtn, wdlp);
+        card.addView(moneyRow);
 
         LinearLayout onlineRow = new LinearLayout(this);
         onlineRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -232,18 +248,15 @@ public class DriverDashboardActivity extends Activity {
 
         Button refresh = outlineButton("Refresh");
         refresh.setOnClickListener(v -> refreshDriverData(true));
-        row1.addView(refresh, new LinearLayout.LayoutParams(0, dp(52), 1));
+        row1.addView(refresh, new LinearLayout.LayoutParams(0, dp(48), 1));
 
-        Button deposit = primaryButton("Deposit");
-        deposit.setOnClickListener(v -> startActivity(new Intent(this, DriverTopUpActivity.class)));
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(0, dp(52), 1);
-        dlp.setMargins(dp(10), 0, 0, 0);
-        row1.addView(deposit, dlp);
+        Button history = outlineButton("Riwayat");
+        history.setOnClickListener(v -> startActivity(new Intent(this, DriverHistoryActivity.class)));
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(0, dp(48), 1);
+        hlp.setMargins(dp(8), 0, 0, 0);
+        row1.addView(history, hlp);
+
         root.addView(row1, new LinearLayout.LayoutParams(-1, -2));
-
-        Button history = outlineButton("Riwayat Transaksi");
-        history.setOnClickListener(v -> startActivity(new Intent(this, DriverReceiptHistoryActivity.class)));
-        add(root, history, 0, dp(10), 0, 0);
     }
 
     private void refreshDriverData(boolean showLoading) {
@@ -297,12 +310,16 @@ public class DriverDashboardActivity extends Activity {
         long b = -1;
         int pendingCount = 0;
         long pendingAmount = 0;
+        int pendingWithdrawCount = 0;
+        long pendingWithdrawAmount = 0;
         try {
             JSONObject d = new JSONObject(dashJson);
             if (d.optBoolean("success", false)) {
                 b = d.optLong("balance", -1);
                 pendingCount = d.optInt("pending_deposit_count", 0);
                 pendingAmount = d.optLong("pending_deposit_amount", 0);
+                pendingWithdrawCount = d.optInt("pending_withdraw_count", 0);
+                pendingWithdrawAmount = d.optLong("pending_withdraw_amount", 0);
             }
         } catch (Exception ignored) {}
         if (b < 0) {
@@ -315,7 +332,10 @@ public class DriverDashboardActivity extends Activity {
 
         balanceText.setText(rupiah(b));
         if (pendingDepositText != null) {
-            pendingDepositText.setText("Deposit pending: " + pendingCount + (pendingAmount > 0 ? " • " + rupiah(pendingAmount) : ""));
+            pendingDepositText.setText("Deposit pending: " + rupiah(pendingAmount) + (pendingCount > 0 ? " • " + pendingCount + "x" : ""));
+        }
+        if (pendingWithdrawText != null) {
+            pendingWithdrawText.setText("Withdraw pending: " + rupiah(pendingWithdrawAmount) + (pendingWithdrawCount > 0 ? " • " + pendingWithdrawCount + "x" : ""));
         }
 
         if (lastBalance >= 0 && b > lastBalance) {
@@ -580,6 +600,7 @@ public class DriverDashboardActivity extends Activity {
 
     private int getAppIcon() { try { int id = getResources().getIdentifier("transiva_icon_192", "drawable", getPackageName()); if (id != 0) return id; } catch (Exception ignored) {} return android.R.drawable.ic_dialog_info; }
     private Button primaryButton(String s) { Button b = new Button(this); b.setText(s); b.setAllCaps(false); b.setTextSize(15); b.setTypeface(Typeface.DEFAULT_BOLD); b.setTextColor(Color.WHITE); b.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(18))); return b; }
+    private Button whiteMiniButton(String s) { Button b = primaryButton(s); b.setTextSize(13); b.setTextColor(Color.parseColor("#086BFF")); b.setBackground(roundStroke("#FFFFFF", "#D9ECFF", dp(16), 1)); return b; }
     private Button outlineButton(String s) { Button b = primaryButton(s); b.setTextColor(Color.parseColor("#0B7CFF")); b.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(18), 1)); return b; }
     private TextView text(String s, int sp, String color, boolean bold) { TextView t = new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(Color.parseColor(color)); if (bold) t.setTypeface(Typeface.DEFAULT_BOLD); return t; }
     private void add(LinearLayout parent, View v, int l, int t, int r, int b) { LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(l, t, r, b); parent.addView(v, lp); }
