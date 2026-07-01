@@ -33,8 +33,8 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
     public static final String PREF_NATIVE_SESSION = "transiva_native_session";
     public static final String PREF_FCM_TOKEN = "fcm_token";
 
-    public static final String ORDER_CHANNEL_ID = "transiva_order_channel";
-    public static final String ORDER_CHANNEL_NAME = "Order Transiva";
+    public static final String ORDER_NEW_CHANNEL_ID = "transiva_order_new_sound_v3";
+    public static final String ORDER_TAKEN_CHANNEL_ID = "transiva_order_taken_sound_v3";
 
     public static final String WALLET_CHANNEL_ID = "transiva_wallet_channel";
     public static final String WALLET_CHANNEL_NAME = "Saldo & Withdraw Transiva";
@@ -53,6 +53,7 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
 
     private void saveTokenLocal(String token) {
         String safeToken = token == null ? "" : token.trim();
+
         try {
             getSharedPreferences(PREF_NAME, MODE_PRIVATE)
                     .edit()
@@ -80,12 +81,14 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         String title = getValue(data, "title", "Transiva");
         String body = getValue(data, "body", "Pesan baru masuk");
         String msg = getValue(data, "message", "");
+
         if (!msg.isEmpty()) body = msg;
 
         if (message.getNotification() != null) {
             if (message.getNotification().getTitle() != null && title.equals("Transiva")) {
                 title = message.getNotification().getTitle();
             }
+
             if (message.getNotification().getBody() != null && body.equals("Pesan baru masuk")) {
                 body = message.getNotification().getBody();
             }
@@ -102,20 +105,38 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
     }
 
     private void showOrderNotification(String title, String body, Map<String, String> data) {
-        createOrderChannel();
 
-        String screen = getValue(data, "screen", "driver_order");
+        String soundType = resolveSoundType(data);
+        String channelId = getOrderChannelId(soundType);
+
+        createOrderSoundChannel(channelId, soundType);
+
+        String screen = firstNotEmpty(
+                getValue(data, "screen", ""),
+                getValue(data, "open_screen", ""),
+                "order_taken".equals(soundType) ? "customer_dashboard" : "driver_order"
+        );
+
         String orderDbId = firstNotEmpty(
                 getValue(data, "order_db_id", ""),
                 getValue(data, "order_id", ""),
                 getValue(data, "id", "")
         );
 
-        Intent contentOpenIntent = buildOpenMainActivityIntent(
-                screen, orderDbId, "", "", "", "", "", "fcm_content_click", data
+        Intent contentOpenIntent = buildOpenTargetIntent(
+                screen,
+                orderDbId,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "fcm_content_click",
+                data
         );
 
         int contentReq = makeRequestCode(1100, orderDbId, screen);
+
         PendingIntent contentIntent = PendingIntent.getActivity(
                 this,
                 contentReq,
@@ -123,7 +144,9 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, ORDER_CHANNEL_ID)
+        Uri soundUri = getRawSoundUri(soundType);
+
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(isEmpty(title) ? "Transiva" : title)
                 .setContentText(isEmpty(body) ? "Pesan baru masuk" : body)
@@ -136,22 +159,26 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setSound(soundUri)
+                .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
                 .setVibrate(new long[]{0, 500, 250, 500, 250, 900})
                 .setLights(0xffffffff, 1000, 1000)
                 .setFullScreenIntent(contentIntent, true);
 
         if (data != null && "1".equals(getValue(data, "has_action", ""))) {
+
             String endpoint = firstNotEmpty(getValue(data, "action_endpoint", ""), DEFAULT_ACTION_ENDPOINT);
             String token = getValue(data, "action_token", "");
             String acceptAction = firstNotEmpty(getValue(data, "action_accept", ""), "driver_accept");
             String rejectAction = firstNotEmpty(getValue(data, "action_reject", ""), "driver_reject");
+
             String actor = firstNotEmpty(
                     getValue(data, "offered_driver", ""),
                     getValue(data, "actor", ""),
                     getValue(data, "username", ""),
                     getValue(data, "driver", "")
             );
+
             String driverType = firstNotEmpty(getValue(data, "driver_type", ""), "bike");
 
             if (!orderDbId.isEmpty() && !token.isEmpty()) {
@@ -190,6 +217,99 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         notifySafe(NOTIF_ID_ORDER, builder.build());
     }
 
+    private String resolveSoundType(Map<String, String> data) {
+        String sound = firstNotEmpty(
+                getValue(data, "sound", ""),
+                getValue(data, "sound_type", ""),
+                getValue(data, "notif_sound", "")
+        ).toLowerCase();
+
+        String screen = firstNotEmpty(
+                getValue(data, "screen", ""),
+                getValue(data, "open_screen", "")
+        ).toLowerCase();
+
+        String type = firstNotEmpty(
+                getValue(data, "type", ""),
+                getValue(data, "event", "")
+        ).toLowerCase();
+
+        String role = firstNotEmpty(
+                getValue(data, "role", ""),
+                getValue(data, "target_role", ""),
+                getValue(data, "receiver_role", "")
+        ).toLowerCase();
+
+        if (
+                sound.contains("taken") ||
+                screen.contains("customer") ||
+                screen.contains("costumer") ||
+                type.contains("taken") ||
+                type.contains("driver_found") ||
+                role.equals("customer") ||
+                role.equals("costumer")
+        ) {
+            return "order_taken";
+        }
+
+        return "order_new";
+    }
+
+    private String getOrderChannelId(String soundType) {
+        if ("order_taken".equals(soundType)) {
+            return ORDER_TAKEN_CHANNEL_ID;
+        }
+
+        return ORDER_NEW_CHANNEL_ID;
+    }
+
+    private Uri getRawSoundUri(String soundType) {
+        int soundRes = "order_taken".equals(soundType)
+                ? R.raw.order_taken
+                : R.raw.order_new;
+
+        return Uri.parse("android.resource://" + getPackageName() + "/" + soundRes);
+    }
+
+    private void createOrderSoundChannel(String channelId, String soundType) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+
+        NotificationManager manager =
+                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
+        if (manager == null) return;
+        if (manager.getNotificationChannel(channelId) != null) return;
+
+        boolean taken = "order_taken".equals(soundType);
+
+        NotificationChannel channel = new NotificationChannel(
+                channelId,
+                taken ? "Customer Mendapat Driver" : "Order Baru Driver",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+
+        channel.setDescription(
+                taken
+                        ? "Suara saat customer sudah mendapatkan driver"
+                        : "Suara saat driver mendapatkan order baru"
+        );
+
+        channel.enableVibration(true);
+        channel.setVibrationPattern(new long[]{0, 500, 250, 500, 250, 900});
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+        channel.enableLights(true);
+        channel.setLightColor(0xffffffff);
+
+        AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build();
+
+        channel.setSound(getRawSoundUri(soundType), audioAttributes);
+
+        manager.createNotificationChannel(channel);
+    }
+
     private void showWalletOrInfoNotification(String title, String body, Map<String, String> data) {
         createWalletChannel();
 
@@ -197,6 +317,7 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         Intent openIntent = buildOpenWalletIntent(data);
 
         int notifId = NOTIF_ID_WALLET_BASE + Math.abs((type + System.currentTimeMillis()).hashCode() % 999);
+
         PendingIntent contentIntent = PendingIntent.getActivity(
                 this,
                 makeRequestCode(7100, String.valueOf(notifId), type),
@@ -242,10 +363,15 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
             role = readLocalRole();
         }
 
-        boolean customer = role.equals("customer") || role.equals("costumer") || screen.contains("customer") || screen.contains("costumer");
+        boolean customer = role.equals("customer")
+                || role.equals("costumer")
+                || screen.contains("customer")
+                || screen.contains("costumer");
+
         boolean driver = role.equals("driver") || screen.contains("driver");
 
         String className;
+
         if (customer && !driver) {
             className = getPackageName() + ".CustomerDashboardActivity";
         } else if (driver) {
@@ -270,6 +396,79 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         intent.putExtra("source", "fcm_wallet_click");
         intent.putExtra("open_screen", customer ? "customer_dashboard" : (driver ? "driver_dashboard" : "home"));
         intent.putExtra("screen", customer ? "customer_dashboard" : (driver ? "driver_dashboard" : "home"));
+
+        return intent;
+    }
+
+    private Intent buildOpenTargetIntent(
+            String openScreen,
+            String orderDbId,
+            String action,
+            String endpoint,
+            String token,
+            String actor,
+            String driverType,
+            String source,
+            Map<String, String> originalData
+    ) {
+        String screen = safe(openScreen).toLowerCase();
+
+        String role = firstNotEmpty(
+                getValue(originalData, "role", ""),
+                getValue(originalData, "target_role", ""),
+                getValue(originalData, "receiver_role", "")
+        ).toLowerCase();
+
+        boolean customer = role.equals("customer")
+                || role.equals("costumer")
+                || screen.contains("customer")
+                || screen.contains("costumer");
+
+        boolean driver = role.equals("driver")
+                || screen.contains("driver");
+
+        String className;
+
+        if (customer && !driver) {
+            className = getPackageName() + ".CustomerDashboardActivity";
+        } else if (screen.contains("driver_dashboard")) {
+            className = getPackageName() + ".DriverDashboardActivity";
+        } else {
+            className = getPackageName() + ".MainActivity";
+        }
+
+        Intent intent = new Intent();
+        intent.setClassName(getPackageName(), className);
+        intent.setAction("OPEN_TRANSIVA");
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        if (originalData != null) {
+            for (Map.Entry<String, String> entry : originalData.entrySet()) {
+                if (entry != null && entry.getKey() != null && entry.getValue() != null) {
+                    intent.putExtra(entry.getKey(), entry.getValue());
+                }
+            }
+        }
+
+        String safeOrderId = safe(orderDbId);
+        String safeActor = safe(actor);
+        String safeDriverType = firstNotEmpty(driverType, "bike");
+
+        intent.putExtra("open_screen", safe(openScreen));
+        intent.putExtra("screen", safe(openScreen));
+        intent.putExtra("order_db_id", safeOrderId);
+        intent.putExtra("order_id", safeOrderId);
+        intent.putExtra("id", safeOrderId);
+        intent.putExtra("action", safe(action));
+        intent.putExtra("action_endpoint", firstNotEmpty(endpoint, DEFAULT_ACTION_ENDPOINT));
+        intent.putExtra("action_token", safe(token));
+        intent.putExtra("actor", safeActor);
+        intent.putExtra("username", safeActor);
+        intent.putExtra("offered_driver", safeActor);
+        intent.putExtra("driver", safeActor);
+        intent.putExtra("driver_type", safeDriverType);
+        intent.putExtra("source", safe(source));
+
         return intent;
     }
 
@@ -277,6 +476,7 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         try {
             String role = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString("role", "");
             if (!isEmpty(role)) return role.trim();
+
             role = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString("player_role", "");
             if (!isEmpty(role)) return role.trim();
         } catch (Exception ignored) {}
@@ -284,6 +484,7 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         try {
             String role = getSharedPreferences(PREF_NATIVE_SESSION, MODE_PRIVATE).getString("role", "");
             if (!isEmpty(role)) return role.trim();
+
             role = getSharedPreferences(PREF_NATIVE_SESSION, MODE_PRIVATE).getString("player_role", "");
             if (!isEmpty(role)) return role.trim();
         } catch (Exception ignored) {}
@@ -294,7 +495,17 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
     private boolean isOrderType(String type, Map<String, String> data) {
         String t = safe(type).toLowerCase();
         String screen = getValue(data, "screen", "").toLowerCase();
-        return t.contains("order") || screen.contains("driver_order") || "1".equals(getValue(data, "has_action", ""));
+        String sound = getValue(data, "sound", "").toLowerCase();
+
+        return t.contains("order")
+                || t.contains("driver_found")
+                || t.contains("taken")
+                || screen.contains("driver_order")
+                || screen.contains("customer")
+                || screen.contains("costumer")
+                || sound.contains("order_new")
+                || sound.contains("order_taken")
+                || "1".equals(getValue(data, "has_action", ""));
     }
 
     private PendingIntent createActionIntent(
@@ -336,56 +547,13 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         intent.setAction("com.transiva.app.NOTIFICATION_DISMISSED");
         intent.putExtra("notification_id", NOTIF_ID_ORDER);
         intent.putExtra("order_db_id", safe(orderDbId));
+
         return PendingIntent.getBroadcast(
                 this,
                 makeRequestCode(3001, orderDbId, "delete"),
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
-    }
-
-    private Intent buildOpenMainActivityIntent(
-            String openScreen,
-            String orderDbId,
-            String action,
-            String endpoint,
-            String token,
-            String actor,
-            String driverType,
-            String source,
-            Map<String, String> originalData
-    ) {
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.setAction("OPEN_TRANSIVA");
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-
-        if (originalData != null) {
-            for (Map.Entry<String, String> entry : originalData.entrySet()) {
-                if (entry != null && entry.getKey() != null && entry.getValue() != null) {
-                    intent.putExtra(entry.getKey(), entry.getValue());
-                }
-            }
-        }
-
-        String safeOrderId = safe(orderDbId);
-        String safeActor = safe(actor);
-        String safeDriverType = firstNotEmpty(driverType, "bike");
-
-        intent.putExtra("open_screen", safe(openScreen));
-        intent.putExtra("screen", safe(openScreen));
-        intent.putExtra("order_db_id", safeOrderId);
-        intent.putExtra("order_id", safeOrderId);
-        intent.putExtra("id", safeOrderId);
-        intent.putExtra("action", safe(action));
-        intent.putExtra("action_endpoint", firstNotEmpty(endpoint, DEFAULT_ACTION_ENDPOINT));
-        intent.putExtra("action_token", safe(token));
-        intent.putExtra("actor", safeActor);
-        intent.putExtra("username", safeActor);
-        intent.putExtra("offered_driver", safeActor);
-        intent.putExtra("driver", safeActor);
-        intent.putExtra("driver_type", safeDriverType);
-        intent.putExtra("source", safe(source));
-        return intent;
     }
 
     private void notifySafe(int id, Notification notification) {
@@ -402,35 +570,12 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
         NotificationManagerCompat.from(this).notify(id, notification);
     }
 
-    private void createOrderChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager == null) return;
-        if (manager.getNotificationChannel(ORDER_CHANNEL_ID) != null) return;
-
-        NotificationChannel channel = new NotificationChannel(
-                ORDER_CHANNEL_ID,
-                ORDER_CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH
-        );
-        channel.setDescription("Notifikasi order Transiva");
-        channel.enableVibration(true);
-        channel.setVibrationPattern(new long[]{0, 500, 250, 500, 250, 900});
-        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-        channel.enableLights(true);
-        channel.setLightColor(0xffffffff);
-        Uri soundUri = Settings.System.DEFAULT_NOTIFICATION_URI;
-        AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build();
-        channel.setSound(soundUri, audioAttributes);
-        manager.createNotificationChannel(channel);
-    }
-
     private void createWalletChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
+        NotificationManager manager =
+                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
         if (manager == null) return;
         if (manager.getNotificationChannel(WALLET_CHANNEL_ID) != null) return;
 
@@ -439,31 +584,42 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                 WALLET_CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
         );
+
         channel.setDescription("Notifikasi saldo, deposit, dan withdraw Transiva");
         channel.enableVibration(true);
         channel.setVibrationPattern(new long[]{0, 250, 150, 350});
         channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
         channel.enableLights(true);
         channel.setLightColor(0xffffffff);
+
         Uri soundUri = Settings.System.DEFAULT_NOTIFICATION_URI;
+
         AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_NOTIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build();
+
         channel.setSound(soundUri, audioAttributes);
+
         manager.createNotificationChannel(channel);
     }
 
     private void wakeDevice() {
         PowerManager.WakeLock wakeLock = null;
+
         try {
-            PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            PowerManager powerManager =
+                    (PowerManager) getSystemService(Context.POWER_SERVICE);
+
             if (powerManager == null) return;
+
             wakeLock = powerManager.newWakeLock(
                     PowerManager.PARTIAL_WAKE_LOCK,
                     "Transiva:FCMWakeLock"
             );
+
             wakeLock.acquire(15000);
+
         } catch (Exception e) {
             Log.e(TAG, "WakeLock gagal: " + e.getMessage());
         }
@@ -471,22 +627,30 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
 
     private String getValue(Map<String, String> data, String key, String def) {
         if (data == null || key == null) return def;
+
         String value = data.get(key);
+
         if (value == null || value.trim().isEmpty()) return def;
+
         return value.trim();
     }
 
     private int makeRequestCode(int prefix, String orderDbId, String extra) {
         String raw = prefix + "_" + safe(orderDbId) + "_" + safe(extra);
         int hash = Math.abs(raw.hashCode());
+
         return prefix * 100000 + (hash % 99999);
     }
 
     private String firstNotEmpty(String... values) {
         if (values == null) return "";
+
         for (String value : values) {
-            if (value != null && !value.trim().isEmpty()) return value.trim();
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
         }
+
         return "";
     }
 
