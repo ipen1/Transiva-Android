@@ -87,7 +87,7 @@ public class MerchantDashboardActivity extends MerchantBaseActivity {
         tile(r2, "⭐", "Rating & Ulasan", () -> open(MerchantReviewsActivity.class));
 
         LinearLayout r3 = row(); grid.addView(r3);
-        tile(r3, "🏪", "Profil Restoran", () -> open(MerchantRestaurantProfileActivity.class));
+        tile(r3, "🏪", "Profil Merchant", () -> open(MerchantRestaurantProfileActivity.class));
         tile(r3, "🔄", "Refresh", () -> loadAll());
 
         Button logout = outlineBtn("Keluar");
