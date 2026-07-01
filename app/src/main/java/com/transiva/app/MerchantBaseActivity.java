@@ -212,7 +212,9 @@ public class MerchantBaseActivity extends Activity {
         c.setRequestMethod("POST");
         c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
         OutputStream os = c.getOutputStream();
-        for(String key : fields.keySet()){
+        java.util.Iterator<String> keys = fields.keys();
+        while(keys.hasNext()){
+            String key = keys.next();
             write(os, "--"+boundary+"\r\n");
             write(os, "Content-Disposition: form-data; name=\"" + key + "\"\r\n\r\n");
             write(os, fields.optString(key, "") + "\r\n");
