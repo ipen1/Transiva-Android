@@ -251,7 +251,7 @@ public class DriverDashboardActivity extends Activity {
         row1.addView(refresh, new LinearLayout.LayoutParams(0, dp(48), 1));
 
         Button history = outlineButton("Riwayat");
-        history.setOnClickListener(v -> startActivity(new Intent(this, DriverHistoryActivity.class)));
+        history.setOnClickListener(v -> startActivity(new Intent(this, DriverReceiptHistoryActivity.class)));
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(0, dp(48), 1);
         hlp.setMargins(dp(8), 0, 0, 0);
         row1.addView(history, hlp);
