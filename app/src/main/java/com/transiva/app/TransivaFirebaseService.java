@@ -1,664 +1,286 @@
 package com.transiva.app;
 
 import android.Manifest;
-import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.Build;
-import android.os.PowerManager;
-import android.provider.Settings;
-import android.util.Log;
+import android.text.TextUtils;
 
-import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
+import androidx.core.content.ContextCompat;
 
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 public class TransivaFirebaseService extends FirebaseMessagingService {
 
-    private static final String TAG = "TRANSIVA_FCM";
+    public static final String BASE_URL = "https://transiva.my.id/server/";
 
-    public static final String PREF_NAME = "transiva";
-    public static final String PREF_NATIVE_SESSION = "transiva_native_session";
-    public static final String PREF_FCM_TOKEN = "fcm_token";
-
-    public static final String ORDER_NEW_CHANNEL_ID = "transiva_order_new_sound_v3";
-    public static final String ORDER_TAKEN_CHANNEL_ID = "transiva_order_taken_sound_v3";
-
-    public static final String WALLET_CHANNEL_ID = "transiva_wallet_channel";
-    public static final String WALLET_CHANNEL_NAME = "Saldo & Withdraw Transiva";
-
-    public static final int NOTIF_ID_ORDER = 1001;
-    public static final int NOTIF_ID_WALLET_BASE = 7000;
-
-    private static final String DEFAULT_ACTION_ENDPOINT =
-            "https://transiva.my.id/server/notification_action.php";
+    private static final String CH_ORDER = "transiva_order_channel";
+    private static final String CH_WALLET = "transiva_wallet_channel";
+    private static final String CH_CHAT = "transiva_chat_channel";
+    private static final String CH_PROMO = "transiva_promo_channel";
+    private static final String CH_BROADCAST = "transiva_broadcast_channel";
+    private static final String CH_GENERAL = "transiva_general_channel";
 
     @Override
-    public void onNewToken(@NonNull String token) {
+    public void onCreate() {
+        super.onCreate();
+        createChannels();
+    }
+
+    @Override
+    public void onNewToken(String token) {
         super.onNewToken(token);
         saveTokenLocal(token);
-    }
-
-    private void saveTokenLocal(String token) {
-        String safeToken = token == null ? "" : token.trim();
-
-        try {
-            getSharedPreferences(PREF_NAME, MODE_PRIVATE)
-                    .edit()
-                    .putString(PREF_FCM_TOKEN, safeToken)
-                    .putString("transiva_fcm_token", safeToken)
-                    .apply();
-        } catch (Exception ignored) {}
-
-        try {
-            getSharedPreferences(PREF_NATIVE_SESSION, MODE_PRIVATE)
-                    .edit()
-                    .putString(PREF_FCM_TOKEN, safeToken)
-                    .putString("transiva_fcm_token", safeToken)
-                    .apply();
-        } catch (Exception ignored) {}
+        sendTokenToServer(token);
     }
 
     @Override
-    public void onMessageReceived(@NonNull RemoteMessage message) {
-        super.onMessageReceived(message);
-        wakeDevice();
+    public void onMessageReceived(RemoteMessage remoteMessage) {
+        super.onMessageReceived(remoteMessage);
+        createChannels();
 
-        Map<String, String> data = message.getData();
-
-        String title = getValue(data, "title", "Transiva");
-        String body = getValue(data, "body", "Pesan baru masuk");
-        String msg = getValue(data, "message", "");
-
-        if (!msg.isEmpty()) body = msg;
-
-        if (message.getNotification() != null) {
-            if (message.getNotification().getTitle() != null && title.equals("Transiva")) {
-                title = message.getNotification().getTitle();
-            }
-
-            if (message.getNotification().getBody() != null && body.equals("Pesan baru masuk")) {
-                body = message.getNotification().getBody();
-            }
+        Map<String, String> data = remoteMessage.getData();
+        if (data == null || data.isEmpty()) {
+            String title = remoteMessage.getNotification() != null ? remoteMessage.getNotification().getTitle() : "Transiva";
+            String body = remoteMessage.getNotification() != null ? remoteMessage.getNotification().getBody() : "Notifikasi baru";
+            showNotification("general", title, body, null, null, null, data);
+            return;
         }
 
-        String hasAction = getValue(data, "has_action", "");
-        String type = getValue(data, "type", getValue(data, "event", ""));
+        String type = first(data.get("type"), data.get("notif_type"), data.get("category"), "general").toLowerCase();
+        String title = first(data.get("title"), "Transiva");
+        String body = first(data.get("body"), data.get("message"), "Notifikasi baru");
+        String orderId = first(data.get("order_id"), data.get("id_order"), data.get("orderId"), "");
+        String roomId = first(data.get("room_id"), data.get("chat_room"), "");
+        String url = first(data.get("url"), data.get("link"), "");
 
-        if ("1".equals(hasAction) || isOrderType(type, data)) {
-            showOrderNotification(title, body, data);
-        } else {
-            showWalletOrInfoNotification(title, body, data);
-        }
+        showNotification(type, title, body, orderId, roomId, url, data);
     }
 
-    private void showOrderNotification(String title, String body, Map<String, String> data) {
-
-        String soundType = resolveSoundType(data);
-        String channelId = getOrderChannelId(soundType);
-
-        createOrderSoundChannel(channelId, soundType);
-
-        String screen = firstNotEmpty(
-                getValue(data, "screen", ""),
-                getValue(data, "open_screen", ""),
-                "order_taken".equals(soundType) ? "customer_dashboard" : "driver_order"
-        );
-
-        String orderDbId = firstNotEmpty(
-                getValue(data, "order_db_id", ""),
-                getValue(data, "order_id", ""),
-                getValue(data, "id", "")
-        );
-
-        Intent contentOpenIntent = buildOpenTargetIntent(
-                screen,
-                orderDbId,
-                "",
-                "",
-                "",
-                "",
-                "",
-                "fcm_content_click",
-                data
-        );
-
-        int contentReq = makeRequestCode(1100, orderDbId, screen);
-
-        PendingIntent contentIntent = PendingIntent.getActivity(
-                this,
-                contentReq,
-                contentOpenIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-
-        Uri soundUri = getRawSoundUri(soundType);
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(isEmpty(title) ? "Transiva" : title)
-                .setContentText(isEmpty(body) ? "Pesan baru masuk" : body)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(body == null ? "" : body))
-                .setContentIntent(contentIntent)
-                .setDeleteIntent(createDeleteIntent(orderDbId))
-                .setAutoCancel(true)
-                .setOngoing(false)
-                .setOnlyAlertOnce(false)
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setSound(soundUri)
-                .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
-                .setVibrate(new long[]{0, 500, 250, 500, 250, 900})
-                .setLights(0xffffffff, 1000, 1000)
-                .setFullScreenIntent(contentIntent, true);
-
-        if (data != null && "1".equals(getValue(data, "has_action", ""))) {
-
-            String endpoint = firstNotEmpty(getValue(data, "action_endpoint", ""), DEFAULT_ACTION_ENDPOINT);
-            String token = getValue(data, "action_token", "");
-            String acceptAction = firstNotEmpty(getValue(data, "action_accept", ""), "driver_accept");
-            String rejectAction = firstNotEmpty(getValue(data, "action_reject", ""), "driver_reject");
-
-            String actor = firstNotEmpty(
-                    getValue(data, "offered_driver", ""),
-                    getValue(data, "actor", ""),
-                    getValue(data, "username", ""),
-                    getValue(data, "driver", "")
-            );
-
-            String driverType = firstNotEmpty(getValue(data, "driver_type", ""), "bike");
-
-            if (!orderDbId.isEmpty() && !token.isEmpty()) {
-                builder.addAction(
-                        R.mipmap.ic_launcher,
-                        "Terima",
-                        createActionIntent(
-                                makeRequestCode(2001, orderDbId, acceptAction),
-                                orderDbId,
-                                acceptAction,
-                                endpoint,
-                                token,
-                                actor,
-                                driverType
-                        )
-                );
-
-                builder.addAction(
-                        R.mipmap.ic_launcher,
-                        "Tolak",
-                        createActionIntent(
-                                makeRequestCode(2002, orderDbId, rejectAction),
-                                orderDbId,
-                                rejectAction,
-                                endpoint,
-                                token,
-                                actor,
-                                driverType
-                        )
-                );
-            } else {
-                Log.e(TAG, "Action tidak dibuat. orderDbId/action_token kosong. orderDbId=" + orderDbId);
-            }
-        }
-
-        notifySafe(NOTIF_ID_ORDER, builder.build());
-    }
-
-    private String resolveSoundType(Map<String, String> data) {
-        String sound = firstNotEmpty(
-                getValue(data, "sound", ""),
-                getValue(data, "sound_type", ""),
-                getValue(data, "notif_sound", "")
-        ).toLowerCase();
-
-        String screen = firstNotEmpty(
-                getValue(data, "screen", ""),
-                getValue(data, "open_screen", "")
-        ).toLowerCase();
-
-        String type = firstNotEmpty(
-                getValue(data, "type", ""),
-                getValue(data, "event", "")
-        ).toLowerCase();
-
-        String role = firstNotEmpty(
-                getValue(data, "role", ""),
-                getValue(data, "target_role", ""),
-                getValue(data, "receiver_role", "")
-        ).toLowerCase();
-
-        if (
-                sound.contains("taken") ||
-                screen.contains("customer") ||
-                screen.contains("costumer") ||
-                type.contains("taken") ||
-                type.contains("driver_found") ||
-                role.equals("customer") ||
-                role.equals("costumer")
-        ) {
-            return "order_taken";
-        }
-
-        return "order_new";
-    }
-
-    private String getOrderChannelId(String soundType) {
-        if ("order_taken".equals(soundType)) {
-            return ORDER_TAKEN_CHANNEL_ID;
-        }
-
-        return ORDER_NEW_CHANNEL_ID;
-    }
-
-    private Uri getRawSoundUri(String soundType) {
-        int soundRes = "order_taken".equals(soundType)
-                ? R.raw.order_taken
-                : R.raw.order_new;
-
-        return Uri.parse("android.resource://" + getPackageName() + "/" + soundRes);
-    }
-
-    private void createOrderSoundChannel(String channelId, String soundType) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-
-        NotificationManager manager =
-                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-
-        if (manager == null) return;
-        if (manager.getNotificationChannel(channelId) != null) return;
-
-        boolean taken = "order_taken".equals(soundType);
-
-        NotificationChannel channel = new NotificationChannel(
-                channelId,
-                taken ? "Customer Mendapat Driver" : "Order Baru Driver",
-                NotificationManager.IMPORTANCE_HIGH
-        );
-
-        channel.setDescription(
-                taken
-                        ? "Suara saat customer sudah mendapatkan driver"
-                        : "Suara saat driver mendapatkan order baru"
-        );
-
-        channel.enableVibration(true);
-        channel.setVibrationPattern(new long[]{0, 500, 250, 500, 250, 900});
-        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-        channel.enableLights(true);
-        channel.setLightColor(0xffffffff);
-
-        AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build();
-
-        channel.setSound(getRawSoundUri(soundType), audioAttributes);
-
-        manager.createNotificationChannel(channel);
-    }
-
-    private void showWalletOrInfoNotification(String title, String body, Map<String, String> data) {
-        createWalletChannel();
-
-        String type = getValue(data, "type", getValue(data, "event", "wallet"));
-        Intent openIntent = buildOpenWalletIntent(data);
-
-        int notifId = NOTIF_ID_WALLET_BASE + Math.abs((type + System.currentTimeMillis()).hashCode() % 999);
-
-        PendingIntent contentIntent = PendingIntent.getActivity(
-                this,
-                makeRequestCode(7100, String.valueOf(notifId), type),
-                openIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, WALLET_CHANNEL_ID)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(isEmpty(title) ? "Transiva" : title)
-                .setContentText(isEmpty(body) ? "Informasi saldo Transiva" : body)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(body == null ? "" : body))
-                .setContentIntent(contentIntent)
-                .setAutoCancel(true)
-                .setOngoing(false)
-                .setOnlyAlertOnce(false)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_STATUS)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setVibrate(new long[]{0, 250, 150, 350})
-                .setLights(0xffffffff, 700, 700);
-
-        notifySafe(notifId, builder.build());
-    }
-
-    private Intent buildOpenWalletIntent(Map<String, String> data) {
-        String role = firstNotEmpty(
-                getValue(data, "role", ""),
-                getValue(data, "target_role", ""),
-                getValue(data, "user_role", ""),
-                getValue(data, "receiver_role", ""),
-                getValue(data, "account_role", "")
-        ).toLowerCase();
-
-        String screen = firstNotEmpty(
-                getValue(data, "screen", ""),
-                getValue(data, "open_screen", ""),
-                getValue(data, "target_screen", "")
-        ).toLowerCase();
-
-        if (role.isEmpty()) {
-            role = readLocalRole();
-        }
-
-        boolean customer = role.equals("customer")
-                || role.equals("costumer")
-                || screen.contains("customer")
-                || screen.contains("costumer");
-
-        boolean driver = role.equals("driver") || screen.contains("driver");
-
-        String className;
-
-        if (customer && !driver) {
-            className = getPackageName() + ".CustomerDashboardActivity";
-        } else if (driver) {
-            className = getPackageName() + ".DriverDashboardActivity";
-        } else {
-            className = getPackageName() + ".MainActivity";
-        }
-
-        Intent intent = new Intent();
-        intent.setClassName(getPackageName(), className);
-        intent.setAction("OPEN_TRANSIVA_WALLET");
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-
-        if (data != null) {
-            for (Map.Entry<String, String> entry : data.entrySet()) {
-                if (entry != null && entry.getKey() != null && entry.getValue() != null) {
-                    intent.putExtra(entry.getKey(), entry.getValue());
-                }
-            }
-        }
-
-        intent.putExtra("source", "fcm_wallet_click");
-        intent.putExtra("open_screen", customer ? "customer_dashboard" : (driver ? "driver_dashboard" : "home"));
-        intent.putExtra("screen", customer ? "customer_dashboard" : (driver ? "driver_dashboard" : "home"));
-
-        return intent;
-    }
-
-    private Intent buildOpenTargetIntent(
-            String openScreen,
-            String orderDbId,
-            String action,
-            String endpoint,
-            String token,
-            String actor,
-            String driverType,
-            String source,
-            Map<String, String> originalData
-    ) {
-        String screen = safe(openScreen).toLowerCase();
-
-        String role = firstNotEmpty(
-                getValue(originalData, "role", ""),
-                getValue(originalData, "target_role", ""),
-                getValue(originalData, "receiver_role", "")
-        ).toLowerCase();
-
-        boolean customer = role.equals("customer")
-                || role.equals("costumer")
-                || screen.contains("customer")
-                || screen.contains("costumer");
-
-        boolean driver = role.equals("driver")
-                || screen.contains("driver");
-
-        String className;
-
-        if (customer && !driver) {
-            className = getPackageName() + ".CustomerDashboardActivity";
-        } else if (screen.contains("driver_dashboard")) {
-            className = getPackageName() + ".DriverDashboardActivity";
-        } else {
-            className = getPackageName() + ".MainActivity";
-        }
-
-        Intent intent = new Intent();
-        intent.setClassName(getPackageName(), className);
-        intent.setAction("OPEN_TRANSIVA");
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-
-        if (originalData != null) {
-            for (Map.Entry<String, String> entry : originalData.entrySet()) {
-                if (entry != null && entry.getKey() != null && entry.getValue() != null) {
-                    intent.putExtra(entry.getKey(), entry.getValue());
-                }
-            }
-        }
-
-        String safeOrderId = safe(orderDbId);
-        String safeActor = safe(actor);
-        String safeDriverType = firstNotEmpty(driverType, "bike");
-
-        intent.putExtra("open_screen", safe(openScreen));
-        intent.putExtra("screen", safe(openScreen));
-        intent.putExtra("order_db_id", safeOrderId);
-        intent.putExtra("order_id", safeOrderId);
-        intent.putExtra("id", safeOrderId);
-        intent.putExtra("action", safe(action));
-        intent.putExtra("action_endpoint", firstNotEmpty(endpoint, DEFAULT_ACTION_ENDPOINT));
-        intent.putExtra("action_token", safe(token));
-        intent.putExtra("actor", safeActor);
-        intent.putExtra("username", safeActor);
-        intent.putExtra("offered_driver", safeActor);
-        intent.putExtra("driver", safeActor);
-        intent.putExtra("driver_type", safeDriverType);
-        intent.putExtra("source", safe(source));
-
-        return intent;
-    }
-
-    private String readLocalRole() {
-        try {
-            String role = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString("role", "");
-            if (!isEmpty(role)) return role.trim();
-
-            role = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString("player_role", "");
-            if (!isEmpty(role)) return role.trim();
-        } catch (Exception ignored) {}
-
-        try {
-            String role = getSharedPreferences(PREF_NATIVE_SESSION, MODE_PRIVATE).getString("role", "");
-            if (!isEmpty(role)) return role.trim();
-
-            role = getSharedPreferences(PREF_NATIVE_SESSION, MODE_PRIVATE).getString("player_role", "");
-            if (!isEmpty(role)) return role.trim();
-        } catch (Exception ignored) {}
-
-        return "";
-    }
-
-    private boolean isOrderType(String type, Map<String, String> data) {
-        String t = safe(type).toLowerCase();
-        String screen = getValue(data, "screen", "").toLowerCase();
-        String sound = getValue(data, "sound", "").toLowerCase();
-
-        return t.contains("order")
-                || t.contains("driver_found")
-                || t.contains("taken")
-                || screen.contains("driver_order")
-                || screen.contains("customer")
-                || screen.contains("costumer")
-                || sound.contains("order_new")
-                || sound.contains("order_taken")
-                || "1".equals(getValue(data, "has_action", ""));
-    }
-
-    private PendingIntent createActionIntent(
-            int requestCode,
-            String orderDbId,
-            String action,
-            String endpoint,
-            String token,
-            String actor,
-            String driverType
-    ) {
-        Intent intent = new Intent(this, TransivaNotificationActionReceiver.class);
-        intent.setAction("com.transiva.app.NOTIFICATION_ACTION_" + safe(action));
-        intent.putExtra("from_notification_action", "1");
-        intent.putExtra("notification_id", NOTIF_ID_ORDER);
-        intent.putExtra("order_db_id", safe(orderDbId));
-        intent.putExtra("order_id", safe(orderDbId));
-        intent.putExtra("id", safe(orderDbId));
-        intent.putExtra("action", safe(action));
-        intent.putExtra("action_endpoint", firstNotEmpty(endpoint, DEFAULT_ACTION_ENDPOINT));
-        intent.putExtra("action_token", safe(token));
-        intent.putExtra("actor", safe(actor));
-        intent.putExtra("username", safe(actor));
-        intent.putExtra("offered_driver", safe(actor));
-        intent.putExtra("driver", safe(actor));
-        intent.putExtra("driver_type", firstNotEmpty(driverType, "bike"));
-        intent.putExtra("time", String.valueOf(System.currentTimeMillis()));
-
-        return PendingIntent.getBroadcast(
+    private void showNotification(String type, String title, String body, String orderId, String roomId, String url, Map<String, String> data) {
+        String channelId = channelForType(type);
+        Intent intent = buildOpenIntent(type, orderId, roomId, url, data);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        int requestCode = Math.abs((type + "|" + first(orderId, "") + "|" + first(roomId, "") + "|" + System.currentTimeMillis()).hashCode());
+        PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
                 requestCode,
                 intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
-    }
 
-    private PendingIntent createDeleteIntent(String orderDbId) {
-        Intent intent = new Intent(this, TransivaNotificationActionReceiver.class);
-        intent.setAction("com.transiva.app.NOTIFICATION_DISMISSED");
-        intent.putExtra("notification_id", NOTIF_ID_ORDER);
-        intent.putExtra("order_db_id", safe(orderDbId));
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId)
+                .setSmallIcon(getSmallIcon())
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setPriority(priorityForType(type))
+                .setCategory(categoryForType(type))
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE | NotificationCompat.DEFAULT_LIGHTS);
 
-        return PendingIntent.getBroadcast(
-                this,
-                makeRequestCode(3001, orderDbId, "delete"),
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
-        );
-    }
-
-    private void notifySafe(int id, Notification notification) {
-        notification.flags |= Notification.FLAG_SHOW_LIGHTS;
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "Izin POST_NOTIFICATIONS belum diberikan");
-                return;
-            }
+        if (isOrder(type)) {
+            builder.setOngoing(false);
         }
 
-        NotificationManagerCompat.from(this).notify(id, notification);
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        NotificationManagerCompat.from(this).notify(requestCode, builder.build());
     }
 
-    private void createWalletChannel() {
+    private Intent buildOpenIntent(String type, String orderId, String roomId, String url, Map<String, String> data) {
+        Intent intent;
+        String screen = data != null ? first(data.get("screen"), "") : "";
+        String targetRole = data != null ? first(data.get("target_role"), data.get("role"), "") : "";
+        String senderType = data != null ? first(data.get("sender_type"), "") : "";
+
+        if (isChat(type)) {
+            boolean openDriverChat = "driver".equalsIgnoreCase(targetRole) || "customer".equalsIgnoreCase(senderType);
+            intent = new Intent(this, openDriverChat ? DriverChatActivity.class : CustomerChatActivity.class);
+            intent.putExtra("room_id", first(roomId, orderId));
+            intent.putExtra("order_id", orderId);
+            intent.putExtra("from_fcm", true);
+            return intent;
+        }
+
+        if (isOrder(type) || "driver_order".equalsIgnoreCase(screen)) {
+            boolean driverScreen = "driver".equalsIgnoreCase(targetRole) || "driver_order".equalsIgnoreCase(screen) || "driver_accept".equalsIgnoreCase(first(data != null ? data.get("action_accept") : "", ""));
+            intent = new Intent(this, driverScreen ? DriverDashboardActivity.class : CustomerTripActivity.class);
+            intent.putExtra("order_id", orderId);
+            intent.putExtra("from_fcm", true);
+            return intent;
+        }
+
+        if (isWallet(type)) {
+            boolean driverWallet = "driver".equalsIgnoreCase(targetRole) || type.contains("driver") || type.contains("withdraw");
+            intent = new Intent(this, driverWallet ? DriverTopUpActivity.class : CustomerTopUpActivity.class);
+            intent.putExtra("from_fcm", true);
+            return intent;
+        }
+
+        if (!TextUtils.isEmpty(url) && (url.startsWith("http://") || url.startsWith("https://"))) {
+            intent = new Intent(this, MainActivity.class);
+            intent.putExtra("url", url);
+            intent.putExtra("from_fcm", true);
+            return intent;
+        }
+
+        intent = new Intent(this, NativeHomeActivity.class);
+        intent.putExtra("from_fcm", true);
+        intent.putExtra("notif_type", type);
+        return intent;
+    }
+
+    private void createChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
 
-        NotificationManager manager =
-                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-
-        if (manager == null) return;
-        if (manager.getNotificationChannel(WALLET_CHANNEL_ID) != null) return;
-
-        NotificationChannel channel = new NotificationChannel(
-                WALLET_CHANNEL_ID,
-                WALLET_CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH
-        );
-
-        channel.setDescription("Notifikasi saldo, deposit, dan withdraw Transiva");
-        channel.enableVibration(true);
-        channel.setVibrationPattern(new long[]{0, 250, 150, 350});
-        channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
-        channel.enableLights(true);
-        channel.setLightColor(0xffffffff);
-
-        Uri soundUri = Settings.System.DEFAULT_NOTIFICATION_URI;
-
-        AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                .build();
-
-        channel.setSound(soundUri, audioAttributes);
-
-        manager.createNotificationChannel(channel);
+        createChannel(CH_ORDER, "Order Transiva", "Notifikasi order baru dan status order", NotificationManager.IMPORTANCE_HIGH);
+        createChannel(CH_WALLET, "Financial Transiva", "Deposit, saldo, dan penarikan", NotificationManager.IMPORTANCE_HIGH);
+        createChannel(CH_CHAT, "Chat Transiva", "Pesan customer dan driver", NotificationManager.IMPORTANCE_HIGH);
+        createChannel(CH_PROMO, "Promo Transiva", "Promo dan penawaran", NotificationManager.IMPORTANCE_DEFAULT);
+        createChannel(CH_BROADCAST, "Broadcast Admin", "Pengumuman admin Transiva", NotificationManager.IMPORTANCE_HIGH);
+        createChannel(CH_GENERAL, "Transiva", "Notifikasi umum", NotificationManager.IMPORTANCE_DEFAULT);
     }
 
-    private void wakeDevice() {
-        PowerManager.WakeLock wakeLock = null;
+    private void createChannel(String id, String name, String desc, int importance) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm == null || nm.getNotificationChannel(id) != null) return;
 
+        NotificationChannel channel = new NotificationChannel(id, name, importance);
+        channel.setDescription(desc);
+        channel.enableVibration(true);
+        channel.enableLights(true);
+        channel.setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI,
+                new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build());
+        nm.createNotificationChannel(channel);
+    }
+
+    private String channelForType(String type) {
+        type = first(type, "general").toLowerCase();
+        if (isChat(type)) return CH_CHAT;
+        if (isWallet(type)) return CH_WALLET;
+        if (isOrder(type)) return CH_ORDER;
+        if (type.contains("promo")) return CH_PROMO;
+        if (type.contains("broadcast") || type.contains("admin")) return CH_BROADCAST;
+        return CH_GENERAL;
+    }
+
+    private int priorityForType(String type) {
+        type = first(type, "").toLowerCase();
+        if (isChat(type) || isOrder(type) || isWallet(type) || type.contains("broadcast")) {
+            return NotificationCompat.PRIORITY_HIGH;
+        }
+        return NotificationCompat.PRIORITY_DEFAULT;
+    }
+
+    private String categoryForType(String type) {
+        type = first(type, "").toLowerCase();
+        if (isChat(type)) return NotificationCompat.CATEGORY_MESSAGE;
+        if (isOrder(type)) return NotificationCompat.CATEGORY_STATUS;
+        if (isWallet(type)) return NotificationCompat.CATEGORY_STATUS;
+        if (type.contains("promo")) return NotificationCompat.CATEGORY_PROMO;
+        return NotificationCompat.CATEGORY_MESSAGE;
+    }
+
+    private boolean isChat(String type) {
+        type = first(type, "").toLowerCase();
+        return type.contains("chat") || type.contains("message");
+    }
+
+    private boolean isOrder(String type) {
+        type = first(type, "").toLowerCase();
+        return type.contains("order") || type.contains("ride") || type.contains("food") || type.contains("pickup") || type.contains("wisata") || type.contains("merchant");
+    }
+
+    private boolean isWallet(String type) {
+        type = first(type, "").toLowerCase();
+        return type.contains("wallet") || type.contains("financial") || type.contains("deposit") || type.contains("withdraw") || type.contains("saldo") || type.contains("balance");
+    }
+
+    private int getSmallIcon() {
         try {
-            PowerManager powerManager =
-                    (PowerManager) getSystemService(Context.POWER_SERVICE);
-
-            if (powerManager == null) return;
-
-            wakeLock = powerManager.newWakeLock(
-                    PowerManager.PARTIAL_WAKE_LOCK,
-                    "Transiva:FCMWakeLock"
-            );
-
-            wakeLock.acquire(15000);
-
+            return getApplicationInfo().icon;
         } catch (Exception e) {
-            Log.e(TAG, "WakeLock gagal: " + e.getMessage());
+            return android.R.drawable.ic_dialog_info;
         }
     }
 
-    private String getValue(Map<String, String> data, String key, String def) {
-        if (data == null || key == null) return def;
-
-        String value = data.get(key);
-
-        if (value == null || value.trim().isEmpty()) return def;
-
-        return value.trim();
+    private void saveTokenLocal(String token) {
+        getSharedPreferences("transiva_fcm", MODE_PRIVATE).edit().putString("fcm_token", token).apply();
     }
 
-    private int makeRequestCode(int prefix, String orderDbId, String extra) {
-        String raw = prefix + "_" + safe(orderDbId) + "_" + safe(extra);
-        int hash = Math.abs(raw.hashCode());
+    private void sendTokenToServer(String token) {
+        new Thread(() -> {
+            try {
+                SharedPreferences sp1 = getSharedPreferences("transiva_session", MODE_PRIVATE);
+                SharedPreferences sp2 = getSharedPreferences("TransivaSession", MODE_PRIVATE);
+                SharedPreferences sp3 = getSharedPreferences("user_session", MODE_PRIVATE);
 
-        return prefix * 100000 + (hash % 99999);
+                String userId = first(sp1.getString("user_id", ""), sp2.getString("user_id", ""), sp3.getString("user_id", ""), sp1.getString("id", ""), sp2.getString("id", ""), sp3.getString("id", ""));
+                String username = first(sp1.getString("username", ""), sp2.getString("username", ""), sp3.getString("username", ""));
+
+                String json = "{"
+                        + "\"token\":" + quote(token) + ","
+                        + "\"fcm_token\":" + quote(token) + ","
+                        + "\"user_id\":" + quote(userId) + ","
+                        + "\"username\":" + quote(username)
+                        + "}";
+
+                URL url = new URL(BASE_URL + "save_fcm_token.php");
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("POST");
+                conn.setConnectTimeout(12000);
+                conn.setReadTimeout(12000);
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(json.getBytes(StandardCharsets.UTF_8));
+                }
+                conn.getResponseCode();
+                conn.disconnect();
+            } catch (Exception ignored) {
+            }
+        }).start();
     }
 
-    private String firstNotEmpty(String... values) {
+    private String quote(String s) {
+        if (s == null) s = "";
+        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\"";
+    }
+
+    private String first(String... values) {
         if (values == null) return "";
-
-        for (String value : values) {
-            if (value != null && !value.trim().isEmpty()) {
-                return value.trim();
+        for (String v : values) {
+            if (v != null) {
+                v = v.trim();
+                if (!v.isEmpty() && !"null".equalsIgnoreCase(v) && !"undefined".equalsIgnoreCase(v)) return v;
             }
         }
-
         return "";
-    }
-
-    private boolean isEmpty(String value) {
-        return value == null || value.trim().isEmpty();
-    }
-
-    private String safe(String value) {
-        return value == null ? "" : value.trim();
     }
 }
