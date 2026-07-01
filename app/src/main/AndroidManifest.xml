@@ -251,8 +251,11 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
-        
-
+        <activity
+            android:name=".DriverWithdrawActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".MerchantDashboardActivity"
             android:exported="false"
