@@ -1,376 +1,214 @@
 package com.transiva.app;
 
-import android.app.Activity;
-import android.content.Intent;
-import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.graphics.Color;
+import android.graphics.Typeface;
 import android.view.Gravity;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
-import android.widget.TextView;
-import android.widget.Toast;
-
+import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import java.util.HashSet;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
-import java.text.NumberFormat;
-import java.util.Locale;
+public class MerchantDashboardActivity extends MerchantBaseActivity {
+    private LinearLayout root, grid;
+    private TextView nameText, statusText, descText, todayText, ratingText, reviewText, badgeText;
+    private Button storeStatusBtn;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final HashSet<String> notifiedOrders = new HashSet<>();
+    private boolean firstLoad = true;
+    private Runnable autoTask;
 
-public class MerchantDashboardActivity extends Activity {
-
-    private static final String HOME_URL = "https://transiva.my.id/?app=1";
-    private static final String BASE = "https://transiva.my.id/server/";
-
-    private SessionManager sessionManager;
-    private LinearLayout root;
-    private LinearLayout orderBox;
-    private LinearLayout menuBox;
-    private TextView nameText;
-    private TextView balanceText;
-    private TextView storeText;
-    private TextView statusText;
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        try {
-            getWindow().setStatusBarColor(Color.parseColor("#06142E"));
-            getWindow().setNavigationBarColor(Color.parseColor("#06142E"));
-        } catch (Exception ignored) {}
-
-        sessionManager = new SessionManager(this);
-        buildUi();
-        loadDashboard();
+    @Override protected void onCreate(Bundle b){
+        super.onCreate(b);
+        build();
     }
 
-    @Override
-    protected void onResume() {
+    @Override protected void onResume(){
         super.onResume();
-        loadDashboard();
+        startAuto();
     }
 
-    private void buildUi() {
-        ScrollView scroll = new ScrollView(this);
+    @Override protected void onPause(){
+        super.onPause();
+        stopAuto();
+    }
 
+    private void build(){
         root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(28, 34, 28, 34);
-        root.setBackgroundColor(Color.parseColor("#F4F7FB"));
+        setContentView(page(root));
 
-        scroll.addView(root);
-        setContentView(scroll);
+        TextView badge = tv("🍔 Food Store", 13, BLUE, true);
+        badge.setGravity(Gravity.RIGHT);
+        root.addView(badge);
 
         root.addView(title("Transiva Merchant"));
-
-        nameText = smallText("Memuat akun merchant...");
+        nameText = sub("Halo, " + (username().isEmpty() ? "Merchant" : username()));
         root.addView(nameText);
 
-        balanceText = cardText("💳 Saldo Merchant\nMemuat saldo...");
-        root.addView(balanceText);
+        LinearLayout statusCard = new LinearLayout(this);
+        statusCard.setOrientation(LinearLayout.VERTICAL);
+        statusCard.setPadding(dp(16), dp(16), dp(16), dp(16));
+        statusCard.setBackground(round(Color.WHITE, dp(22)));
+        statusCard.setElevation(dp(3));
+        root.addView(statusCard, new LinearLayout.LayoutParams(-1, -2));
 
-        storeText = cardText("🍔 Toko / Restoran\nMemuat data toko...");
-        root.addView(storeText);
+        statusText = tv("Memuat...", 24, NAVY, true);
+        descText = tv("Memuat status restoran...", 13, MUTED, false);
+        statusCard.addView(tv("Status Restoran", 13, MUTED, false));
+        statusCard.addView(statusText);
+        statusCard.addView(descText);
 
-        root.addView(sectionTitle("Menu Merchant"));
+        LinearLayout stats = row();
+        statusCard.addView(stats);
+        todayText = stat(stats, "Hari Ini", "0");
+        ratingText = stat(stats, "Rating", "0.0 ⭐");
+        reviewText = stat(stats, "Ulasan", "0");
 
-        addButton(root, "📥 Order Masuk", HOME_URL + "#merchant_orders");
-        addButton(root, "🍟 Daftar Menu", HOME_URL + "#merchant_menu");
-        addButton(root, "➕ Tambah Menu", HOME_URL + "#merchant_add_menu");
-        addButton(root, "🏪 Profil Toko", HOME_URL + "#merchant_profile");
-        addButton(root, "💰 Saldo & Pencairan", HOME_URL + "#merchant_balance");
+        storeStatusBtn = btn("Memuat...");
+        storeStatusBtn.setOnClickListener(v -> toggleStore());
+        root.addView(storeStatusBtn);
 
-        statusText = smallText("");
-        root.addView(statusText);
+        TextView section = tv("Menu Merchant", 17, NAVY, true);
+        section.setPadding(dp(4), dp(14), dp(4), dp(8));
+        root.addView(section);
 
-        root.addView(sectionTitle("Order Masuk / Aktif"));
+        grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        root.addView(grid);
 
-        orderBox = new LinearLayout(this);
-        orderBox.setOrientation(LinearLayout.VERTICAL);
-        root.addView(orderBox);
+        LinearLayout r1 = row(); grid.addView(r1);
+        tile(r1, "🍟", "Tambah Menu", () -> open(MerchantAddMenuActivity.class));
+        tile(r1, "📋", "Daftar Menu", () -> open(MerchantMenuListActivity.class));
 
-        root.addView(sectionTitle("Menu Terbaru"));
+        LinearLayout r2 = row(); grid.addView(r2);
+        tile(r2, "🛵", "Pesanan", () -> open(MerchantOrdersActivity.class));
+        tile(r2, "⭐", "Rating & Ulasan", () -> open(MerchantReviewsActivity.class));
 
-        menuBox = new LinearLayout(this);
-        menuBox.setOrientation(LinearLayout.VERTICAL);
-        root.addView(menuBox);
+        LinearLayout r3 = row(); grid.addView(r3);
+        tile(r3, "🏪", "Profil Restoran", () -> open(MerchantRestaurantProfileActivity.class));
+        tile(r3, "🔄", "Refresh", () -> loadAll());
 
-        Button refresh = button("Refresh Dashboard");
-        refresh.setOnClickListener(v -> loadDashboard());
-        root.addView(refresh);
-
-        Button web = button("Buka Dashboard WebView");
-        web.setOnClickListener(v -> openWeb(HOME_URL));
-        root.addView(web);
-
-        Button logout = button("Logout");
+        Button logout = outlineBtn("Keluar");
         logout.setOnClickListener(v -> logout());
         root.addView(logout);
     }
 
-    private void loadDashboard() {
-        if (sessionManager == null) sessionManager = new SessionManager(this);
+    private TextView stat(LinearLayout parent, String label, String value){
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setPadding(dp(6), dp(12), dp(6), dp(8));
+        box.setBackground(round(Color.parseColor("#F1F6FF"), dp(16)));
+        TextView l = tv(label, 11, MUTED, false);
+        TextView v = tv(value, 16, NAVY, true);
+        l.setGravity(Gravity.CENTER); v.setGravity(Gravity.CENTER);
+        box.addView(l); box.addView(v);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+        lp.setMargins(dp(4), dp(12), dp(4), 0);
+        parent.addView(box, lp);
+        return v;
+    }
 
-        String username = safe(sessionManager.getUsername());
-        String role = safe(sessionManager.getRole());
+    private void tile(LinearLayout parent, String icon, String text, final Runnable action){
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(8), dp(16), dp(8), dp(16));
+        t.setBackground(round(Color.WHITE, dp(20)));
+        t.setElevation(dp(2));
+        TextView ic = tv(icon, 28, NAVY, true);
+        TextView tx = tv(text, 13, TEXT, true);
+        ic.setGravity(Gravity.CENTER); tx.setGravity(Gravity.CENTER);
+        t.addView(ic); t.addView(tx);
+        t.setOnClickListener(v -> action.run());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(112), 1f);
+        lp.setMargins(dp(4), dp(4), dp(4), dp(8));
+        parent.addView(t, lp);
+    }
 
-        if (username.isEmpty()) {
-            nameText.setText("Merchant belum login");
-            statusText.setText("Silakan login ulang.");
-            return;
-        }
+    private void startAuto(){
+        stopAuto();
+        firstLoad = true;
+        loadAll();
+        autoTask = () -> { loadAll(); handler.postDelayed(autoTask, 5000); };
+        handler.postDelayed(autoTask, 5000);
+    }
 
-        nameText.setText("Halo, " + username + " • " + (role.isEmpty() ? "merchant" : role));
-        statusText.setText("Memuat data merchant...");
-        orderBox.removeAllViews();
-        menuBox.removeAllViews();
+    private void stopAuto(){
+        if(autoTask != null) handler.removeCallbacks(autoTask);
+    }
 
+    private void loadAll(){
+        final String u = username();
+        if(u.isEmpty()){ alert("Sesi", "Silakan login ulang."); return; }
         new Thread(() -> {
-            String balanceJson = "";
-            String storeJson = "";
-            String ordersJson = "";
-            String menuJson = "";
-
             try {
-                balanceJson = get(BASE + "getBalance.php?username=" + enc(username));
-            } catch (Exception ignored) {}
-
-            try {
-                storeJson = get(BASE + "get_merchant_store.php?username=" + enc(username));
-            } catch (Exception ignored) {}
-
-            try {
-                ordersJson = get(BASE + "get_merchant_orders.php?username=" + enc(username));
-            } catch (Exception ignored) {}
-
-            try {
-                menuJson = get(BASE + "get_merchant_menu.php?username=" + enc(username));
-            } catch (Exception ignored) {}
-
-            final String b = balanceJson;
-            final String s = storeJson;
-            final String o = ordersJson;
-            final String m = menuJson;
-
-            runOnUiThread(() -> {
-                showBalance(b);
-                showStore(s);
-                showOrders(o);
-                showMenus(m);
-                statusText.setText("Dashboard merchant siap");
-            });
+                String dash = get(BASE + "getMerchantDashboard.php?username=" + enc(u) + "&v=" + System.currentTimeMillis());
+                String orders = get(BASE + "getMerchantOrders.php?username=" + enc(u) + "&v=" + System.currentTimeMillis());
+                runOnUiThread(() -> { showDash(dash); checkOrders(orders); });
+            } catch(Exception e){ runOnUiThread(() -> descText.setText("Koneksi gagal")); }
         }).start();
     }
 
-    private void showBalance(String json) {
+    private void showDash(String json){
         try {
-            JSONObject obj = new JSONObject(json);
-            int balance = obj.optInt("balance", 0);
-            balanceText.setText("💳 Saldo Merchant\n" + rupiah(balance));
-        } catch (Exception e) {
-            balanceText.setText("💳 Saldo Merchant\nSaldo belum terbaca");
-        }
+            JSONObject d = new JSONObject(json);
+            boolean open = d.optInt("is_open", 0) == 1;
+            statusText.setText(open ? "🟢 Buka" : "🔴 Tutup");
+            descText.setText(open ? "Restoran sedang menerima pesanan" : "Restoran sedang tidak menerima pesanan");
+            todayText.setText(String.valueOf(d.optInt("today_orders", 0)));
+            ratingText.setText(String.format(java.util.Locale.US, "%.1f ⭐", d.optDouble("rating", 0)));
+            reviewText.setText(d.optInt("review_count", 0) + " ulasan");
+            storeStatusBtn.setText(open ? "🔴 Tutup Restoran" : "🟢 Buka Restoran");
+            storeStatusBtn.setTag(open ? "1" : "0");
+        } catch(Exception e){ descText.setText("Dashboard belum terbaca"); }
     }
 
-    private void showStore(String json) {
+    private void checkOrders(String json){
         try {
-            JSONObject obj = new JSONObject(json);
-            JSONObject store = obj.optJSONObject("store");
-            if (store == null) store = obj.optJSONObject("restaurant");
-            if (store == null) store = obj;
-
-            String name = store.optString("name", store.optString("restaurant_name", "Toko Merchant"));
-            String address = store.optString("address", store.optString("location", "-"));
-            String open = store.optString("status", store.optString("open_status", "aktif"));
-
-            storeText.setText("🍔 Toko / Restoran\n" + name + "\nAlamat: " + address + "\nStatus: " + open);
-        } catch (Exception e) {
-            storeText.setText("🍔 Toko / Restoran\nData toko belum terbaca / endpoint belum tersedia");
-        }
-    }
-
-    private void showOrders(String json) {
-        try {
-            JSONObject obj = new JSONObject(json);
-            JSONArray arr = obj.optJSONArray("orders");
-            if (arr == null) arr = obj.optJSONArray("data");
-
-            if (arr == null || arr.length() == 0) {
-                orderBox.addView(cardText("Belum ada order masuk."));
-                return;
+            JSONArray arr = new JSONObject(json).optJSONArray("orders");
+            int pending = 0;
+            HashSet<String> current = new HashSet<>();
+            if(arr != null){
+                for(int i=0;i<arr.length();i++){
+                    JSONObject o = arr.optJSONObject(i);
+                    if(o == null) continue;
+                    String st = o.optString("status","").toLowerCase();
+                    if(!"pending".equals(st)) continue;
+                    pending++;
+                    String id = s(o,"order_id","id");
+                    if(id.isEmpty()) continue;
+                    current.add(id);
+                    if(!notifiedOrders.contains(id)){
+                        if(!firstLoad) toast("Pesanan merchant baru #" + id);
+                        notifiedOrders.add(id);
+                    }
+                }
             }
-
-            int max = Math.min(arr.length(), 5);
-            for (int i = 0; i < max; i++) {
-                JSONObject order = arr.optJSONObject(i);
-                if (order != null) orderBox.addView(orderCard(order));
-            }
-        } catch (Exception e) {
-            orderBox.addView(cardText("Order merchant belum terbaca / endpoint belum tersedia."));
-        }
+            firstLoad = false;
+        } catch(Exception ignored){}
     }
 
-    private void showMenus(String json) {
-        try {
-            JSONObject obj = new JSONObject(json);
-            JSONArray arr = obj.optJSONArray("menus");
-            if (arr == null) arr = obj.optJSONArray("data");
-
-            if (arr == null || arr.length() == 0) {
-                menuBox.addView(cardText("Belum ada menu / endpoint belum tersedia."));
-                return;
-            }
-
-            int max = Math.min(arr.length(), 5);
-            for (int i = 0; i < max; i++) {
-                JSONObject menu = arr.optJSONObject(i);
-                if (menu != null) menuBox.addView(menuCard(menu));
-            }
-        } catch (Exception e) {
-            menuBox.addView(cardText("Daftar menu belum terbaca."));
-        }
-    }
-
-    private TextView orderCard(JSONObject order) {
-        String id = order.optString("id", order.optString("order_id", "-"));
-        String status = order.optString("status", "-");
-        String customer = order.optString("username", order.optString("customer", "-"));
-        String address = order.optString("destination_address", order.optString("address", "-"));
-        int total = order.optInt("total", order.optInt("price", 0));
-
-        TextView card = cardText("📥 Order #" + id + "\n" +
-                "Customer: " + customer + "\n" +
-                "Status: " + status + "\n" +
-                "Alamat: " + address + "\n" +
-                "Total: " + rupiah(total));
-
-        card.setOnClickListener(v -> openWeb(HOME_URL + "#merchant_orders"));
-        return card;
-    }
-
-    private TextView menuCard(JSONObject menu) {
-        String name = menu.optString("name", menu.optString("menu_name", "Menu"));
-        String category = menu.optString("category", menu.optString("type", "-"));
-        int price = menu.optInt("price", menu.optInt("harga", 0));
-        String status = menu.optString("status", menu.optString("available", "aktif"));
-
-        TextView card = cardText("🍟 " + name + "\n" +
-                "Kategori: " + category + "\n" +
-                "Harga: " + rupiah(price) + "\n" +
-                "Status: " + status);
-
-        card.setOnClickListener(v -> openWeb(HOME_URL + "#merchant_menu"));
-        return card;
-    }
-
-    private void openWeb(String url) {
-        Intent i = new Intent(this, MainActivity.class);
-        i.putExtra("url", url);
-        startActivity(i);
-    }
-
-    private void logout() {
-        try {
-            if (sessionManager != null) sessionManager.clearSession();
-        } catch (Exception ignored) {}
-
-        Toast.makeText(this, "Logout berhasil", Toast.LENGTH_SHORT).show();
-
-        Intent i = new Intent(this, LoginActivity.class);
-        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        startActivity(i);
-        finish();
-    }
-
-    private String get(String link) throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(link).openConnection();
-        conn.setConnectTimeout(12000);
-        conn.setReadTimeout(12000);
-        conn.setRequestMethod("GET");
-
-        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-        StringBuilder sb = new StringBuilder();
-        String line;
-
-        while ((line = br.readLine()) != null) sb.append(line);
-
-        br.close();
-        conn.disconnect();
-        return sb.toString();
-    }
-
-    private String enc(String value) {
-        try { return URLEncoder.encode(value == null ? "" : value, "UTF-8"); }
-        catch (Exception e) { return ""; }
-    }
-
-    private String safe(String value) { return value == null ? "" : value.trim(); }
-
-    private String rupiah(int value) {
-        return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format(value);
-    }
-
-    private void addButton(LinearLayout parent, String label, String url) {
-        Button b = button(label);
-        b.setOnClickListener(v -> openWeb(url));
-        parent.addView(b);
-    }
-
-    private TextView title(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(27);
-        t.setTypeface(null, 1);
-        t.setTextColor(Color.parseColor("#06142E"));
-        t.setPadding(0, 0, 0, 18);
-        return t;
-    }
-
-    private TextView sectionTitle(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(20);
-        t.setTypeface(null, 1);
-        t.setTextColor(Color.parseColor("#06142E"));
-        t.setPadding(0, 18, 0, 8);
-        return t;
-    }
-
-    private TextView smallText(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(15);
-        t.setTextColor(Color.parseColor("#1F2937"));
-        t.setPadding(0, 6, 0, 12);
-        return t;
-    }
-
-    private TextView cardText(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(16);
-        t.setTextColor(Color.parseColor("#111827"));
-        t.setBackgroundColor(Color.WHITE);
-        t.setPadding(26, 22, 26, 22);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 10, 0, 14);
-        t.setLayoutParams(lp);
-        return t;
-    }
-
-    private Button button(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(16);
-        b.setGravity(Gravity.CENTER);
-        return b;
+    private void toggleStore(){
+        final String u = username();
+        final int current = "1".equals(String.valueOf(storeStatusBtn.getTag())) ? 1 : 0;
+        final int next = current == 1 ? 0 : 1;
+        storeStatusBtn.setEnabled(false);
+        storeStatusBtn.setText("Memproses...");
+        new Thread(() -> {
+            try {
+                JSONObject p = new JSONObject();
+                p.put("username", u);
+                p.put("is_open", next);
+                JSONObject r = new JSONObject(postJson(BASE + "updateRestaurantStatus.php", p));
+                runOnUiThread(() -> {
+                    toast(r.optString("message", r.optBoolean("success") ? "Berhasil" : "Gagal"));
+                    storeStatusBtn.setEnabled(true);
+                    loadAll();
+                });
+            } catch(Exception e){ runOnUiThread(() -> { storeStatusBtn.setEnabled(true); alert("Error","Koneksi gagal"); loadAll(); }); }
+        }).start();
     }
 }
