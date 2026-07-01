@@ -1104,7 +1104,8 @@ public class CustomerDashboardActivity extends Activity {
         }
 
         if (status.equals("arrived_delivery")) {
-            return "Order #" + orderId + "\n🏁 Driver sudah tiba di lokasi tujuan.";
+            String payInfo = buildPaymentInfo(order);
+            return "Order #" + orderId + "\n🏁 Driver sudah tiba di lokasi tujuan." + payInfo + "\nSilakan tekan Terima Pesanan jika pesanan sudah diterima.";
         }
 
         return "Order #" + orderId + "\nStatus: " + firstNonEmpty(status, "-");
@@ -1143,7 +1144,117 @@ public class CustomerDashboardActivity extends Activity {
             chatLp.setMargins(0, dp(8), 0, 0);
             chat.setOnClickListener(v -> openNativeChat(order));
             statusActionsBox.addView(chat, chatLp);
+
+            if (status.equals("arrived_delivery")) {
+                Button received = successButton("✅ Terima Pesanan");
+                LinearLayout.LayoutParams rLp = new LinearLayout.LayoutParams(-1, dp(50));
+                rLp.setMargins(0, dp(8), 0, 0);
+                received.setOnClickListener(v -> confirmOrderReceived(order));
+                statusActionsBox.addView(received, rLp);
+            }
         }
+    }
+
+    private String buildPaymentInfo(JSONObject order) {
+        try {
+            JSONObject note = parseNoteJson(order.optString("note", ""));
+            String method = firstNonEmpty(
+                    order.optString("payment_method"),
+                    order.optString("payment_type"),
+                    note.optString("payment_method"),
+                    note.optString("payment_label"),
+                    "cash"
+            ).toLowerCase(Locale.US).trim();
+
+            String status = firstNonEmpty(
+                    order.optString("payment_status"),
+                    note.optString("payment_status"),
+                    ""
+            ).toLowerCase(Locale.US).trim();
+
+            boolean nonCash = method.equals("saldo")
+                    || method.equals("wallet")
+                    || method.equals("transiva_pay")
+                    || method.equals("transivapay")
+                    || method.equals("qris")
+                    || method.equals("non_tunai")
+                    || method.equals("non-tunai")
+                    || method.equals("transfer");
+
+            if (nonCash) {
+                String label = method.equals("qris") ? "QRIS" : "Transiva Pay / Non Tunai";
+                String payStatus = status.length() > 0 ? status : "paid/escrow";
+                return "\n💳 Pembayaran: " + label + " (" + payStatus + ")";
+            }
+
+            if (method.equals("cash") || method.equals("tunai")) {
+                return "\n💵 Pembayaran: Tunai";
+            }
+        } catch (Exception ignored) {}
+        return "";
+    }
+
+    private JSONObject parseNoteJson(String note) {
+        try {
+            if (note == null || note.trim().length() == 0) return new JSONObject();
+            return new JSONObject(note);
+        } catch (Exception e) {
+            return new JSONObject();
+        }
+    }
+
+    private void confirmOrderReceived(JSONObject order) {
+        if (order == null) {
+            showInfo("Gagal", "Data order tidak ditemukan.");
+            return;
+        }
+
+        String orderId = firstNonEmpty(order.optString("order_id"), order.optString("id"), getStringPref("active_order_id"));
+        int nativeId = order.optInt("id", 0);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Terima Pesanan")
+                .setMessage("Pastikan pesanan sudah benar-benar diterima. Untuk pembayaran non tunai, saldo tertahan akan dicairkan ke driver setelah dikonfirmasi.")
+                .setNegativeButton("Belum", null)
+                .setPositiveButton("Ya, Terima", (d, w) -> submitOrderReceived(nativeId, orderId))
+                .show();
+    }
+
+    private void submitOrderReceived(int id, String orderId) {
+        if (id <= 0 && firstNonEmpty(orderId, "").length() == 0) {
+            showInfo("Gagal", "Order ID tidak ditemukan.");
+            return;
+        }
+
+        setLoading(true);
+
+        new Thread(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("id", id);
+                payload.put("order_id", firstNonEmpty(orderId, ""));
+                payload.put("user_id", userId);
+
+                JSONObject res = postJson(BASE_URL + "server/customerConfirmFoodReceived.php", payload);
+                boolean ok = res.optBoolean("success", false);
+                String msg = firstNonEmpty(res.optString("message"), ok ? "Pesanan selesai" : "Gagal menyelesaikan pesanan");
+
+                mainHandler.post(() -> {
+                    setLoading(false);
+                    showInfo(ok ? "Berhasil" : "Gagal", msg);
+                    if (ok) {
+                        clearActiveOrderPrefs();
+                        loadOrderStatus();
+                        loadBalanceRealtime(true);
+                    }
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    setLoading(false);
+                    showInfo("Gagal", "Terjadi kesalahan koneksi saat menyelesaikan pesanan.");
+                });
+            }
+        }).start();
     }
 
     private void confirmCancelOrder(String orderId) {
@@ -1505,6 +1616,13 @@ public class CustomerDashboardActivity extends Activity {
         Button b = primaryButton(value);
         b.setTextColor(Color.WHITE);
         b.setBackground(roundGradient("#EF4444", "#DC2626", dp(18)));
+        return b;
+    }
+
+    private Button successButton(String value) {
+        Button b = primaryButton(value);
+        b.setTextColor(Color.WHITE);
+        b.setBackground(roundGradient("#16A34A", "#22C55E", dp(18)));
         return b;
     }
 
