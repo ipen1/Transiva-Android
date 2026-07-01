@@ -83,13 +83,25 @@ public class MerchantAddMenuActivity extends MerchantBaseActivity {
         long original = 0; try{ original = Long.parseLong(priceInput.getText().toString().trim()); }catch(Exception ignored){}
         if(name.isEmpty() || cat.isEmpty() || original <= 0){ alert("Lengkapi Data", "Nama, harga, dan kategori wajib diisi."); return; }
         int fee = gross(original); long appPrice = original + fee;
+
+        final String finalName = name;
+        final String finalCat = cat;
+        final long finalOriginal = original;
+        final int finalFee = fee;
+        final long finalAppPrice = appPrice;
+        final Uri finalImageUri = imageUri;
+
         save.setEnabled(false); save.setText("Mengupload...");
         new Thread(() -> {
             try{
                 JSONObject f = new JSONObject();
-                f.put("name", name); f.put("price", appPrice); f.put("original_price", original); f.put("grossup_fee", fee); f.put("category", cat);
+                f.put("name", finalName);
+                f.put("price", finalAppPrice);
+                f.put("original_price", finalOriginal);
+                f.put("grossup_fee", finalFee);
+                f.put("category", finalCat);
                 f.put("username", username()); f.put("user_id", userId());
-                JSONObject res = new JSONObject(postForm(BASE + "add_food_menu.php", f, imageUri, "image", "menu.jpg"));
+                JSONObject res = new JSONObject(postForm(BASE + "add_food_menu.php", f, finalImageUri, "image", "menu.jpg"));
                 runOnUiThread(() -> {
                     save.setEnabled(true); save.setText("Simpan Menu");
                     if(res.optBoolean("success", false)){ toast(res.optString("message","Menu berhasil disimpan")); finish(); }
