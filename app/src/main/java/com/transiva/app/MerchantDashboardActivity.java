@@ -12,8 +12,8 @@ import org.json.JSONObject;
 import java.util.HashSet;
 
 public class MerchantDashboardActivity extends MerchantBaseActivity {
-    private LinearLayout root, grid;
-    private TextView nameText, statusText, descText, todayText, ratingText, reviewText, badgeText;
+    private LinearLayout root, grid, ordersTile;
+    private TextView nameText, statusText, descText, todayText, ratingText, reviewText, orderBadgeText, orderTileIcon, orderTileTitle, orderTileSub;
     private Button storeStatusBtn;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final HashSet<String> notifiedOrders = new HashSet<>();
@@ -83,7 +83,7 @@ public class MerchantDashboardActivity extends MerchantBaseActivity {
         tile(r1, "📋", "Daftar Menu", () -> open(MerchantMenuListActivity.class));
 
         LinearLayout r2 = row(); grid.addView(r2);
-        tile(r2, "🛵", "Pesanan", () -> open(MerchantOrdersActivity.class));
+        ordersTile = orderTile(r2);
         tile(r2, "⭐", "Rating & Ulasan", () -> open(MerchantReviewsActivity.class));
 
         LinearLayout r3 = row(); grid.addView(r3);
@@ -112,20 +112,82 @@ public class MerchantDashboardActivity extends MerchantBaseActivity {
     }
 
     private void tile(LinearLayout parent, String icon, String text, final Runnable action){
-        LinearLayout t = new LinearLayout(this);
-        t.setOrientation(LinearLayout.VERTICAL);
-        t.setGravity(Gravity.CENTER);
-        t.setPadding(dp(8), dp(16), dp(8), dp(16));
-        t.setBackground(round(Color.WHITE, dp(20)));
-        t.setElevation(dp(2));
+        LinearLayout t = baseTile();
         TextView ic = tv(icon, 28, NAVY, true);
         TextView tx = tv(text, 13, TEXT, true);
         ic.setGravity(Gravity.CENTER); tx.setGravity(Gravity.CENTER);
         t.addView(ic); t.addView(tx);
         t.setOnClickListener(v -> action.run());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(112), 1f);
+        parent.addView(t, tileLp());
+    }
+
+    private LinearLayout orderTile(LinearLayout parent){
+        LinearLayout t = baseTile();
+
+        orderBadgeText = tv("", 11, Color.WHITE, true);
+        orderBadgeText.setGravity(Gravity.CENTER);
+        orderBadgeText.setBackground(round(Color.parseColor("#EF4444"), dp(18)));
+        orderBadgeText.setVisibility(TextView.GONE);
+        LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(dp(34), dp(24));
+        badgeLp.gravity = Gravity.RIGHT;
+        t.addView(orderBadgeText, badgeLp);
+
+        orderTileIcon = tv("🛵", 28, NAVY, true);
+        orderTileTitle = tv("Pesanan", 13, TEXT, true);
+        orderTileSub = tv("Tidak ada order", 11, MUTED, false);
+        orderTileIcon.setGravity(Gravity.CENTER);
+        orderTileTitle.setGravity(Gravity.CENTER);
+        orderTileSub.setGravity(Gravity.CENTER);
+        t.addView(orderTileIcon);
+        t.addView(orderTileTitle);
+        t.addView(orderTileSub);
+        t.setOnClickListener(v -> open(MerchantOrdersActivity.class));
+        parent.addView(t, tileLp());
+        return t;
+    }
+
+    private LinearLayout baseTile(){
+        LinearLayout t = new LinearLayout(this);
+        t.setOrientation(LinearLayout.VERTICAL);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(8), dp(10), dp(8), dp(12));
+        t.setBackground(round(Color.WHITE, dp(20)));
+        t.setElevation(dp(2));
+        return t;
+    }
+
+    private LinearLayout.LayoutParams tileLp(){
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(122), 1f);
         lp.setMargins(dp(4), dp(4), dp(4), dp(8));
-        parent.addView(t, lp);
+        return lp;
+    }
+
+    private void setOrderTileActive(int count){
+        if(ordersTile == null) return;
+        if(count > 0){
+            ordersTile.setBackground(stroke(Color.parseColor("#EAF3FF"), BLUE, dp(20)));
+            ordersTile.setElevation(dp(8));
+            if(orderBadgeText != null){
+                orderBadgeText.setText(count > 99 ? "99+" : String.valueOf(count));
+                orderBadgeText.setVisibility(TextView.VISIBLE);
+            }
+            if(orderTileIcon != null) orderTileIcon.setText("🚨");
+            if(orderTileTitle != null) orderTileTitle.setTextColor(BLUE);
+            if(orderTileSub != null) {
+                orderTileSub.setText(count + " order baru");
+                orderTileSub.setTextColor(Color.parseColor("#EF4444"));
+            }
+        }else{
+            ordersTile.setBackground(round(Color.WHITE, dp(20)));
+            ordersTile.setElevation(dp(2));
+            if(orderBadgeText != null) orderBadgeText.setVisibility(TextView.GONE);
+            if(orderTileIcon != null) orderTileIcon.setText("🛵");
+            if(orderTileTitle != null) orderTileTitle.setTextColor(TEXT);
+            if(orderTileSub != null) {
+                orderTileSub.setText("Tidak ada order");
+                orderTileSub.setTextColor(MUTED);
+            }
+        }
     }
 
     private void startAuto(){
@@ -175,7 +237,7 @@ public class MerchantDashboardActivity extends MerchantBaseActivity {
                 for(int i=0;i<arr.length();i++){
                     JSONObject o = arr.optJSONObject(i);
                     if(o == null) continue;
-                    String st = o.optString("status","").toLowerCase();
+                    String st = o.optString("status","").trim().toLowerCase();
                     if(!"pending".equals(st)) continue;
                     pending++;
                     String id = s(o,"order_id","id");
@@ -187,8 +249,10 @@ public class MerchantDashboardActivity extends MerchantBaseActivity {
                     }
                 }
             }
+            notifiedOrders.retainAll(current);
             firstLoad = false;
-        } catch(Exception ignored){}
+            setOrderTileActive(pending);
+        } catch(Exception ignored){ setOrderTileActive(0); }
     }
 
     private void toggleStore(){
