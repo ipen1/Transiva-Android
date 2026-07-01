@@ -75,6 +75,7 @@ public class LoginActivity extends Activity {
         } catch (Exception ignored) {}
 
         buildLayout();
+        TransivaNotificationPermission.ask(this);
     }
 
     private void buildLayout() {
