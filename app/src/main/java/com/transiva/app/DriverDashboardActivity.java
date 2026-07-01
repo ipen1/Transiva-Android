@@ -44,7 +44,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 public class DriverDashboardActivity extends Activity {
@@ -55,6 +57,9 @@ public class DriverDashboardActivity extends Activity {
     private static final int REQ_NOTIFICATION = 8701;
     private static final String CHANNEL_ORDER = "transiva_driver_orders";
     private static final String CHANNEL_BALANCE = "transiva_driver_balance";
+    private static final int OFFER_MISSING_LIMIT = 12;
+    private static final int OFFER_MAX_CACHE = 20;
+    private static final long ASSIGN_MIN_INTERVAL_MS = 12000L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private SessionManager sessionManager;
@@ -70,8 +75,12 @@ public class DriverDashboardActivity extends Activity {
     private boolean loading = false;
     private boolean firstLoadDone = false;
     private long lastBalance = -1;
+    private long lastAssignAt = 0L;
 
     private final Set<String> notifiedIds = new HashSet<>();
+    private final Map<String, JSONObject> stableOfferMap = new LinkedHashMap<>();
+    private final Map<String, Integer> stableMissingMap = new LinkedHashMap<>();
+    private final Map<String, String> stableTableMap = new LinkedHashMap<>();
 
     private final Runnable refreshRunnable = new Runnable() {
         @Override public void run() {
@@ -269,7 +278,15 @@ public class DriverDashboardActivity extends Activity {
             try { statusJson = get(SERVER + "getDriverStatus.php?username=" + enc(username) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
             try { balanceJson = get(SERVER + "getBalance.php?username=" + enc(username) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
             try { dashJson = get(SERVER + "driver_get_dashboard.php?username=" + enc(username) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
-            try { if (parseOnline(statusJson)) get(SERVER + "assignNextDriver.php?driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
+            try {
+                if (parseOnline(statusJson)) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastAssignAt >= ASSIGN_MIN_INTERVAL_MS) {
+                        lastAssignAt = now;
+                        get(SERVER + "assignNextDriver.php?driver_type=" + enc(driverType) + "&driver=" + enc(username) + "&username=" + enc(username) + "&v=" + now);
+                    }
+                }
+            } catch (Exception ignored) {}
             try { activeJson = get(SERVER + "getActiveDriverOrder.php?driver=" + enc(username) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
             try { ordersJson = get(SERVER + "getOrders.php?driver=" + enc(username) + "&driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
             try { pickupJson = get(SERVER + "driver_get_pickup_orders.php?driver=" + enc(username) + "&driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
@@ -381,37 +398,120 @@ public class DriverDashboardActivity extends Activity {
 
     private void showOffers(String ordersJson, String pickupJson) {
         orderBox.removeAllViews();
+
         if (!driverOnline) {
+            stableOfferMap.clear();
+            stableMissingMap.clear();
+            stableTableMap.clear();
             orderBox.addView(emptyCard("Driver OFFLINE.\nAktifkan ONLINE untuk menerima order."));
             firstLoadDone = true;
             return;
         }
+
+        Set<String> freshKeys = new HashSet<>();
+        readOffersIntoStableCache(ordersJson, "orders", freshKeys);
+        readOffersIntoStableCache(pickupJson, "pickup_orders", freshKeys);
+        ageMissingOffers(freshKeys);
+
         int count = 0;
-        try {
-            JSONObject o = new JSONObject(ordersJson);
-            JSONArray arr = o.optJSONArray("orders");
-            if (o.optBoolean("success", false) && arr != null) {
-                notifyNewOrders(arr, "orders");
-                for (int i = 0; i < arr.length() && count < 8; i++) {
-                    JSONObject order = arr.optJSONObject(i);
-                    if (order != null) { orderBox.addView(orderCard(order, false, "orders")); count++; }
-                }
+        for (String key : stableOfferMap.keySet()) {
+            if (count >= 8) break;
+            JSONObject order = stableOfferMap.get(key);
+            String table = stableTableMap.containsKey(key) ? stableTableMap.get(key) : "orders";
+            if (order != null) {
+                orderBox.addView(orderCard(order, false, table));
+                count++;
             }
-        } catch (Exception ignored) {}
-        try {
-            JSONObject p = new JSONObject(pickupJson);
-            JSONArray arr = p.optJSONArray("orders");
-            if (arr == null) arr = p.optJSONArray("pickup_orders");
-            if (p.optBoolean("success", false) && arr != null) {
-                notifyNewOrders(arr, "pickup_orders");
-                for (int i = 0; i < arr.length() && count < 8; i++) {
-                    JSONObject order = arr.optJSONObject(i);
-                    if (order != null) { orderBox.addView(orderCard(order, false, "pickup_orders")); count++; }
-                }
-            }
-        } catch (Exception ignored) {}
-        if (count == 0) orderBox.addView(emptyCard("Belum ada tawaran order."));
+        }
+
+        if (count == 0) {
+            orderBox.addView(emptyCard("Belum ada tawaran order."));
+        }
+
         firstLoadDone = true;
+    }
+
+    private void readOffersIntoStableCache(String json, String table, Set<String> freshKeys) {
+        try {
+            JSONObject obj = new JSONObject(json);
+            JSONArray arr = obj.optJSONArray("orders");
+            if (arr == null) arr = obj.optJSONArray("pickup_orders");
+
+            if (!obj.optBoolean("success", false) || arr == null) return;
+
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject order = arr.optJSONObject(i);
+                if (order == null) continue;
+
+                String id = offerId(order);
+                if (id.length() == 0) continue;
+
+                String key = table + "-" + id;
+                freshKeys.add(key);
+
+                try {
+                    order.put("_transiva_table", table);
+                } catch (Exception ignored) {}
+
+                stableOfferMap.put(key, order);
+                stableTableMap.put(key, table);
+                stableMissingMap.put(key, 0);
+
+                if (!notifiedIds.contains(key)) {
+                    if (firstLoadDone) showOrderNotification(order, table);
+                    notifiedIds.add(key);
+                }
+            }
+
+            trimStableOffersIfNeeded();
+
+        } catch (Exception ignored) {}
+    }
+
+    private void ageMissingOffers(Set<String> freshKeys) {
+        Set<String> keys = new HashSet<>(stableOfferMap.keySet());
+
+        for (String key : keys) {
+            if (freshKeys.contains(key)) {
+                stableMissingMap.put(key, 0);
+                continue;
+            }
+
+            int miss = stableMissingMap.containsKey(key) ? stableMissingMap.get(key) + 1 : 1;
+            stableMissingMap.put(key, miss);
+
+            JSONObject cached = stableOfferMap.get(key);
+            String status = cached == null ? "" : safe(cached.optString("status", "")).toLowerCase(Locale.US);
+
+            boolean finishedOrTakenByOther =
+                    status.equals("finished") ||
+                    status.equals("completed") ||
+                    status.equals("cancelled") ||
+                    status.equals("canceled") ||
+                    status.equals("taken") ||
+                    status.equals("merchant_rejected");
+
+            if (finishedOrTakenByOther || miss >= OFFER_MISSING_LIMIT) {
+                stableOfferMap.remove(key);
+                stableMissingMap.remove(key);
+                stableTableMap.remove(key);
+                notifiedIds.remove(key);
+            }
+        }
+    }
+
+    private void trimStableOffersIfNeeded() {
+        while (stableOfferMap.size() > OFFER_MAX_CACHE) {
+            String firstKey = stableOfferMap.keySet().iterator().next();
+            stableOfferMap.remove(firstKey);
+            stableMissingMap.remove(firstKey);
+            stableTableMap.remove(firstKey);
+        }
+    }
+
+    private String offerId(JSONObject order) {
+        if (order == null) return "";
+        return safe(order.optString("id", order.optString("order_id", "")));
     }
 
     private void notifyNewOrders(JSONArray arr, String table) {
@@ -543,6 +643,7 @@ public class DriverDashboardActivity extends Activity {
                     setBusy(false, false);
                     Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
                     if (ok) {
+                        removeOfferFromStableCache(table + "-" + id);
                         if (order != null) openNativeTrip(order, table); else refreshDriverData(false);
                     } else refreshDriverData(false);
                 });
@@ -550,6 +651,15 @@ public class DriverDashboardActivity extends Activity {
                 mainHandler.post(() -> { setBusy(false, false); showInfo("Gagal", "Koneksi gagal mengambil order."); refreshDriverData(false); });
             }
         }).start();
+    }
+
+    private void removeOfferFromStableCache(String key) {
+        try {
+            stableOfferMap.remove(key);
+            stableMissingMap.remove(key);
+            stableTableMap.remove(key);
+            notifiedIds.remove(key);
+        } catch (Exception ignored) {}
     }
 
     private void setDriverOnline(boolean online) {
