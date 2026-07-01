@@ -476,14 +476,24 @@ public class ProfileActivity extends Activity {
         new AlertDialog.Builder(this)
                 .setTitle("Keluar Akun")
                 .setMessage("Yakin ingin keluar dari akun Transiva?")
-                .setPositiveButton("Keluar", (d, w) -> {
-                    try {
-                        session.logout();
-                    } catch (Exception ignored) {}
-                    openLoginClear();
-                })
+                .setPositiveButton("Keluar", (d, w) -> logoutWithTokenDelete())
                 .setNegativeButton("Batal", null)
                 .show();
+    }
+
+    private void logoutWithTokenDelete() {
+        if (loading) return;
+
+        setLoading(true, "Keluar...");
+
+        NativeLogoutClient.logoutAndDeleteToken(this, (success, response) -> {
+            try {
+                session.logout();
+            } catch (Exception ignored) {}
+
+            setLoading(false, "");
+            openLoginClear();
+        });
     }
 
     private void openLoginClear() {
