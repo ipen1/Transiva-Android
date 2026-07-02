@@ -288,8 +288,21 @@ public class DriverDashboardActivity extends Activity {
                 }
             } catch (Exception ignored) {}
             try { activeJson = get(SERVER + "getActiveDriverOrder.php?driver=" + enc(username) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
-            try { ordersJson = get(SERVER + "getOrders.php?driver=" + enc(username) + "&driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
-            try { pickupJson = get(SERVER + "driver_get_pickup_orders.php?driver=" + enc(username) + "&driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
+
+            /*
+             * FIX UTAMA:
+             * Food setelah merchant accept status-nya biasanya merchant_accepted
+             * dan driver ada di kolom offered_driver.
+             * Endpoint lama getOrders.php sering hanya membaca order ride biasa,
+             * sehingga food/pickup tidak muncul di dashboard native.
+             */
+            try { ordersJson = get(SERVER + "driver_get_unified_orders.php?driver=" + enc(username) + "&username=" + enc(username) + "&driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
+
+            /*
+             * Backup khusus pickup. Jika unified endpoint belum ter-upload,
+             * pickup tetap bisa dibaca dari endpoint ini.
+             */
+            try { pickupJson = get(SERVER + "driver_get_pickup_orders.php?driver=" + enc(username) + "&username=" + enc(username) + "&driver_type=" + enc(driverType) + "&v=" + System.currentTimeMillis()); } catch (Exception ignored) {}
 
             final String fBalance = balanceJson, fStatus = statusJson, fActive = activeJson, fOrders = ordersJson, fPickup = pickupJson, fDash = dashJson;
             mainHandler.post(() -> {
@@ -297,7 +310,7 @@ public class DriverDashboardActivity extends Activity {
                 if (progressBar != null) progressBar.setVisibility(View.GONE);
                 showStatus(fStatus);
                 showBalance(fBalance, fDash);
-                showActive(fActive);
+                showActive(fActive, fOrders);
                 showOffers(fOrders, fPickup);
             });
         }).start();
@@ -383,16 +396,37 @@ public class DriverDashboardActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
-    private void showActive(String json) {
+    private void showActive(String activeJson, String unifiedJson) {
         activeBox.removeAllViews();
+
+        /*
+         * Coba baca active order dari endpoint unified dulu,
+         * karena pickup_orders dan food merchant_accepted/taken tidak selalu
+         * terbaca oleh getActiveDriverOrder.php lama.
+         */
         try {
-            JSONObject o = new JSONObject(json);
+            JSONObject u = new JSONObject(unifiedJson);
+            JSONArray activeArr = u.optJSONArray("active_orders");
+            if (u.optBoolean("success", false) && activeArr != null && activeArr.length() > 0) {
+                JSONObject order = activeArr.optJSONObject(0);
+                if (order != null) {
+                    String table = normalizeTable(firstNonEmpty(order.optString("source"), order.optString("_transiva_table"), "orders"));
+                    activeBox.addView(orderCard(order, true, table));
+                    return;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            JSONObject o = new JSONObject(activeJson);
             JSONObject order = o.optJSONObject("order");
             if (o.optBoolean("success", false) && order != null) {
-                activeBox.addView(orderCard(order, true, "orders"));
+                String table = normalizeTable(firstNonEmpty(order.optString("source"), order.optString("_transiva_table"), "orders"));
+                activeBox.addView(orderCard(order, true, table));
                 return;
             }
         } catch (Exception ignored) {}
+
         activeBox.addView(emptyCard("Belum ada order aktif."));
     }
 
@@ -409,7 +443,7 @@ public class DriverDashboardActivity extends Activity {
         }
 
         Set<String> freshKeys = new HashSet<>();
-        readOffersIntoStableCache(ordersJson, "orders", freshKeys);
+        readOffersIntoStableCache(ordersJson, "auto", freshKeys);
         readOffersIntoStableCache(pickupJson, "pickup_orders", freshKeys);
         ageMissingOffers(freshKeys);
 
@@ -434,7 +468,8 @@ public class DriverDashboardActivity extends Activity {
     private void readOffersIntoStableCache(String json, String table, Set<String> freshKeys) {
         try {
             JSONObject obj = new JSONObject(json);
-            JSONArray arr = obj.optJSONArray("orders");
+            JSONArray arr = obj.optJSONArray("offer_orders");
+            if (arr == null) arr = obj.optJSONArray("orders");
             if (arr == null) arr = obj.optJSONArray("pickup_orders");
 
             if (!obj.optBoolean("success", false) || arr == null) return;
@@ -446,19 +481,37 @@ public class DriverDashboardActivity extends Activity {
                 String id = offerId(order);
                 if (id.length() == 0) continue;
 
-                String key = table + "-" + id;
+                String realTable = "auto".equals(table)
+                        ? normalizeTable(firstNonEmpty(order.optString("source"), order.optString("_transiva_table"), "orders"))
+                        : normalizeTable(table);
+
+                String status = safe(order.optString("status", "")).toLowerCase(Locale.US);
+                if (status.equals("taken") ||
+                        status.equals("driver_accepted") ||
+                        status.equals("arrived_pickup") ||
+                        status.equals("picked_up") ||
+                        status.equals("on_delivery") ||
+                        status.equals("arrived_delivery") ||
+                        status.equals("finished") ||
+                        status.equals("completed") ||
+                        status.equals("cancelled") ||
+                        status.equals("canceled")) {
+                    continue;
+                }
+
+                String key = realTable + "-" + id;
                 freshKeys.add(key);
 
                 try {
-                    order.put("_transiva_table", table);
+                    order.put("_transiva_table", realTable);
                 } catch (Exception ignored) {}
 
                 stableOfferMap.put(key, order);
-                stableTableMap.put(key, table);
+                stableTableMap.put(key, realTable);
                 stableMissingMap.put(key, 0);
 
                 if (!notifiedIds.contains(key)) {
-                    if (firstLoadDone) showOrderNotification(order, table);
+                    if (firstLoadDone) showOrderNotification(order, realTable);
                     notifiedIds.add(key);
                 }
             }
@@ -721,6 +774,12 @@ public class DriverDashboardActivity extends Activity {
     private String enc(String v) { try { return URLEncoder.encode(v == null ? "" : v, "UTF-8"); } catch (Exception e) { return ""; } }
     private String safe(String v) { return v == null ? "" : v.trim(); }
     private String firstNonEmpty(String... vals) { if (vals == null) return ""; for (String v : vals) if (v != null && v.trim().length() > 0 && !"null".equalsIgnoreCase(v.trim())) return v.trim(); return ""; }
+    private String normalizeTable(String table) {
+        table = safe(table).toLowerCase(Locale.US);
+        if (table.contains("pickup")) return "pickup_orders";
+        return "orders";
+    }
+
     private String driverLabel() { return "car".equals(driverType) ? "Driver Mobil" : "Driver Motor"; }
     private void showInfo(String title, String msg) { try { new AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); } catch (Exception ignored) {} }
     private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density + 0.5f); }
