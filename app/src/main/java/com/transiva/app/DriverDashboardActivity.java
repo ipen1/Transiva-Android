@@ -57,9 +57,17 @@ public class DriverDashboardActivity extends Activity {
     private static final int REQ_NOTIFICATION = 8701;
     private static final String CHANNEL_ORDER = "transiva_driver_orders";
     private static final String CHANNEL_BALANCE = "transiva_driver_balance";
-    private static final int OFFER_MISSING_LIMIT = 12;
+    /*
+     * Real-time dashboard fix:
+     * Jika customer cancel, endpoint server tidak lagi mengembalikan order itu.
+     * Versi lama menunggu 12x refresh @5 detik, sehingga hilang 25-60 detik.
+     * Versi ini refresh 2 detik dan cache hanya tahan 2 miss, jadi order cancel
+     * hilang sekitar 2-4 detik tanpa membuat tawaran kedip terlalu agresif.
+     */
+    private static final int OFFER_MISSING_LIMIT = 2;
     private static final int OFFER_MAX_CACHE = 20;
-    private static final long ASSIGN_MIN_INTERVAL_MS = 12000L;
+    private static final long ASSIGN_MIN_INTERVAL_MS = 10000L;
+    private static final long REFRESH_INTERVAL_MS = 2000L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private SessionManager sessionManager;
@@ -85,7 +93,7 @@ public class DriverDashboardActivity extends Activity {
     private final Runnable refreshRunnable = new Runnable() {
         @Override public void run() {
             refreshDriverData(false);
-            mainHandler.postDelayed(this, 5000);
+            mainHandler.postDelayed(this, REFRESH_INTERVAL_MS);
         }
     };
 
@@ -109,7 +117,7 @@ public class DriverDashboardActivity extends Activity {
         super.onResume();
         mainHandler.removeCallbacks(refreshRunnable);
         refreshDriverData(false);
-        mainHandler.postDelayed(refreshRunnable, 5000);
+        mainHandler.postDelayed(refreshRunnable, REFRESH_INTERVAL_MS);
     }
 
     @Override protected void onPause() {
@@ -495,7 +503,8 @@ public class DriverDashboardActivity extends Activity {
                         status.equals("finished") ||
                         status.equals("completed") ||
                         status.equals("cancelled") ||
-                        status.equals("canceled")) {
+                        status.equals("canceled") ||
+                        status.equals("merchant_rejected")) {
                     continue;
                 }
 
@@ -542,7 +551,9 @@ public class DriverDashboardActivity extends Activity {
                     status.equals("cancelled") ||
                     status.equals("canceled") ||
                     status.equals("taken") ||
-                    status.equals("merchant_rejected");
+                    status.equals("merchant_rejected") ||
+                    status.equals("expired") ||
+                    status.equals("rejected");
 
             if (finishedOrTakenByOther || miss >= OFFER_MISSING_LIMIT) {
                 stableOfferMap.remove(key);

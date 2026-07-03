@@ -99,7 +99,7 @@ public class CustomerDashboardActivity extends Activity {
         @Override public void run() {
             if (!statusPollingActive) return;
             loadOrderStatus();
-            mainHandler.postDelayed(this, 5000);
+            mainHandler.postDelayed(this, 2500);
         }
     };
 
@@ -158,7 +158,7 @@ public class CustomerDashboardActivity extends Activity {
         statusPollingActive = true;
         mainHandler.removeCallbacks(orderStatusRunnable);
         loadOrderStatus();
-        mainHandler.postDelayed(orderStatusRunnable, 5000);
+        mainHandler.postDelayed(orderStatusRunnable, 2500);
     }
 
     private void stopOrderStatusPolling() {
@@ -881,8 +881,9 @@ public class CustomerDashboardActivity extends Activity {
 
                 if (userId > 0) {
                     String url = BASE_URL
-                            + "server/get_user_orders.php?user_id="
+                            + "server/customer_get_active_orders.php?user_id="
                             + userId
+                            + "&username=" + Uri.encode(username)
                             + "&_="
                             + System.currentTimeMillis();
 
@@ -949,7 +950,9 @@ public class CustomerDashboardActivity extends Activity {
             JSONObject payload = new JSONObject();
             payload.put("order_id", orderId);
 
-            JSONObject res = postJson(BASE_URL + "server/check_order_status.php", payload);
+            payload.put("table", firstNonEmpty(getStringPref("active_order_table"), getStringPref("active_order_kind"), ""));
+
+            JSONObject res = postJson(BASE_URL + "server/customer_check_order_status.php", payload);
             if (!res.optBoolean("success", false)) return null;
 
             JSONObject order = res.optJSONObject("order");
@@ -1045,6 +1048,8 @@ public class CustomerDashboardActivity extends Activity {
 
         SharedPreferences.Editor e = getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit();
         e.putString("active_order_id", orderId);
+        e.putString("active_order_table", detectOrderTable(order));
+        e.putString("active_order_kind", detectOrderTable(order).equals("pickup_orders") ? "pickup" : "orders");
         e.putString("order_status", firstNonEmpty(order.optString("status"), ""));
         e.putString("pickup_lat", firstNonEmpty(order.optString("pickup_lat"), order.optString("user_lat"), getStringPref("pickup_lat")));
         e.putString("pickup_lng", firstNonEmpty(order.optString("pickup_lng"), order.optString("user_lng"), getStringPref("pickup_lng")));
@@ -1072,6 +1077,11 @@ public class CustomerDashboardActivity extends Activity {
         String status = order.optString("status", "").toLowerCase(Locale.US).trim();
         String driver = firstNonEmpty(order.optString("driver"), order.optString("driver_username"), "Driver");
         String orderType = order.optString("order_type", "").toLowerCase(Locale.US).trim();
+        boolean isPickup = detectOrderTable(order).equals("pickup_orders")
+                || orderType.equals("pickup")
+                || orderType.equals("transpickup")
+                || order.optString("service_type", "").equalsIgnoreCase("TransPickup")
+                || order.optString("service_name", "").equalsIgnoreCase("TransPickup");
 
         boolean isCar = orderType.equals("passenger_car")
                 || orderType.equals("transcar")
@@ -1088,27 +1098,27 @@ public class CustomerDashboardActivity extends Activity {
         }
 
         if (status.equals("merchant_accepted")) {
-            return "Order #" + orderId + "\n✅ Pesanan diterima merchant. Menunggu driver mengambil pesanan.";
+            return serviceLabel + " #" + orderId + "\n✅ Pesanan diterima merchant. Menunggu driver mengambil pesanan.";
         }
 
         if (status.equals("taken")) {
-            return "Order #" + orderId + "\n" + vehicle + " " + driver + " sedang menuju lokasi pickup.";
+            return serviceLabel + " #" + orderId + "\n" + vehicle + " " + driver + " sedang menuju lokasi pickup.";
         }
 
         if (status.equals("arrived_pickup")) {
-            return "Order #" + orderId + "\n✅ " + driver + " sudah tiba di lokasi pickup.";
+            return serviceLabel + " #" + orderId + "\n✅ " + driver + " sudah tiba di lokasi pickup.";
         }
 
         if (status.equals("on_delivery")) {
-            return "Order #" + orderId + "\n" + vehicle + " " + driver + " sedang menuju lokasi tujuan.";
+            return serviceLabel + " #" + orderId + "\n" + vehicle + " " + driver + " sedang menuju lokasi tujuan.";
         }
 
         if (status.equals("arrived_delivery")) {
             String payInfo = buildPaymentInfo(order);
-            return "Order #" + orderId + "\n🏁 Driver sudah tiba di lokasi tujuan." + payInfo + "\nSilakan tekan Terima Pesanan jika pesanan sudah diterima.";
+            return serviceLabel + " #" + orderId + "\n🏁 Driver sudah tiba di lokasi tujuan." + payInfo + "\nSilakan tekan Terima Pesanan jika pesanan sudah diterima.";
         }
 
-        return "Order #" + orderId + "\nStatus: " + firstNonEmpty(status, "-");
+        return serviceLabel + " #" + orderId + "\nStatus: " + firstNonEmpty(status, "-");
     }
 
     private void buildOrderActionButtons(JSONObject order) {
@@ -1125,7 +1135,7 @@ public class CustomerDashboardActivity extends Activity {
 
         if (status.equals("pending") || status.equals("merchant_accepted")) {
             Button cancel = dangerButton("Batalkan Order");
-            cancel.setOnClickListener(v -> confirmCancelOrder(orderId));
+            cancel.setOnClickListener(v -> confirmCancelOrder(orderId, detectOrderTable(order)));
             statusActionsBox.addView(cancel, new LinearLayout.LayoutParams(-1, dp(48)));
             return;
         }
@@ -1257,16 +1267,18 @@ public class CustomerDashboardActivity extends Activity {
         }).start();
     }
 
-    private void confirmCancelOrder(String orderId) {
+    private void confirmCancelOrder(String orderId, String table) {
         new AlertDialog.Builder(this)
                 .setTitle("Batalkan Order")
-                .setMessage("Yakin ingin membatalkan order ini?\n\nOrder yang dibatalkan tidak bisa dilanjutkan kembali.")
+                .setMessage("Yakin ingin membatalkan order ini?
+
+Order yang dibatalkan tidak bisa dilanjutkan kembali.")
                 .setNegativeButton("Tidak", null)
-                .setPositiveButton("Ya", (d, w) -> cancelOrder(orderId))
+                .setPositiveButton("Ya", (d, w) -> cancelOrder(orderId, table))
                 .show();
     }
 
-    private void cancelOrder(String orderId) {
+    private void cancelOrder(String orderId, String table) {
         if (orderId == null || orderId.trim().length() == 0) {
             showInfo("Gagal", "Order ID tidak ditemukan.");
             return;
@@ -1278,6 +1290,9 @@ public class CustomerDashboardActivity extends Activity {
             try {
                 JSONObject payload = new JSONObject();
                 payload.put("order_id", orderId);
+                payload.put("table", firstNonEmpty(table, getStringPref("active_order_table"), ""));
+                payload.put("user_id", userId);
+                payload.put("username", username);
 
                 JSONObject res = postJson(BASE_URL + "server/cancel_order.php", payload);
                 boolean ok = res.optBoolean("success", false);
@@ -1343,7 +1358,7 @@ public class CustomerDashboardActivity extends Activity {
         intent.putExtra("delivery_lng", deliveryLng);
         intent.putExtra("driver_type", driverType);
         intent.putExtra("active_driver_type", driverType);
-        intent.putExtra("active_order_type", driverType.equals("car") ? "Transcar" : "TransRide");
+        intent.putExtra("active_order_type", detectOrderTable(order).equals("pickup_orders") ? "TransPickup" : (driverType.equals("car") ? "Transcar" : "TransRide"));
         startActivity(intent);
     }
 
@@ -1410,9 +1425,29 @@ public class CustomerDashboardActivity extends Activity {
         return clean;
     }
 
+    private String detectOrderTable(JSONObject order) {
+        if (order == null) return "orders";
+        String table = firstNonEmpty(
+                order.optString("_transiva_table"),
+                order.optString("source"),
+                order.optString("table"),
+                order.optString("order_table"),
+                getStringPref("active_order_table"),
+                "orders"
+        ).toLowerCase(Locale.US).trim();
+        String orderType = firstNonEmpty(
+                order.optString("order_type"),
+                order.optString("service_type"),
+                order.optString("service_name")
+        ).toLowerCase(Locale.US).trim();
+        if (table.contains("pickup") || orderType.contains("pickup")) return "pickup_orders";
+        return "orders";
+    }
+
     private String detectDriverType(JSONObject order) {
         String type = firstNonEmpty(
                 order.optString("driver_type"),
+                order.optString("vehicle_type"),
                 order.optString("service_type"),
                 order.optString("service_name"),
                 order.optString("order_type"),
@@ -1446,6 +1481,8 @@ public class CustomerDashboardActivity extends Activity {
                 .edit()
                 .remove("active_order_id")
                 .remove("active_order")
+                .remove("active_order_table")
+                .remove("active_order_kind")
                 .remove("order_status")
                 .remove("pickup_lat")
                 .remove("pickup_lng")
