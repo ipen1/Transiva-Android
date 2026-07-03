@@ -99,7 +99,7 @@ public class CustomerDashboardActivity extends Activity {
         @Override public void run() {
             if (!statusPollingActive) return;
             loadOrderStatus();
-            mainHandler.postDelayed(this, 2500);
+            mainHandler.postDelayed(this, 2000);
         }
     };
 
@@ -158,7 +158,7 @@ public class CustomerDashboardActivity extends Activity {
         statusPollingActive = true;
         mainHandler.removeCallbacks(orderStatusRunnable);
         loadOrderStatus();
-        mainHandler.postDelayed(orderStatusRunnable, 2500);
+        mainHandler.postDelayed(orderStatusRunnable, 2000);
     }
 
     private void stopOrderStatusPolling() {
@@ -879,7 +879,7 @@ public class CustomerDashboardActivity extends Activity {
                     loadSession();
                 }
 
-                if (userId > 0) {
+                if (userId > 0 || firstNonEmpty(username, "").length() > 0) {
                     String url = BASE_URL
                             + "server/customer_get_active_orders.php?user_id="
                             + userId
@@ -939,7 +939,7 @@ public class CustomerDashboardActivity extends Activity {
                 if (newKey.length() > 0 && lastOrderStatusKey.length() > 0 && !newKey.equals(lastOrderStatusKey)) {
                     showLocalNotification("Update Pesanan", finalText);
                 }
-                if (newKey.length() > 0) lastOrderStatusKey = newKey;
+                lastOrderStatusKey = newKey;
                 buildOrderActionButtons(finalOrder);
             });
         }).start();
@@ -949,7 +949,6 @@ public class CustomerDashboardActivity extends Activity {
         try {
             JSONObject payload = new JSONObject();
             payload.put("order_id", orderId);
-
             payload.put("table", firstNonEmpty(getStringPref("active_order_table"), getStringPref("active_order_kind"), ""));
 
             JSONObject res = postJson(BASE_URL + "server/customer_check_order_status.php", payload);
@@ -1001,10 +1000,13 @@ public class CustomerDashboardActivity extends Activity {
             copyIfExists(res, order, "delivery_lat");
             copyIfExists(res, order, "delivery_lng");
             copyIfExists(res, order, "driver_type");
+            copyIfExists(res, order, "vehicle_type");
             copyIfExists(res, order, "order_type");
             copyIfExists(res, order, "service_type");
             copyIfExists(res, order, "service_name");
             copyIfExists(res, order, "price_mode");
+            copyIfExists(res, order, "source");
+            copyIfExists(res, order, "_transiva_table");
 
             return order;
         } catch (Exception e) {
@@ -1046,19 +1048,21 @@ public class CustomerDashboardActivity extends Activity {
         String orderId = firstNonEmpty(order.optString("order_id"), order.optString("id"));
         if (orderId.length() == 0) return;
 
+        String table = detectOrderTable(order);
+        String driverType = detectDriverType(order);
+
         SharedPreferences.Editor e = getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit();
         e.putString("active_order_id", orderId);
-        e.putString("active_order_table", detectOrderTable(order));
-        e.putString("active_order_kind", detectOrderTable(order).equals("pickup_orders") ? "pickup" : "orders");
+        e.putString("active_order_table", table);
+        e.putString("active_order_kind", table.equals("pickup_orders") ? "pickup" : "orders");
         e.putString("order_status", firstNonEmpty(order.optString("status"), ""));
         e.putString("pickup_lat", firstNonEmpty(order.optString("pickup_lat"), order.optString("user_lat"), getStringPref("pickup_lat")));
         e.putString("pickup_lng", firstNonEmpty(order.optString("pickup_lng"), order.optString("user_lng"), getStringPref("pickup_lng")));
         e.putString("delivery_lat", firstNonEmpty(order.optString("delivery_lat"), getStringPref("delivery_lat")));
         e.putString("delivery_lng", firstNonEmpty(order.optString("delivery_lng"), getStringPref("delivery_lng")));
-        String driverType = detectDriverType(order);
         e.putString("active_driver_type", driverType);
-        e.putString("active_order_type", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("order_type"), "TransRide"));
-        e.putString("active_service_name", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("service_name"), ""));
+        e.putString("active_order_type", table.equals("pickup_orders") ? "TransPickup" : (driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("order_type"), "TransRide")));
+        e.putString("active_service_name", table.equals("pickup_orders") ? "TransPickup" : (driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("service_name"), "")));
         e.apply();
     }
 
@@ -1076,12 +1080,9 @@ public class CustomerDashboardActivity extends Activity {
         String orderId = firstNonEmpty(order.optString("order_id"), order.optString("id"), "-");
         String status = order.optString("status", "").toLowerCase(Locale.US).trim();
         String driver = firstNonEmpty(order.optString("driver"), order.optString("driver_username"), "Driver");
+        String table = detectOrderTable(order);
         String orderType = order.optString("order_type", "").toLowerCase(Locale.US).trim();
-        boolean isPickup = detectOrderTable(order).equals("pickup_orders")
-                || orderType.equals("pickup")
-                || orderType.equals("transpickup")
-                || order.optString("service_type", "").equalsIgnoreCase("TransPickup")
-                || order.optString("service_name", "").equalsIgnoreCase("TransPickup");
+        boolean isPickup = table.equals("pickup_orders");
 
         boolean isCar = orderType.equals("passenger_car")
                 || orderType.equals("transcar")
@@ -1089,12 +1090,14 @@ public class CustomerDashboardActivity extends Activity {
                 || orderType.equals("mobil")
                 || order.optString("service_type", "").equalsIgnoreCase("Transcar")
                 || order.optString("service_name", "").equalsIgnoreCase("Transcar")
-                || order.optString("driver_type", "").equalsIgnoreCase("car");
+                || order.optString("driver_type", "").equalsIgnoreCase("car")
+                || order.optString("vehicle_type", "").equalsIgnoreCase("car");
 
+        String serviceLabel = isPickup ? "TransPickup" : (isCar ? "TransCar" : firstNonEmpty(order.optString("service_name"), order.optString("service_type"), "TransRide"));
         String vehicle = isCar ? "🚗" : "🛵";
 
         if (status.equals("pending")) {
-            return "Order #" + orderId + "\n⏳ Menunggu " + (isCar ? "driver mobil" : "kurir") + " menerima orderan.";
+            return serviceLabel + " #" + orderId + "\n⏳ Menunggu " + (isCar ? "driver mobil" : "kurir") + " menerima orderan.";
         }
 
         if (status.equals("merchant_accepted")) {
@@ -1109,7 +1112,11 @@ public class CustomerDashboardActivity extends Activity {
             return serviceLabel + " #" + orderId + "\n✅ " + driver + " sudah tiba di lokasi pickup.";
         }
 
-        if (status.equals("on_delivery")) {
+        if (status.equals("picked_up")) {
+            return serviceLabel + " #" + orderId + "\n📦 Paket/pesanan sudah diambil driver.";
+        }
+
+        if (status.equals("on_delivery") || status.equals("on_trip")) {
             return serviceLabel + " #" + orderId + "\n" + vehicle + " " + driver + " sedang menuju lokasi tujuan.";
         }
 
@@ -1142,7 +1149,9 @@ public class CustomerDashboardActivity extends Activity {
 
         if (status.equals("taken")
                 || status.equals("arrived_pickup")
+                || status.equals("picked_up")
                 || status.equals("on_delivery")
+                || status.equals("on_trip")
                 || status.equals("arrived_delivery")) {
 
             Button trip = primaryButton("🗺️ Lihat Status Perjalanan Driver");
@@ -1270,9 +1279,7 @@ public class CustomerDashboardActivity extends Activity {
     private void confirmCancelOrder(String orderId, String table) {
         new AlertDialog.Builder(this)
                 .setTitle("Batalkan Order")
-                .setMessage("Yakin ingin membatalkan order ini?
-
-Order yang dibatalkan tidak bisa dilanjutkan kembali.")
+                .setMessage("Yakin ingin membatalkan order ini?\n\nOrder yang dibatalkan tidak bisa dilanjutkan kembali.")
                 .setNegativeButton("Tidak", null)
                 .setPositiveButton("Ya", (d, w) -> cancelOrder(orderId, table))
                 .show();
@@ -1307,6 +1314,8 @@ Order yang dibatalkan tidak bisa dilanjutkan kembali.")
 
                     if (ok) {
                         clearActiveOrderPrefs();
+                        if (statusText != null) statusText.setText("Belum ada pesanan aktif");
+                        buildOrderActionButtons(null);
                         loadOrderStatus();
                     }
                 });
@@ -1345,8 +1354,8 @@ Order yang dibatalkan tidak bisa dilanjutkan kembali.")
         e.putString("delivery_lng", deliveryLng);
         String driverType = detectDriverType(order);
         e.putString("active_driver_type", driverType);
-        e.putString("active_order_type", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("order_type"), "TransRide"));
-        e.putString("active_service_name", driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("service_name"), ""));
+        e.putString("active_order_type", detectOrderTable(order).equals("pickup_orders") ? "TransPickup" : (driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("order_type"), "TransRide")));
+        e.putString("active_service_name", detectOrderTable(order).equals("pickup_orders") ? "TransPickup" : (driverType.equals("car") ? "Transcar" : firstNonEmpty(order.optString("service_name"), "")));
         e.apply();
 
         Intent intent = new Intent(this, CustomerTripActivity.class);
@@ -1426,21 +1435,18 @@ Order yang dibatalkan tidak bisa dilanjutkan kembali.")
     }
 
     private String detectOrderTable(JSONObject order) {
-        if (order == null) return "orders";
+        if (order == null) return firstNonEmpty(getStringPref("active_order_table"), "orders");
         String table = firstNonEmpty(
                 order.optString("_transiva_table"),
                 order.optString("source"),
-                order.optString("table"),
-                order.optString("order_table"),
-                getStringPref("active_order_table"),
-                "orders"
+                getStringPref("active_order_table")
         ).toLowerCase(Locale.US).trim();
-        String orderType = firstNonEmpty(
+        String type = firstNonEmpty(
                 order.optString("order_type"),
                 order.optString("service_type"),
                 order.optString("service_name")
         ).toLowerCase(Locale.US).trim();
-        if (table.contains("pickup") || orderType.contains("pickup")) return "pickup_orders";
+        if (table.contains("pickup") || type.contains("pickup")) return "pickup_orders";
         return "orders";
     }
 
