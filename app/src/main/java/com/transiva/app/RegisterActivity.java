@@ -55,6 +55,7 @@ public class RegisterActivity extends Activity {
 
     private EditText usernameInput;
     private EditText emailInput;
+    private EditText phoneInput;
     private EditText otpInput;
     private EditText passwordInput;
     private EditText confirmPasswordInput;
@@ -151,6 +152,11 @@ public class RegisterActivity extends Activity {
         emailInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
         card.addView(emailInput, fieldLp());
 
+        card.addView(label("No HP"));
+        phoneInput = phoneInput("81234567890");
+        phoneInput.setImeOptions(EditorInfo.IME_ACTION_NEXT);
+        card.addView(phoneInput, fieldLp());
+
         sendOtpBtn = secondaryButton("Kirim OTP");
         LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(-1, dp(44));
         sendLp.setMargins(0, 0, 0, dp(10));
@@ -238,6 +244,17 @@ public class RegisterActivity extends Activity {
             @Override public void afterTextChanged(android.text.Editable s) {
                 String currentEmail = cleanEmail(s.toString());
                 if (!lastEmail.isEmpty() && !currentEmail.equals(lastEmail)) resetOtpState();
+            }
+        });
+
+        phoneInput.addTextChangedListener(new SimpleTextWatcher() {
+            @Override public void afterTextChanged(android.text.Editable s) {
+                String raw = s == null ? "" : s.toString();
+                String clean = cleanPhoneForInput(raw);
+                if (!clean.equals(raw)) {
+                    phoneInput.setText(clean);
+                    phoneInput.setSelection(clean.length());
+                }
             }
         });
 
@@ -354,13 +371,15 @@ public class RegisterActivity extends Activity {
         clearMessage();
         String username = cleanUsername(usernameInput.getText().toString());
         String email = cleanEmail(emailInput.getText().toString());
+        String phone = normalizePhone62(phoneInput.getText().toString());
         String password = passwordInput.getText().toString().trim();
         String confirmPassword = confirmPasswordInput.getText().toString().trim();
 
-        if (username.isEmpty() || email.isEmpty() || password.isEmpty() || confirmPassword.isEmpty()) { showMessage("Semua field wajib diisi", false); return; }
+        if (username.isEmpty() || email.isEmpty() || phone.isEmpty() || password.isEmpty() || confirmPassword.isEmpty()) { showMessage("Semua field wajib diisi", false); return; }
         if (username.length() < 3) { showMessage("Nama Pengguna minimal 3 karakter", false); return; }
         if (!USERNAME_PATTERN.matcher(username).matches()) { showMessage("Nama Pengguna hanya boleh huruf, angka, titik, strip, dan underscore", false); return; }
         if (!isValidEmail(email)) { showMessage("Format email tidak valid", false); return; }
+        if (!isValidPhone62(phone)) { showMessage("No HP tidak valid. Contoh: 81234567890", false); return; }
         if (password.length() < 5) { showMessage("Kata Sandi minimal 5 karakter", false); return; }
         if (!password.equals(confirmPassword)) { showMessage("Konfirmasi Kata Sandi tidak cocok", false); return; }
 
@@ -373,6 +392,9 @@ public class RegisterActivity extends Activity {
                 JSONObject payload = new JSONObject();
                 payload.put("username", username);
                 payload.put("email", email);
+                payload.put("phone", phone);
+                payload.put("no_hp", phone);
+                payload.put("phone_number", phone);
                 payload.put("password", password);
                 payload.put("role", "customer");
                 payload.put("email_verified", emailVerified);
@@ -464,6 +486,7 @@ public class RegisterActivity extends Activity {
         progressBar.setVisibility(value ? View.VISIBLE : View.GONE);
         usernameInput.setEnabled(!value);
         emailInput.setEnabled(!value || otpVerified);
+        phoneInput.setEnabled(!value);
         otpInput.setEnabled(!value && !otpVerified);
         passwordInput.setEnabled(!value);
         confirmPasswordInput.setEnabled(!value);
@@ -510,6 +533,14 @@ public class RegisterActivity extends Activity {
         et.setFilters(new InputFilter[]{new InputFilter.LengthFilter(maxLength)});
         et.setPadding(dp(16), 0, dp(16), 0);
         et.setBackground(roundStroke("#FFFFFF", "#D8E1ED", dp(16), 1));
+        return et;
+    }
+
+    private EditText phoneInput(String hint) {
+        EditText et = input(hint, InputType.TYPE_CLASS_PHONE, 15);
+        et.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
+        et.setText("");
+        et.setHint(hint);
         return et;
     }
 
@@ -567,6 +598,26 @@ public class RegisterActivity extends Activity {
 
     private String cleanEmail(String value) {
         return String.valueOf(value == null ? "" : value).trim().toLowerCase(Locale.US);
+    }
+
+    private String cleanPhoneForInput(String value) {
+        String digits = String.valueOf(value == null ? "" : value).replaceAll("\\D", "");
+        if (digits.startsWith("62")) digits = digits.substring(2);
+        if (digits.startsWith("0")) digits = digits.substring(1);
+        if (digits.length() > 13) digits = digits.substring(0, 13);
+        return digits;
+    }
+
+    private String normalizePhone62(String value) {
+        String digits = String.valueOf(value == null ? "" : value).replaceAll("\\D", "");
+        if (digits.startsWith("0")) digits = digits.substring(1);
+        if (digits.startsWith("62")) return digits;
+        return digits.length() == 0 ? "" : "62" + digits;
+    }
+
+    private boolean isValidPhone62(String phone) {
+        String clean = normalizePhone62(phone);
+        return clean.matches("^62[0-9]{9,13}$");
     }
 
     private void openLogin() {
