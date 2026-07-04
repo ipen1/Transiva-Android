@@ -238,6 +238,11 @@
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
         <activity
+            android:name=".DriverNavigationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+        <activity
             android:name=".DriverLeafletNavigationActivity"
             android:exported="false"
             android:screenOrientation="portrait"
