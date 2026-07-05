@@ -10,6 +10,9 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -55,6 +58,7 @@ public class DriverDashboardActivity extends Activity {
     private static final String SERVER = BASE_URL + "server/";
     private static final int TIMEOUT_MS = 15000;
     private static final int REQ_NOTIFICATION = 8701;
+    private static final int REQ_LOCATION = 8702;
     private static final String CHANNEL_ORDER = "transiva_driver_orders";
     private static final String CHANNEL_BALANCE = "transiva_driver_balance";
     /*
@@ -68,8 +72,10 @@ public class DriverDashboardActivity extends Activity {
     private static final int OFFER_MAX_CACHE = 20;
     private static final long ASSIGN_MIN_INTERVAL_MS = 10000L;
     private static final long REFRESH_INTERVAL_MS = 2000L;
+    private static final long LOCATION_INTERVAL_MS = 5000L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private LocationManager locationManager;
     private SessionManager sessionManager;
 
     private LinearLayout root, orderBox, activeBox;
@@ -90,6 +96,24 @@ public class DriverDashboardActivity extends Activity {
     private final Map<String, Integer> stableMissingMap = new LinkedHashMap<>();
     private final Map<String, String> stableTableMap = new LinkedHashMap<>();
 
+
+    private final LocationListener locationListener = new LocationListener() {
+        @Override public void onLocationChanged(Location location) {
+            sendDriverLocation(location);
+        }
+
+        @Override public void onProviderEnabled(String provider) {}
+        @Override public void onProviderDisabled(String provider) {}
+        @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
+    };
+
+    private final Runnable locationRunnable = new Runnable() {
+        @Override public void run() {
+            updateDriverLocation();
+            mainHandler.postDelayed(this, LOCATION_INTERVAL_MS);
+        }
+    };
+
     private final Runnable refreshRunnable = new Runnable() {
         @Override public void run() {
             refreshDriverData(false);
@@ -106,9 +130,11 @@ public class DriverDashboardActivity extends Activity {
         } catch (Exception ignored) {}
 
         sessionManager = new SessionManager(this);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         loadSession();
         createChannels();
         askNotificationPermissionIfNeeded();
+        askLocationPermissionIfNeeded();
         buildUi();
         refreshDriverData(true);
     }
@@ -116,17 +142,21 @@ public class DriverDashboardActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         mainHandler.removeCallbacks(refreshRunnable);
+        mainHandler.removeCallbacks(locationRunnable);
         refreshDriverData(false);
+        startLocationUpdate();
         mainHandler.postDelayed(refreshRunnable, REFRESH_INTERVAL_MS);
     }
 
     @Override protected void onPause() {
         mainHandler.removeCallbacks(refreshRunnable);
+        stopLocationUpdate();
         super.onPause();
     }
 
     @Override protected void onDestroy() {
         mainHandler.removeCallbacks(refreshRunnable);
+        stopLocationUpdate();
         super.onDestroy();
     }
 
@@ -643,6 +673,94 @@ public class DriverDashboardActivity extends Activity {
         }
     }
 
+    private void askLocationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 23) {
+            try {
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private boolean hasLocationPermission() {
+        if (Build.VERSION.SDK_INT < 23) return true;
+        try {
+            return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void startLocationUpdate() {
+        stopLocationUpdate();
+        updateDriverLocation();
+        mainHandler.postDelayed(locationRunnable, LOCATION_INTERVAL_MS);
+
+        if (!hasLocationPermission() || locationManager == null) return;
+
+        try {
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, LOCATION_INTERVAL_MS, 0, locationListener);
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, LOCATION_INTERVAL_MS, 0, locationListener);
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void stopLocationUpdate() {
+        mainHandler.removeCallbacks(locationRunnable);
+        try {
+            if (locationManager != null) locationManager.removeUpdates(locationListener);
+        } catch (Exception ignored) {}
+    }
+
+    private void updateDriverLocation() {
+        if (username.length() == 0 || "Driver".equalsIgnoreCase(username)) return;
+        if (!hasLocationPermission() || locationManager == null) return;
+
+        Location best = null;
+
+        try {
+            Location gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            if (gps != null) best = gps;
+        } catch (Exception ignored) {}
+
+        try {
+            Location net = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            if (net != null && (best == null || net.getTime() > best.getTime())) best = net;
+        } catch (Exception ignored) {}
+
+        if (best != null) sendDriverLocation(best);
+    }
+
+    private void sendDriverLocation(Location location) {
+        if (location == null) return;
+        if (username.length() == 0 || "Driver".equalsIgnoreCase(username)) return;
+
+        final double lat = location.getLatitude();
+        final double lng = location.getLongitude();
+
+        new Thread(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                payload.put("username", username);
+                payload.put("latitude", lat);
+                payload.put("longitude", lng);
+                payload.put("driver_type", driverType);
+
+                // Disamakan dengan JS DriverView.updateDriverLocation():
+                // POST server/updateDriverLocation.php { username, latitude, longitude, driver_type }
+                post(SERVER + "updateDriverLocation.php", payload);
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
     private View orderCard(JSONObject order, boolean active, String table) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -736,7 +854,7 @@ public class DriverDashboardActivity extends Activity {
                 p.put("driver_type", driverType);
                 JSONObject res = post(SERVER + "updateDriverStatus.php", p);
                 boolean ok = res.optBoolean("success", false);
-                mainHandler.post(() -> { setBusy(false, false); if (!ok) showInfo("Gagal", firstNonEmpty(res.optString("message"), "Gagal mengubah status driver.")); refreshDriverData(false); });
+                mainHandler.post(() -> { setBusy(false, false); if (!ok) { showInfo("Gagal", firstNonEmpty(res.optString("message"), "Gagal mengubah status driver.")); } else { if (online) startLocationUpdate(); else stopLocationUpdate(); } refreshDriverData(false); });
             } catch (Exception e) {
                 mainHandler.post(() -> { setBusy(false, false); showInfo("Gagal", "Koneksi gagal mengubah status driver."); refreshDriverData(false); });
             }
