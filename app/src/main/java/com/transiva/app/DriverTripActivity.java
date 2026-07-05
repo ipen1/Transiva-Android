@@ -43,11 +43,15 @@ import java.util.Locale;
 
 public class DriverTripActivity extends Activity {
     private static final String BASE_URL = "https://transiva.my.id/server/";
+    private static final String WEB_APP_URL = "https://transiva.my.id/";
     private static final String PREF_NAME = "transiva";
     private static final int TIMEOUT_MS = 20000;
     private static final float ARRIVE_RADIUS_METER = 100f;
     private static final long LOCATION_POST_INTERVAL_MS = 5000L;
     private static final float MAP_ANIMATION_MIN_DISTANCE_METER = 1.2f;
+    private static final float MAX_ACCEPTED_ACCURACY_METER = 80f;
+    private static final long MAX_LOCATION_AGE_MS = 30000L;
+    private static final float MAX_REASONABLE_JUMP_METER = 120f;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private LinearLayout root;
@@ -68,6 +72,8 @@ public class DriverTripActivity extends Activity {
     private boolean locationWatchRunning = false;
     private long lastLocationPostAt = 0L;
     private double lastPostedLat = 0, lastPostedLng = 0;
+    private Location lastAcceptedLocation = null;
+    private long lastAcceptedAt = 0L;
 
     private final Runnable locationPostRunnable = new Runnable(){
         @Override public void run(){
@@ -226,7 +232,7 @@ public class DriverTripActivity extends Activity {
                 "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(4)+','+b.toFixed(4)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Rute ke tujuan pengantaran':'Rute ke lokasi pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;var pts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});if(routeLine)map.removeLayer(routeLine);routeLine=L.polyline(pts,{weight:6,opacity:.88,color:'#087CFF'}).addTo(map);var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');map.fitBounds(routeLine.getBounds(),{padding:[44,44]});}).catch(function(){setBadge('Rute online gagal dimuat, cek internet');});}"+
                 "window.setTargetMode=function(m){targetMode=m;lastRouteKey='';if(lastDriver[0]&&lastDriver[1])drawRoute(lastDriver[0],lastDriver[1],true);};"+
                 "window.focusTarget=function(m){targetMode=m;lastRouteKey='';if(lastDriver[0]&&lastDriver[1])drawRoute(lastDriver[0],lastDriver[1],true);else{var t=targetPoint();if(t[0]&&t[1])map.setView(t,17);}};"+
-                "function lerp(x,y,t){return x+(y-x)*t;}function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}function moveDriver(a,b,deg){if(!driverMarker){driverLatLng=[a,b];lastDeg=deg||0;driverMarker=L.marker([a,b],{icon:motorIcon(lastDeg)}).addTo(map).bindPopup('Posisi Driver');return;}var from=driverLatLng||[driverMarker.getLatLng().lat,driverMarker.getLatLng().lng];var to=[a,b];var start=null;var duration=900;if(animId)cancelAnimationFrame(animId);function step(ts){if(!start)start=ts;var t=Math.min(1,(ts-start)/duration);var e=ease(t);var la=lerp(from[0],to[0],e),ln=lerp(from[1],to[1],e);driverMarker.setLatLng([la,ln]);if(t<1){animId=requestAnimationFrame(step);}else{driverLatLng=to;animId=null;}}lastDeg=deg||lastDeg;driverMarker.setIcon(motorIcon(lastDeg));animId=requestAnimationFrame(step);}window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];moveDriver(a,b,deg||lastDeg);drawRoute(a,b,false);};window.setMapReady=function(){return true;};"+
+                "function lerp(x,y,t){return x+(y-x)*t;}function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}function moveDriver(a,b,deg){if(!driverMarker){driverLatLng=[a,b];lastDeg=deg||0;driverMarker=L.marker([a,b],{icon:motorIcon(lastDeg)}).addTo(map).bindPopup('Posisi Driver');map.panTo([a,b],{animate:true,duration:.45});return;}var cur=driverMarker.getLatLng();var from=[cur.lat,cur.lng];var to=[a,b];var start=null;var duration=900;if(animId)cancelAnimationFrame(animId);function step(ts){if(!start)start=ts;var t=Math.min(1,(ts-start)/duration);var e=ease(t);var la=lerp(from[0],to[0],e),ln=lerp(from[1],to[1],e);driverLatLng=[la,ln];driverMarker.setLatLng([la,ln]);if(t<1){animId=requestAnimationFrame(step);}else{driverLatLng=to;animId=null;}}lastDeg=deg||lastDeg;driverMarker.setIcon(motorIcon(lastDeg));animId=requestAnimationFrame(step);}window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];moveDriver(a,b,deg||lastDeg);drawRoute(a,b,false);};window.setMapReady=function(){return true;};"+
                 "</script></body></html>";
     }
 
@@ -299,27 +305,71 @@ public class DriverTripActivity extends Activity {
         try{
             locationManager = (LocationManager)getSystemService(LOCATION_SERVICE); if(locationManager == null) return; stopLocationWatch();
             locationListener = new LocationListener(){ @Override public void onLocationChanged(Location l){ if(l==null)return; onDriverLocationChanged(l); } @Override public void onStatusChanged(String p,int s,Bundle e){} @Override public void onProviderEnabled(String p){} @Override public void onProviderDisabled(String p){} };
-            Location last = null;
-            try{ last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER); }catch(Exception ignored){}
-            if(last == null){ try{ last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER); }catch(Exception ignored){} }
-            if(last != null) onDriverLocationChanged(last);
-            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
-            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1500, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            Location last = getBestLastKnownLocation();
+            if(last != null && isFreshEnough(last)) onDriverLocationChanged(last);
+            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1200, 1.5f, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2500, 5f, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
             locationWatchRunning = true;
             mainHandler.removeCallbacks(locationPostRunnable);
             mainHandler.post(locationPostRunnable);
         }catch(Exception ignored){}
     }
     private void stopLocationWatch(){ try{ if(locationManager != null && locationListener != null) locationManager.removeUpdates(locationListener); }catch(Exception ignored){} locationWatchRunning = false; mainHandler.removeCallbacks(locationPostRunnable); locationListener = null; }
+    private Location getBestLastKnownLocation(){
+        Location gps = null, net = null;
+        try{ if(locationManager != null) gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER); }catch(Exception ignored){}
+        try{ if(locationManager != null) net = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER); }catch(Exception ignored){}
+        if(gps == null) return net;
+        if(net == null) return gps;
+        if(!isFreshEnough(net)) return gps;
+        if(!isFreshEnough(gps)) return net;
+        float ga = gps.hasAccuracy() ? gps.getAccuracy() : 9999f;
+        float na = net.hasAccuracy() ? net.getAccuracy() : 9999f;
+        return ga <= na ? gps : net;
+    }
+
+    private boolean isFreshEnough(Location l){
+        if(l == null) return false;
+        if(Build.VERSION.SDK_INT >= 17){
+            long age = android.os.SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos();
+            return age <= MAX_LOCATION_AGE_MS * 1000000L;
+        }
+        return System.currentTimeMillis() - l.getTime() <= MAX_LOCATION_AGE_MS;
+    }
+
+    private boolean shouldAcceptLocation(Location l){
+        if(l == null) return false;
+        if(!valid(l.getLatitude(), l.getLongitude())) return false;
+        if(!isFreshEnough(l)) return false;
+
+        float accuracy = l.hasAccuracy() ? l.getAccuracy() : 9999f;
+        boolean fromGps = LocationManager.GPS_PROVIDER.equals(l.getProvider());
+
+        if(lastAcceptedLocation == null){
+            return fromGps || accuracy <= MAX_ACCEPTED_ACCURACY_METER;
+        }
+
+        float lastAccuracy = lastAcceptedLocation.hasAccuracy() ? lastAcceptedLocation.getAccuracy() : 9999f;
+        float moved = l.distanceTo(lastAcceptedLocation);
+        long dt = Math.max(1L, l.getTime() - lastAcceptedLocation.getTime());
+        float speed = moved / (dt / 1000f);
+
+        if(accuracy > MAX_ACCEPTED_ACCURACY_METER && !fromGps) return false;
+        if(moved > MAX_REASONABLE_JUMP_METER && speed > 35f && accuracy >= lastAccuracy) return false;
+        if(!fromGps && accuracy > lastAccuracy + 25f && moved > 20f) return false;
+        return true;
+    }
+
     private void onDriverLocationChanged(Location l){
-        if(l == null) return;
+        if(!shouldAcceptLocation(l)) return;
+
         double newLat = l.getLatitude();
         double newLng = l.getLongitude();
-        if(!valid(newLat, newLng)) return;
-
         boolean firstPoint = !valid(lastDriverLat, lastDriverLng);
         float moved = firstPoint ? 999f : distanceBetween(lastDriverLat, lastDriverLng, newLat, newLng);
 
+        lastAcceptedLocation = new Location(l);
+        lastAcceptedAt = System.currentTimeMillis();
         lastDriverLat = newLat;
         lastDriverLng = newLng;
 
@@ -400,14 +450,52 @@ public class DriverTripActivity extends Activity {
         double lat = pickup ? coord("pickup_lat","user_lat") : coord("delivery_lat","destination_lat");
         double lng = pickup ? coord("pickup_lng","user_lng") : coord("delivery_lng","destination_lng");
         if(!valid(lat,lng)){ info("Lokasi", "Koordinat belum tersedia."); return; }
+
         String mode = pickup ? "pickup" : "delivery";
         try{
             if(mapView != null && Build.VERSION.SDK_INT >= 19){
-                String js = "if(window.focusTarget)focusTarget('" + mode + "');";
-                mapView.evaluateJavascript(js, null);
+                mapView.evaluateJavascript("if(window.focusTarget)focusTarget('" + mode + "');", null);
             }
         }catch(Exception ignored){}
-        info("Navigasi Leaflet", pickup ? "Rute di peta aplikasi diarahkan ke lokasi pickup." : "Rute di peta aplikasi diarahkan ke tujuan pengantaran.");
+
+        try{
+            getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit()
+                    .putString("driver_navigation_order_json", order == null ? "" : order.toString())
+                    .putString("driver_navigation_target", mode)
+                    .putString("driver_navigation_lat", String.valueOf(lat))
+                    .putString("driver_navigation_lng", String.valueOf(lng))
+                    .putString("driver_navigation_driver_lat", String.valueOf(lastDriverLat))
+                    .putString("driver_navigation_driver_lng", String.valueOf(lastDriverLng))
+                    .apply();
+        }catch(Exception ignored){}
+
+        Intent nativeNav = new Intent();
+        nativeNav.setClassName(getPackageName(), getPackageName() + ".DriverNavigationActivity");
+        nativeNav.putExtra("order_json", order == null ? "" : order.toString());
+        nativeNav.putExtra("target", mode);
+        nativeNav.putExtra("target_lat", lat);
+        nativeNav.putExtra("target_lng", lng);
+        nativeNav.putExtra("driver_lat", lastDriverLat);
+        nativeNav.putExtra("driver_lng", lastDriverLng);
+        try{
+            startActivity(nativeNav);
+            return;
+        }catch(Exception ignored){}
+
+        try{
+            Intent web = new Intent(this, MainActivity.class);
+            web.putExtra("url", WEB_APP_URL + "?app=1#driverNavigation");
+            web.putExtra("target", mode);
+            startActivity(web);
+            return;
+        }catch(Exception ignored){}
+
+        try{
+            String uri = "google.navigation:q=" + lat + "," + lng + "&mode=d";
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(uri)));
+        }catch(Exception e){
+            info("Navigasi", pickup ? "Rute diarahkan ke lokasi pickup." : "Rute diarahkan ke tujuan pengantaran.");
+        }
     }
     private JSONObject postJson(String urlText, JSONObject payload)throws Exception{ HttpURLConnection c=(HttpURLConnection)new URL(urlText).openConnection(); c.setConnectTimeout(TIMEOUT_MS); c.setReadTimeout(TIMEOUT_MS); c.setRequestMethod("POST"); c.setRequestProperty("Content-Type","application/json; charset=utf-8"); c.setRequestProperty("Accept","application/json"); c.setDoOutput(true); OutputStream os=c.getOutputStream(); os.write(payload.toString().getBytes(StandardCharsets.UTF_8)); os.flush(); os.close(); InputStream is=c.getResponseCode()>=400?c.getErrorStream():c.getInputStream(); BufferedReader br=new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8)); StringBuilder sb=new StringBuilder(); String line; while((line=br.readLine())!=null) sb.append(line); br.close(); c.disconnect(); String body=sb.toString().trim(); return body.isEmpty()?new JSONObject():new JSONObject(body); }
     private void saveActiveOrder(){ if(order==null)return; getSharedPreferences(PREF_NAME,MODE_PRIVATE).edit().putString("driver_active_order_json", order.toString()).putString("driver_active_order_id", orderId()).putString("driver_active_order_kind", orderKind).putString("driver_active_order_status", status()).putString("driver_active_pickup_address", pickupAddress()).putString("driver_active_delivery_address", deliveryAddress()).putString("driver_active_pickup_lat", String.valueOf(coord("pickup_lat","user_lat"))).putString("driver_active_pickup_lng", String.valueOf(coord("pickup_lng","user_lng"))).putString("driver_active_delivery_lat", String.valueOf(coord("delivery_lat","destination_lat"))).putString("driver_active_delivery_lng", String.valueOf(coord("delivery_lng","destination_lng"))).putString("driver_active_price", String.valueOf(optDouble("price","fare","total"))).apply(); }
