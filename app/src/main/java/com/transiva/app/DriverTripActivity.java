@@ -49,9 +49,8 @@ public class DriverTripActivity extends Activity {
     private static final float ARRIVE_RADIUS_METER = 100f;
     private static final long LOCATION_POST_INTERVAL_MS = 5000L;
     private static final float MAP_ANIMATION_MIN_DISTANCE_METER = 1.2f;
-    private static final float MAX_ACCEPTED_ACCURACY_METER = 80f;
     private static final long MAX_LOCATION_AGE_MS = 30000L;
-    private static final float MAX_REASONABLE_JUMP_METER = 120f;
+    private static final long OUT_OF_ORDER_TOLERANCE_MS = 1500L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private LinearLayout root;
@@ -305,10 +304,12 @@ public class DriverTripActivity extends Activity {
         try{
             locationManager = (LocationManager)getSystemService(LOCATION_SERVICE); if(locationManager == null) return; stopLocationWatch();
             locationListener = new LocationListener(){ @Override public void onLocationChanged(Location l){ if(l==null)return; onDriverLocationChanged(l); } @Override public void onStatusChanged(String p,int s,Bundle e){} @Override public void onProviderEnabled(String p){} @Override public void onProviderDisabled(String p){} };
-            Location last = getBestLastKnownLocation();
-            if(last != null && isFreshEnough(last)) onDriverLocationChanged(last);
-            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1200, 1.5f, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
-            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2500, 5f, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            if(!valid(lastDriverLat, lastDriverLng) && lastAcceptedLocation == null){
+                Location last = getBestLastKnownLocation();
+                if(last != null && isFreshEnough(last)) onDriverLocationChanged(last);
+            }
+            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1500, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
             locationWatchRunning = true;
             mainHandler.removeCallbacks(locationPostRunnable);
             mainHandler.post(locationPostRunnable);
@@ -340,23 +341,24 @@ public class DriverTripActivity extends Activity {
     private boolean shouldAcceptLocation(Location l){
         if(l == null) return false;
         if(!valid(l.getLatitude(), l.getLongitude())) return false;
-        if(!isFreshEnough(l)) return false;
 
-        float accuracy = l.hasAccuracy() ? l.getAccuracy() : 9999f;
-        boolean fromGps = LocationManager.GPS_PROVIDER.equals(l.getProvider());
-
-        if(lastAcceptedLocation == null){
-            return fromGps || accuracy <= MAX_ACCEPTED_ACCURACY_METER;
+        /*
+         * FIX MARKER DIAM SAAT LOKASI DIGESER:
+         * Versi sebelumnya terlalu ketat menolak lokasi dengan akurasi kasar,
+         * loncatan jauh, atau provider tertentu. Saat testing pakai mock/geser lokasi,
+         * koordinat baru sering ditolak sehingga motor diam.
+         *
+         * Yang perlu ditolak hanya data lama yang datang terlambat dari provider lain,
+         * karena inilah penyebab marker maju lalu balik ke titik awal.
+         */
+        if(lastAcceptedLocation != null){
+            long newTime = l.getTime();
+            long oldTime = lastAcceptedLocation.getTime();
+            if(newTime > 0 && oldTime > 0 && newTime + OUT_OF_ORDER_TOLERANCE_MS < oldTime){
+                return false;
+            }
         }
 
-        float lastAccuracy = lastAcceptedLocation.hasAccuracy() ? lastAcceptedLocation.getAccuracy() : 9999f;
-        float moved = l.distanceTo(lastAcceptedLocation);
-        long dt = Math.max(1L, l.getTime() - lastAcceptedLocation.getTime());
-        float speed = moved / (dt / 1000f);
-
-        if(accuracy > MAX_ACCEPTED_ACCURACY_METER && !fromGps) return false;
-        if(moved > MAX_REASONABLE_JUMP_METER && speed > 35f && accuracy >= lastAccuracy) return false;
-        if(!fromGps && accuracy > lastAccuracy + 25f && moved > 20f) return false;
         return true;
     }
 
