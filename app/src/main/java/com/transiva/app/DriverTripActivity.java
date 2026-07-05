@@ -20,6 +20,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -45,6 +46,8 @@ public class DriverTripActivity extends Activity {
     private static final String PREF_NAME = "transiva";
     private static final int TIMEOUT_MS = 20000;
     private static final float ARRIVE_RADIUS_METER = 100f;
+    private static final long LOCATION_POST_INTERVAL_MS = 5000L;
+    private static final float MAP_ANIMATION_MIN_DISTANCE_METER = 1.2f;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private LinearLayout root;
@@ -54,12 +57,26 @@ public class DriverTripActivity extends Activity {
     private Button arrivedPickupBtn, startDeliveryBtn, arrivedDeliveryBtn, finishBtn;
     private JSONObject order;
     private String driverUsername = "";
+    private String driverType = "motor";
     private String orderKind = "order";
     private LocationManager locationManager;
     private LocationListener locationListener;
     private double lastDriverLat = 0, lastDriverLng = 0;
     private double prevDriverLat = 0, prevDriverLng = 0;
     private boolean updatingStatus = false;
+    private boolean mapReady = false;
+    private boolean locationWatchRunning = false;
+    private long lastLocationPostAt = 0L;
+    private double lastPostedLat = 0, lastPostedLng = 0;
+
+    private final Runnable locationPostRunnable = new Runnable(){
+        @Override public void run(){
+            if(order != null && locationWatchRunning && valid(lastDriverLat, lastDriverLng)){
+                postDriverLocation(lastDriverLat, lastDriverLng, false);
+            }
+            if(locationWatchRunning) mainHandler.postDelayed(this, LOCATION_POST_INTERVAL_MS);
+        }
+    };
 
     @Override protected void onCreate(Bundle b){
         super.onCreate(b);
@@ -81,9 +98,20 @@ public class DriverTripActivity extends Activity {
     @Override protected void onDestroy(){ stopLocationWatch(); try{ if(mapView != null) mapView.destroy(); }catch(Exception ignored){} super.onDestroy(); }
 
     private void loadSession(){
-        try{ SessionManager s = new SessionManager(this); driverUsername = first(s.getUsername(), s.getName(), ""); }catch(Exception ignored){}
+        try{
+            SessionManager s = new SessionManager(this);
+            driverUsername = first(s.getUsername(), s.getName(), "");
+            driverType = normalizeDriverType(first(s.getDriverType(), s.getRole(), ""));
+        }catch(Exception ignored){}
         if(driverUsername.isEmpty()) driverUsername = getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString("username", "");
+        driverType = normalizeDriverType(first(driverType, getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString("driver_type", ""), "motor"));
     }
+    private String normalizeDriverType(String value){
+        value = first(value, "motor").toLowerCase(Locale.US);
+        if(value.equals("car") || value.equals("mobil") || value.equals("driver_car")) return "car";
+        return "motor";
+    }
+
     private void loadOrder(){
         try{
             String raw = first(getIntent().getStringExtra("order_json"), getIntent().getStringExtra("active_order_json"), pref("driver_active_order_json"), pref("active_order_json"), pref("activeOrder"));
@@ -167,7 +195,13 @@ public class DriverTripActivity extends Activity {
     private void addMapCard(){
         LinearLayout c = card(); c.setPadding(dp(12), dp(12), dp(12), dp(12));
         c.addView(text("🗺️ Peta Perjalanan", 16, "#0B3A78", true)); c.addView(text("Marker pickup, delivery, dan driver tampil realtime sederhana.", 12, "#64748B", false));
-        mapView = new WebView(this); try{ WebSettings st = mapView.getSettings(); st.setJavaScriptEnabled(true); st.setDomStorageEnabled(true); st.setAllowFileAccess(true); st.setAllowContentAccess(true); }catch(Exception ignored){}
+        mapView = new WebView(this); try{ WebSettings st = mapView.getSettings(); st.setJavaScriptEnabled(true); st.setDomStorageEnabled(true); st.setAllowFileAccess(true); st.setAllowContentAccess(true); st.setCacheMode(WebSettings.LOAD_DEFAULT); mapView.setBackgroundColor(Color.TRANSPARENT); }catch(Exception ignored){}
+        mapView.setWebViewClient(new WebViewClient(){
+            @Override public void onPageFinished(WebView view, String url){
+                mapReady = true;
+                mainHandler.postDelayed(() -> updateMap(), 250);
+            }
+        });
         mapView.loadDataWithBaseURL("https://transiva.my.id/", mapHtml(), "text/html", "UTF-8", null); LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-1, dp(230)); mp.setMargins(0,dp(8),0,0); c.addView(mapView, mp); add(c,0,0,0,dp(12));
     }
     private String mapHtml(){
@@ -177,7 +211,7 @@ public class DriverTripActivity extends Activity {
         return "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"+
                 "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"+
                 "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"+
-                "<style>html,body,#map{height:100%;margin:0;background:#EAF4FF}.leaflet-container{font-family:Arial,sans-serif}.motorWrap{width:48px;height:48px;display:flex;align-items:center;justify-content:center}.motorWrap img{width:46px;height:46px;transform-origin:center center;filter:drop-shadow(0 4px 8px rgba(0,0,0,.30))}.routeBadge{position:absolute;z-index:999;top:10px;left:10px;right:10px;background:rgba(255,255,255,.94);border:1px solid #D7E6F8;border-radius:16px;padding:10px 12px;color:#0B3A78;font-size:13px;font-weight:700;box-shadow:0 8px 22px rgba(15,23,42,.12)}</style></head><body><div id='map'></div><div id='badge' class='routeBadge'>Menyiapkan rute...</div><script>"+
+                "<style>html,body,#map{height:100%;margin:0;background:#EAF4FF}.leaflet-container{font-family:Arial,sans-serif}.motorWrap{width:48px;height:48px;display:flex;align-items:center;justify-content:center}.motorWrap img{width:46px;height:46px;transform-origin:center center;filter:drop-shadow(0 4px 8px rgba(0,0,0,.30));transition:transform .25s linear}.routeBadge{position:absolute;z-index:999;top:10px;left:10px;right:10px;background:rgba(255,255,255,.94);border:1px solid #D7E6F8;border-radius:16px;padding:10px 12px;color:#0B3A78;font-size:13px;font-weight:700;box-shadow:0 8px 22px rgba(15,23,42,.12)}</style></head><body><div id='map'></div><div id='badge' class='routeBadge'>Menyiapkan rute...</div><script>"+
                 "var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+mode+"';var lastDriver=[0,0];"+
                 "var map=L.map('map',{zoomControl:true,attributionControl:false}).setView(["+cLat+","+cLng+"],16);"+
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);"+
@@ -186,13 +220,13 @@ public class DriverTripActivity extends Activity {
                 "function motorIcon(deg){return L.divIcon({className:'',iconSize:[48,48],iconAnchor:[24,24],html:'<div class=\"motorWrap\"><img src=\"file:///android_res/drawable/map_motor_top.png\" style=\"transform:rotate('+deg+'deg)\"></div>'});}"+
                 "if(pickup[0]&&pickup[1])L.marker(pickup,{icon:pickupIcon}).addTo(map).bindPopup('Lokasi Pickup');"+
                 "if(dest[0]&&dest[1])L.marker(dest,{icon:destIcon}).addTo(map).bindPopup('Tujuan Pengantaran');"+
-                "var driverMarker=null,routeLine=null,lastRouteKey='';"+
+                "var driverMarker=null,routeLine=null,lastRouteKey='',animId=null,driverLatLng=null,lastDeg=0;"+
                 "function targetPoint(){return targetMode==='delivery'?dest:pickup;}"+
                 "function setBadge(t){var b=document.getElementById('badge');if(b)b.innerHTML=t;}"+
                 "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(4)+','+b.toFixed(4)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Rute ke tujuan pengantaran':'Rute ke lokasi pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;var pts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});if(routeLine)map.removeLayer(routeLine);routeLine=L.polyline(pts,{weight:6,opacity:.88,color:'#087CFF'}).addTo(map);var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');map.fitBounds(routeLine.getBounds(),{padding:[44,44]});}).catch(function(){setBadge('Rute online gagal dimuat, cek internet');});}"+
                 "window.setTargetMode=function(m){targetMode=m;lastRouteKey='';if(lastDriver[0]&&lastDriver[1])drawRoute(lastDriver[0],lastDriver[1],true);};"+
                 "window.focusTarget=function(m){targetMode=m;lastRouteKey='';if(lastDriver[0]&&lastDriver[1])drawRoute(lastDriver[0],lastDriver[1],true);else{var t=targetPoint();if(t[0]&&t[1])map.setView(t,17);}};"+
-                "window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];if(!driverMarker){driverMarker=L.marker([a,b],{icon:motorIcon(deg||0)}).addTo(map).bindPopup('Posisi Driver');}else{driverMarker.setLatLng([a,b]);driverMarker.setIcon(motorIcon(deg||0));}drawRoute(a,b,false);};"+
+                "function lerp(x,y,t){return x+(y-x)*t;}function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}function moveDriver(a,b,deg){if(!driverMarker){driverLatLng=[a,b];lastDeg=deg||0;driverMarker=L.marker([a,b],{icon:motorIcon(lastDeg)}).addTo(map).bindPopup('Posisi Driver');return;}var from=driverLatLng||[driverMarker.getLatLng().lat,driverMarker.getLatLng().lng];var to=[a,b];var start=null;var duration=900;if(animId)cancelAnimationFrame(animId);function step(ts){if(!start)start=ts;var t=Math.min(1,(ts-start)/duration);var e=ease(t);var la=lerp(from[0],to[0],e),ln=lerp(from[1],to[1],e);driverMarker.setLatLng([la,ln]);if(t<1){animId=requestAnimationFrame(step);}else{driverLatLng=to;animId=null;}}lastDeg=deg||lastDeg;driverMarker.setIcon(motorIcon(lastDeg));animId=requestAnimationFrame(step);}window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];moveDriver(a,b,deg||lastDeg);drawRoute(a,b,false);};window.setMapReady=function(){return true;};"+
                 "</script></body></html>";
     }
 
@@ -264,15 +298,50 @@ public class DriverTripActivity extends Activity {
         if(Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED){ requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 701); return; }
         try{
             locationManager = (LocationManager)getSystemService(LOCATION_SERVICE); if(locationManager == null) return; stopLocationWatch();
-            locationListener = new LocationListener(){ @Override public void onLocationChanged(Location l){ if(l==null)return; lastDriverLat=l.getLatitude(); lastDriverLng=l.getLongitude(); updateDriverLocation(l); updateMap(); refreshButtons(); } @Override public void onStatusChanged(String p,int s,Bundle e){} @Override public void onProviderEnabled(String p){} @Override public void onProviderDisabled(String p){} };
-            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000, 2, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
-            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3000, 2, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            locationListener = new LocationListener(){ @Override public void onLocationChanged(Location l){ if(l==null)return; onDriverLocationChanged(l); } @Override public void onStatusChanged(String p,int s,Bundle e){} @Override public void onProviderEnabled(String p){} @Override public void onProviderDisabled(String p){} };
+            Location last = null;
+            try{ last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER); }catch(Exception ignored){}
+            if(last == null){ try{ last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER); }catch(Exception ignored){} }
+            if(last != null) onDriverLocationChanged(last);
+            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1500, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            locationWatchRunning = true;
+            mainHandler.removeCallbacks(locationPostRunnable);
+            mainHandler.post(locationPostRunnable);
         }catch(Exception ignored){}
     }
-    private void stopLocationWatch(){ try{ if(locationManager != null && locationListener != null) locationManager.removeUpdates(locationListener); }catch(Exception ignored){} locationListener = null; }
+    private void stopLocationWatch(){ try{ if(locationManager != null && locationListener != null) locationManager.removeUpdates(locationListener); }catch(Exception ignored){} locationWatchRunning = false; mainHandler.removeCallbacks(locationPostRunnable); locationListener = null; }
+    private void onDriverLocationChanged(Location l){
+        if(l == null) return;
+        double newLat = l.getLatitude();
+        double newLng = l.getLongitude();
+        if(!valid(newLat, newLng)) return;
+
+        boolean firstPoint = !valid(lastDriverLat, lastDriverLng);
+        float moved = firstPoint ? 999f : distanceBetween(lastDriverLat, lastDriverLng, newLat, newLng);
+
+        lastDriverLat = newLat;
+        lastDriverLng = newLng;
+
+        if(firstPoint || moved >= MAP_ANIMATION_MIN_DISTANCE_METER){
+            updateMap();
+        }
+
+        postDriverLocation(newLat, newLng, false);
+        refreshButtons();
+    }
+
+    private float distanceBetween(double aLat, double aLng, double bLat, double bLng){
+        try{
+            float[] r = new float[1];
+            Location.distanceBetween(aLat, aLng, bLat, bLng, r);
+            return r[0];
+        }catch(Exception e){ return 999f; }
+    }
+
     private void updateMap(){
         try{
-            if(mapView == null || Build.VERSION.SDK_INT < 19 || !valid(lastDriverLat, lastDriverLng)) return;
+            if(mapView == null || Build.VERSION.SDK_INT < 19 || !mapReady || !valid(lastDriverLat, lastDriverLng)) return;
             double deg = 0;
             if(valid(prevDriverLat, prevDriverLng)) deg = bearing(prevDriverLat, prevDriverLng, lastDriverLat, lastDriverLng);
             String js = "if(window.setTargetMode)setTargetMode('" + routeTargetMode() + "');if(window.updateDrv)updateDrv(" + lastDriverLat + "," + lastDriverLng + "," + deg + ");";
@@ -295,11 +364,37 @@ public class DriverTripActivity extends Activity {
         new Thread(() -> { try{
             JSONObject p = new JSONObject(); p.put("id", internalId()); p.put("order_id", orderId()); p.put("driver", driverUsername); p.put("order_kind", orderKind); p.put("status", next);
             String endpoint = endpoint(next); JSONObject r = postJson(BASE_URL + endpoint, p); boolean ok = r.optBoolean("success", false); String m = first(r.optString("message"), ok ? "Status berhasil diperbarui." : "Gagal update status.");
-            mainHandler.post(() -> { updatingStatus=false; setLoading(false); if(ok){ try{ order.put("status", next); }catch(Exception ignored){} saveActiveOrder(); refreshButtons(); info("Berhasil", m); if(next.equals("finished") || next.equals("completed")){ clearActiveOrder(); finish(); } } else info("Gagal", m); });
+            mainHandler.post(() -> { updatingStatus=false; setLoading(false); if(ok){ try{ order.put("status", next); }catch(Exception ignored){} saveActiveOrder(); refreshButtons(); mainHandler.postDelayed(() -> updateMap(), 250); info("Berhasil", m); if(next.equals("finished") || next.equals("completed")){ clearActiveOrder(); finish(); } } else info("Gagal", m); });
         }catch(Exception e){ mainHandler.post(() -> { updatingStatus=false; setLoading(false); info("Koneksi gagal", "Tidak bisa update status ke server."); }); }}).start();
     }
     private String endpoint(String n){ if(n.equals("arrived_pickup"))return "driverArrivedPickup.php"; if(n.equals("on_delivery"))return "driverStartDelivery.php"; if(n.equals("arrived_delivery"))return "driverArrivedDelivery.php"; if(n.equals("finished")||n.equals("completed"))return "finishOrder.php"; return "driver_update_unified_status.php"; }
-    private void updateDriverLocation(Location loc){ new Thread(() -> { try{ JSONObject p = new JSONObject(); p.put("username", driverUsername); p.put("driver", driverUsername); p.put("order_id", orderId()); p.put("latitude", loc.getLatitude()); p.put("longitude", loc.getLongitude()); postJson(BASE_URL + "updateDriverLocation.php", p); }catch(Exception ignored){} }).start(); }
+    private void postDriverLocation(double lat, double lng, boolean force){
+        if(!valid(lat, lng) || driverUsername.length() == 0) return;
+
+        long now = System.currentTimeMillis();
+        if(!force && now - lastLocationPostAt < LOCATION_POST_INTERVAL_MS) return;
+
+        if(!force && valid(lastPostedLat, lastPostedLng)){
+            float moved = distanceBetween(lastPostedLat, lastPostedLng, lat, lng);
+            if(moved < 1.0f && now - lastLocationPostAt < LOCATION_POST_INTERVAL_MS * 2) return;
+        }
+
+        lastLocationPostAt = now;
+        lastPostedLat = lat;
+        lastPostedLng = lng;
+
+        new Thread(() -> {
+            try{
+                JSONObject p = new JSONObject();
+                p.put("username", driverUsername);
+                p.put("latitude", lat);
+                p.put("longitude", lng);
+                p.put("driver_type", driverType);
+                if(order != null) p.put("order_id", orderId());
+                postJson(BASE_URL + "updateDriverLocation.php", p);
+            }catch(Exception ignored){}
+        }).start();
+    }
     private void openChat(){ try{ String roomId = first(order.optString("room_id"), pref("active_chat_room_id"), "ROOM-" + orderId()).trim().replace("_", "-").toUpperCase(Locale.US).replaceAll("[^A-Z0-9\\-]", ""); if(!roomId.startsWith("ROOM-")) roomId = "ROOM-" + roomId; String customerName = first(order.optString("customer_name"), order.optString("customer"), order.optString("username"), order.optString("user_id"), "Customer"); getSharedPreferences(PREF_NAME, MODE_PRIVATE).edit().putString("active_order_id", orderId()).putString("active_chat_order_id", orderId()).putString("active_chat_room_id", roomId).putString("active_chat_driver_name", driverUsername).putString("active_chat_customer_name", customerName).putString("active_chat_order_status", status()).apply(); Intent i = new Intent(this, DriverChatActivity.class); i.putExtra("order_id", orderId()); i.putExtra("room_id", roomId); i.putExtra("driver_name", driverUsername); i.putExtra("customer_name", customerName); i.putExtra("order_status", status()); startActivity(i); }catch(Exception e){ info("Chat", "Gagal membuka chat."); } }
     private void openLeafletNavigation(boolean pickup){
         double lat = pickup ? coord("pickup_lat","user_lat") : coord("delivery_lat","destination_lat");
