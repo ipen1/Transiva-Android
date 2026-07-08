@@ -56,7 +56,7 @@ public class TransRideActivity extends Activity {
     private static final String RESOLVE_MAPS_URL = BASE_URL + "server/resolve_google_maps.php";
     private static final String GET_BUSINESSES_URL = BASE_URL + "server/getBusinesses.php";
     private static final String GET_LAUNDRIES_URL = BASE_URL + "server/admin_get_laundries.php";
-    private static final String GET_ONLINE_DRIVERS_URL = BASE_URL + "server/get_idle_drivers.php";
+    private static final String GET_ONLINE_DRIVERS_URL = BASE_URL + "server/get_map_drivers.php";
     private static final int REQ_LOCATION = 44;
     private static final int TIMEOUT_MS = 25000;
 
