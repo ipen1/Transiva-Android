@@ -359,7 +359,9 @@ public class PassengerCarActivity extends Activity {
                 "function setDelivery(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:600}).addTo(map);}" +
                 "function moveTo(lat,lng,z){if(!map)return;map.setView([+lat,+lng],z||17,{animate:true});}" +
                 "function drawRouteAfterOrder(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();route=L.polyline([a,b],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
-                "function clearDrivers(){for(var i=0;i<driverMarkers.length;i++){try{map.removeLayer(driverMarkers[i]);}catch(e){}}driverMarkers=[];}" +"function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var icon=L.divIcon({html:'<img class=carpin src="'+carIconData+'">',className:\"\",iconSize:[46,46],iconAnchor:[23,23]});var m=L.marker([+lat,+lng],{icon:icon,zIndexOffset:500}).addTo(map).bindPopup(name||\"Driver Car\");driverMarkers.push(m);}" +"ready();" +
+                "function clearDrivers(){for(var i=0;i<driverMarkers.length;i++){try{map.removeLayer(driverMarkers[i]);}catch(e){}}driverMarkers=[];}" +
+                "function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var icon=L.divIcon({html:\"<img class='carpin' src='\"+carIconData+\"'>\",className:'',iconSize:[46,46],iconAnchor:[23,23]});var m=L.marker([+lat,+lng],{icon:icon,zIndexOffset:500}).addTo(map).bindPopup(name||'Driver Car');driverMarkers.push(m);}" +
+"ready();" +
                 "</script></body></html>";
     }
 
