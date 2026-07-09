@@ -54,6 +54,8 @@ public class PassengerCarActivity extends Activity {
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String CREATE_ORDER_URL = BASE_URL + "server/createOrder.php";
     private static final String RESOLVE_MAPS_URL = BASE_URL + "server/resolve_google_maps.php";
+    private static final String GET_BUSINESSES_URL = BASE_URL + "server/getBusinesses.php";
+    private static final String GET_LAUNDRIES_URL = BASE_URL + "server/admin_get_laundries.php";
     private static final String GET_ONLINE_DRIVERS_URL = BASE_URL + "server/get_map_drivers.php";
     private static final int REQ_LOCATION = 44;
     private static final int TIMEOUT_MS = 25000;
@@ -68,7 +70,6 @@ public class PassengerCarActivity extends Activity {
 
     private boolean mapReady = false;
     private boolean ordering = false;
-    private boolean destroyed = false;
     private String mode = "pickup";
     private String username = "";
     private int userId = 0;
@@ -77,6 +78,10 @@ public class PassengerCarActivity extends Activity {
     private double deliveryLat = 0, deliveryLng = 0;
     private double centerLat = -0.018137, centerLng = 120.087380;
     private double pickLat = 0, pickLng = 0;
+
+    private String pickupAddress = "Lokasi Jemput";
+    private String deliveryAddress = "Lokasi Tujuan";
+    private boolean destroyed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -154,15 +159,15 @@ public class PassengerCarActivity extends Activity {
         root.setPadding(dp(10), dp(10), dp(10), dp(10));
         page.addView(root, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout topCard = new LinearLayout(this);
-        topCard.setOrientation(LinearLayout.VERTICAL);
-        topCard.setPadding(dp(10), dp(8), dp(10), dp(8));
-        topCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
-        root.addView(topCard, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout topBiked = new LinearLayout(this);
+        topBiked.setOrientation(LinearLayout.VERTICAL);
+        topBiked.setPadding(dp(10), dp(8), dp(10), dp(8));
+        topBiked.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
+        root.addView(topBiked, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        topCard.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
+        topBiked.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
 
         TextView title = text("Transcar", 18, "#0B3A78", true);
         titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(34), 1));
@@ -173,11 +178,11 @@ public class PassengerCarActivity extends Activity {
 
         modeText = text("Geser peta lalu pilih titik jemput / tujuan", 11, "#64748B", false);
         modeText.setPadding(0, 0, 0, dp(6));
-        topCard.addView(modeText);
+        topBiked.addView(modeText);
 
         LinearLayout pointRow = new LinearLayout(this);
         pointRow.setOrientation(LinearLayout.HORIZONTAL);
-        topCard.addView(pointRow, new LinearLayout.LayoutParams(-1, dp(56)));
+        topBiked.addView(pointRow, new LinearLayout.LayoutParams(-1, dp(56)));
 
         pickupBtn = compactPointButton("●  Lokasi Jemput", "Belum dipilih", "#16A34A");
         deliveryBtn = compactPointButton("●  Lokasi Tujuan", "Belum dipilih", "#EF4444");
@@ -198,7 +203,7 @@ public class PassengerCarActivity extends Activity {
         linkRow.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams linkLp = new LinearLayout.LayoutParams(-1, dp(42));
         linkLp.setMargins(0, dp(7), 0, 0);
-        topCard.addView(linkRow, linkLp);
+        topBiked.addView(linkRow, linkLp);
 
         googleMapInput = new EditText(this);
         googleMapInput.setSingleLine(true);
@@ -275,14 +280,14 @@ public class PassengerCarActivity extends Activity {
 
         mapView.loadDataWithBaseURL(BASE_URL, mapHtml(), "text/html", "UTF-8", null);
 
-        LinearLayout bottomCard = new LinearLayout(this);
-        bottomCard.setOrientation(LinearLayout.VERTICAL);
-        bottomCard.setPadding(dp(10), dp(8), dp(10), dp(8));
-        bottomCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
-        root.addView(bottomCard, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout bottomBiked = new LinearLayout(this);
+        bottomBiked.setOrientation(LinearLayout.VERTICAL);
+        bottomBiked.setPadding(dp(10), dp(8), dp(10), dp(8));
+        bottomBiked.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
+        root.addView(bottomBiked, new LinearLayout.LayoutParams(-1, -2));
 
         fareText = text("Tarif dihitung server setelah order dibuat", 10, "#64748B", false);
-        bottomCard.addView(fareText);
+        bottomBiked.addView(fareText);
 
         noteInput = new EditText(this);
         noteInput.setSingleLine(true);
@@ -292,11 +297,11 @@ public class PassengerCarActivity extends Activity {
         noteInput.setPadding(dp(10), 0, dp(10), 0);
         LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-1, dp(42));
         nlp.setMargins(0, dp(7), 0, dp(8));
-        bottomCard.addView(noteInput, nlp);
+        bottomBiked.addView(noteInput, nlp);
 
         LinearLayout actionRow = new LinearLayout(this);
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
-        bottomCard.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+        bottomBiked.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
 
         backBtn = smallButton("← Kembali", "#FFFFFF", "#0B7CFF", "#9DCAFF");
         gpsBtn = smallButton("⌖ GPS", "#FFFFFF", "#0B7CFF", "#9DCAFF");
@@ -331,7 +336,8 @@ public class PassengerCarActivity extends Activity {
         String pickupIcon = drawableDataUri("map_pickup_pin", "ic_pickup_pin", "pickup_pin", "pickup", "point_pickup", "ic_pickup");
         String deliveryIcon = drawableDataUri("map_destination_pin", "map_delivery_pin", "ic_delivery_pin", "delivery_pin", "delivery", "point_delivery", "ic_delivery");
         String carIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
-        String motorIcon = drawableDataUri("map_motor_top", "ic_motor_top", "motor_top", "ic_transbike", "transbike", "motor", "bike_marker");
+        String placeIcon = drawableDataUri("mark", "map_place_pin", "business_pin", "merchant_pin", "laundry_pin");
+        String driverIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
 
         return "<!DOCTYPE html><html><head>" +
                 "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>" +
@@ -342,26 +348,35 @@ public class PassengerCarActivity extends Activity {
                 ".leaflet-container{font-family:Arial,sans-serif;border-radius:18px;background:#eef6ff;}" +
                 ".pin{font-size:34px;text-align:center;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28));}" +
                 ".assetpin{width:54px;height:66px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
-                ".carpin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".bikepin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".placepin{width:42px;height:42px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".driverpin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".route{stroke-linecap:round;stroke-linejoin:round;}" +
+                ".popup{min-width:170px;line-height:1.55;font-size:13px;color:#0f172a;}" +
+                ".popup b{font-size:15px;color:#0B3A78;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map, pickup=null, delivery=null, route=null, allowRoute=false, driverMarkers=[];" +
-                "var pickupIconData='" + js(pickupIcon) + "', deliveryIconData='" + js(deliveryIcon) + "', carIconData='" + js(carIcon) + "', motorIconData='" + js(motorIcon) + "';" +
-                "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView(["+centerLat+","+centerLng+"],17);" +
-                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:''}).addTo(map);" +
+                "var map,pickup=null,delivery=null,route=null;" +
+                "var placeMarkers=[],driverMarkers=[];" +
+                "var pickupIconData='" + js(pickupIcon) + "',deliveryIconData='" + js(deliveryIcon) + "',carIconData='" + js(carIcon) + "',placeIconData='" + js(placeIcon) + "',driverIconData='" + js(driverIcon) + "';" +
+                "function esc(v){return String(v||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}" +
+                "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView([" + centerLat + "," + centerLng + "],17);" +
+                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,attribution:''}).addTo(map);" +
                 "function notifyCenter(){var c=map.getCenter();try{AndroidCar.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
                 "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
-                "setTimeout(function(){map.invalidateSize();var c=map.getCenter();try{AndroidCar.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
+                "setTimeout(function(){map.invalidateSize(true);var c=map.getCenter();try{AndroidCar.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
-                "function iconData(data, fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[54,66],iconAnchor:[27,54]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40]});}" +
-                "function carData(){if(carIconData&&carIconData.length>20){return L.divIcon({html:'<img class=carpin src=\"'+carIconData+'\">',className:'',iconSize:[46,46],iconAnchor:[23,23]});}return L.divIcon({html:'<div class=pin>🚘</div>',className:'',iconSize:[46,46],iconAnchor:[23,28]});}" +
-                "function setPickup(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:600}).addTo(map);}" +
-                "function setDelivery(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:600}).addTo(map);}" +
+                "function iconData(data,fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[54,66],iconAnchor:[27,54],popupAnchor:[0,-52]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40],popupAnchor:[0,-38]});}" +
+                "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[46,46],iconAnchor:[23,40],popupAnchor:[0,-38]});}" +
+                "function driverData(){if(driverIconData&&driverIconData.length>20){return L.divIcon({html:'<img class=driverpin src=\"'+driverIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-24]});}return L.divIcon({html:'<div class=pin>🚘</div>',className:'',iconSize:[46,46],iconAnchor:[23,28],popupAnchor:[0,-28]});}" +
+                "function setPickup(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:700}).addTo(map);if(label)pickup.bindPopup('<div class=popup><b>Lokasi Jemput</b><br>'+esc(label)+'</div>');}" +
+                "function setDelivery(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:700}).addTo(map);if(label)delivery.bindPopup('<div class=popup><b>Lokasi Tujuan</b><br>'+esc(label)+'</div>');}" +
                 "function moveTo(lat,lng,z){if(!map)return;map.setView([+lat,+lng],z||17,{animate:true});}" +
-                "function drawRouteAfterOrder(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();route=L.polyline([a,b],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
+                "function clearPlaces(){for(var i=0;i<placeMarkers.length;i++){try{map.removeLayer(placeMarkers[i]);}catch(e){}}placeMarkers=[];}" +
+                "function addPlace(lat,lng,name,type,address){if(!map||!lat||!lng)return;var html='<div class=popup><b>'+esc(name)+'</b><br>'+esc(type||'Transiva')+(address?'<br>'+esc(address):'')+'</div>';var m=L.marker([+lat,+lng],{icon:placeData(),zIndexOffset:350}).addTo(map).bindPopup(html);placeMarkers.push(m);}" +
                 "function clearDrivers(){for(var i=0;i<driverMarkers.length;i++){try{map.removeLayer(driverMarkers[i]);}catch(e){}}driverMarkers=[];}" +
-                "function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var icon=L.divIcon({html:\"<img class='carpin' src='\"+carIconData+\"'>\",className:'',iconSize:[46,46],iconAnchor:[23,23]});var m=L.marker([+lat,+lng],{icon:icon,zIndexOffset:500}).addTo(map).bindPopup(name||'Driver Car');driverMarkers.push(m);}" +
-"ready();" +
+                "function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var m=L.marker([+lat,+lng],{icon:driverData(),zIndexOffset:500}).addTo(map).bindPopup('<div class=popup><b>'+esc(name||'Driver')+'</b><br>Driver mobil online</div>');driverMarkers.push(m);}" +
+                "function drawRouteAfterOrder(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();route=L.polyline([a,b],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
+                "ready();" +
                 "</script></body></html>";
     }
 
@@ -374,7 +389,8 @@ public class PassengerCarActivity extends Activity {
                 pickLat = validCoord(pLat, pLng) ? pLat : lat;
                 pickLng = validCoord(pLat, pLng) ? pLng : lng;
                 goToMyLocation();
-                loadOnlineCarDrivers();
+                loadMapPlaces();
+                loadOnlineDrivers();
             });
         }
         @JavascriptInterface public void onCenterChanged(double lat, double lng, double pLat, double pLng) {
@@ -393,16 +409,24 @@ public class PassengerCarActivity extends Activity {
         if ("pickup".equals(mode)) {
             pickupLat = selectedLat;
             pickupLng = selectedLng;
-            pickupText.setText(String.format(Locale.US, "Pickup: %.6f, %.6f", pickupLat, pickupLng));
-            pickupBtn.setText("●  Jemput\n" + shortCoord(pickupLat, pickupLng));
-            eval("setPickup(" + pickupLat + "," + pickupLng + ")");
+            pickupAddress = "Mencari alamat jemput...";
+
+            pickupText.setText("Pickup: " + pickupAddress);
+            pickupBtn.setText("●  Jemput\nMencari alamat...");
+            eval("setPickup(" + pickupLat + "," + pickupLng + ",'" + js(pickupAddress) + "')");
+
+            resolveAddressAsync(true, pickupLat, pickupLng);
             mode = "delivery";
         } else {
             deliveryLat = selectedLat;
             deliveryLng = selectedLng;
-            deliveryText.setText(String.format(Locale.US, "Tujuan: %.6f, %.6f", deliveryLat, deliveryLng));
-            deliveryBtn.setText("●  Tujuan\n" + shortCoord(deliveryLat, deliveryLng));
-            eval("setDelivery(" + deliveryLat + "," + deliveryLng + ")");
+            deliveryAddress = "Mencari alamat tujuan...";
+
+            deliveryText.setText("Tujuan: " + deliveryAddress);
+            deliveryBtn.setText("●  Tujuan\nMencari alamat...");
+            eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'" + js(deliveryAddress) + "')");
+
+            resolveAddressAsync(false, deliveryLat, deliveryLng);
         }
 
         updateModeUI();
@@ -439,28 +463,54 @@ public class PassengerCarActivity extends Activity {
 
     private void useGoogleMapLink() {
         String link = googleMapInput.getText().toString().trim();
-        if (link.length() == 0) { toastDialog("Masukkan link Google Maps tujuan terlebih dahulu."); return; }
+        if (link.length() == 0) {
+            toastDialog("Masukkan link Google Maps tujuan terlebih dahulu.");
+            return;
+        }
+
         hideKeyboard();
         setLoading(true);
+
         new Thread(() -> {
             String finalLink = link;
+
             try {
                 if (link.contains("maps.app.goo.gl") || link.contains("goo.gl/maps")) {
                     JSONObject res = postJson(RESOLVE_MAPS_URL, new JSONObject().put("url", link));
-                    if (res.optBoolean("success", false) && res.optString("url", "").length() > 0) finalLink = res.optString("url");
+                    if (res.optBoolean("success", false) && res.optString("url", "").length() > 0) {
+                        finalLink = res.optString("url");
+                    }
                 }
+
                 double[] c = extractLatLng(finalLink);
+
                 mainHandler.post(() -> {
                     setLoading(false);
-                    if (c == null || !validCoord(c[0], c[1])) { toastDialog("Link Google Maps tidak bisa dibaca."); return; }
-                    deliveryLat = c[0]; deliveryLng = c[1];
-                    deliveryText.setText(String.format(Locale.US, "Tujuan: %.6f, %.6f", deliveryLat, deliveryLng));
+
+                    if (c == null || !validCoord(c[0], c[1])) {
+                        toastDialog("Link Google Maps tidak bisa dibaca.");
+                        return;
+                    }
+
+                    deliveryLat = c[0];
+                    deliveryLng = c[1];
+                    deliveryAddress = "Mencari alamat tujuan...";
+
+                    deliveryText.setText("Tujuan: " + deliveryAddress);
+                    deliveryBtn.setText("●  Tujuan\nMencari alamat...");
                     googleMapInput.setText("");
-                    eval("setDelivery(" + deliveryLat + "," + deliveryLng + ");moveTo(" + deliveryLat + "," + deliveryLng + ",17)");
-                    mode = "delivery"; updateModeUI();
+
+                    eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'" + js(deliveryAddress) + "');moveTo(" + deliveryLat + "," + deliveryLng + ",17)");
+
+                    resolveAddressAsync(false, deliveryLat, deliveryLng);
+                    mode = "delivery";
+                    updateModeUI();
                 });
             } catch (Exception e) {
-                mainHandler.post(() -> { setLoading(false); toastDialog("Gagal membaca link Google Maps."); });
+                mainHandler.post(() -> {
+                    setLoading(false);
+                    toastDialog("Gagal membaca link Google Maps.");
+                });
             }
         }).start();
     }
@@ -471,7 +521,8 @@ public class PassengerCarActivity extends Activity {
             String[] patterns = new String[]{
                     "[?&]q=(-?\\d+(?:\\.\\d+)?),\\s*(-?\\d+(?:\\.\\d+)?)",
                     "@(-?\\d+(?:\\.\\d+)?),\\s*(-?\\d+(?:\\.\\d+)?)",
-                    "!3d(-?\\d+(?:\\.\\d+)?)!4d(-?\\d+(?:\\.\\d+)?)"
+                    "!3d(-?\\d+(?:\\.\\d+)?)!4d(-?\\d+(?:\\.\\d+)?)",
+                    "(-?\\d+(?:\\.\\d+)?),\\s*(-?\\d+(?:\\.\\d+)?)"
             };
             for (String p : patterns) {
                 Matcher m = Pattern.compile(p).matcher(decoded);
@@ -479,6 +530,289 @@ public class PassengerCarActivity extends Activity {
             }
         } catch (Exception ignored) {}
         return null;
+    }
+
+
+    private void resolveAddressAsync(boolean isPickup, double lat, double lng) {
+        new Thread(() -> {
+            String address = buildSmartAddress(lat, lng);
+
+            mainHandler.post(() -> {
+                if (destroyed) return;
+
+                if (isPickup) {
+                    pickupAddress = address;
+                    pickupText.setText("Pickup: " + address);
+                    pickupBtn.setText("●  Jemput\n" + shortAddress(address));
+                    eval("setPickup(" + pickupLat + "," + pickupLng + ",'" + js(address) + "')");
+                } else {
+                    deliveryAddress = address;
+                    deliveryText.setText("Tujuan: " + address);
+                    deliveryBtn.setText("●  Tujuan\n" + shortAddress(address));
+                    eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'" + js(address) + "')");
+                }
+            });
+        }).start();
+    }
+
+    private String buildSmartAddress(double lat, double lng) {
+        String nearName = findNearestPlaceName(lat, lng);
+        String roadName = reverseAddress(lat, lng);
+
+        if (nearName.length() > 0 && roadName.length() > 0) {
+            return "Dekat " + nearName + ", " + roadName;
+        }
+
+        if (nearName.length() > 0) {
+            return "Dekat " + nearName;
+        }
+
+        if (roadName.length() > 0) {
+            return roadName;
+        }
+
+        return String.format(Locale.US, "%.6f, %.6f", lat, lng);
+    }
+
+    private String reverseAddress(double lat, double lng) {
+        HttpURLConnection conn = null;
+
+        try {
+            String urlText =
+                    "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat="
+                            + lat + "&lon=" + lng + "&zoom=18&addressdetails=1";
+
+            URL url = new URL(urlText);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(12000);
+            conn.setReadTimeout(12000);
+            conn.setUseCaches(false);
+            conn.setRequestProperty("User-Agent", "TransivaAndroid/1.0");
+            conn.setRequestProperty("Accept", "application/json");
+
+            String body = readStream(conn.getInputStream());
+            JSONObject json = new JSONObject(body);
+            JSONObject a = json.optJSONObject("address");
+
+            if (a != null) {
+                String road = firstNonEmpty(
+                        a.optString("road", ""),
+                        a.optString("pedestrian", ""),
+                        a.optString("footway", ""),
+                        a.optString("neighbourhood", "")
+                );
+
+                String area = firstNonEmpty(
+                        a.optString("village", ""),
+                        a.optString("suburb", ""),
+                        a.optString("town", ""),
+                        a.optString("city", ""),
+                        a.optString("county", "")
+                );
+
+                if (road.length() > 0 && area.length() > 0) {
+                    return road + ", " + area;
+                }
+
+                return firstNonEmpty(road, area, compactDisplayName(json.optString("display_name", "")));
+            }
+
+            return compactDisplayName(json.optString("display_name", ""));
+        } catch (Exception ignored) {
+            return "";
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private String compactDisplayName(String value) {
+        String v = firstNonEmpty(value, "");
+        if (v.length() == 0) return "";
+
+        String[] parts = v.split(",");
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < parts.length && i < 3; i++) {
+            String part = parts[i].trim();
+            if (part.length() == 0) continue;
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(part);
+        }
+
+        return sb.length() > 0 ? sb.toString() : v;
+    }
+
+    private String findNearestPlaceName(double lat, double lng) {
+        String food = findNearestFromUrl(GET_BUSINESSES_URL, "businesses", lat, lng, 150);
+        if (food.length() > 0) return food;
+
+        String laundry = findNearestFromUrl(GET_LAUNDRIES_URL, "laundries", lat, lng, 150);
+        if (laundry.length() > 0) return laundry;
+
+        return "";
+    }
+
+    private String findNearestFromUrl(String urlText, String arrayKey, double lat, double lng, double maxMeter) {
+        try {
+            JSONObject res = getJson(urlText + "?v=" + System.currentTimeMillis());
+
+            if (!res.optBoolean("success", false)) return "";
+
+            JSONArray arr = res.optJSONArray(arrayKey);
+            if (arr == null) return "";
+
+            String bestName = "";
+            double bestDistance = maxMeter;
+
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject item = arr.optJSONObject(i);
+                if (item == null) continue;
+
+                double itemLat = item.optDouble("latitude", 0);
+                double itemLng = item.optDouble("longitude", 0);
+
+                if (!validCoord(itemLat, itemLng)) continue;
+
+                double d = distanceMeter(lat, lng, itemLat, itemLng);
+
+                if (d <= bestDistance) {
+                    bestDistance = d;
+                    bestName = firstNonEmpty(
+                            item.optString("name", ""),
+                            item.optString("business_name", ""),
+                            item.optString("title", "")
+                    );
+                }
+            }
+
+            return bestName;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private void loadMapPlaces() {
+        new Thread(() -> {
+            try {
+                JSONObject food = getJson(GET_BUSINESSES_URL + "?v=" + System.currentTimeMillis());
+                JSONObject laundry = getJson(GET_LAUNDRIES_URL + "?v=" + System.currentTimeMillis());
+
+                mainHandler.post(() -> {
+                    if (destroyed || !mapReady) return;
+
+                    eval("clearPlaces()");
+                    drawPlaces(food.optJSONArray("businesses"), "TransFood");
+                    drawPlaces(laundry.optJSONArray("laundries"), "TransLaundry");
+                });
+            } catch (Exception ignored) {}
+        }).start();
+    }
+
+    private void drawPlaces(JSONArray arr, String type) {
+        if (arr == null) return;
+
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject item = arr.optJSONObject(i);
+            if (item == null) continue;
+
+            double lat = item.optDouble("latitude", 0);
+            double lng = item.optDouble("longitude", 0);
+
+            if (!validCoord(lat, lng)) continue;
+
+            String name = firstNonEmpty(
+                    item.optString("name", ""),
+                    item.optString("business_name", ""),
+                    type
+            );
+
+            String address = firstNonEmpty(
+                    item.optString("address", ""),
+                    item.optString("category", ""),
+                    ""
+            );
+
+            eval("addPlace(" + lat + "," + lng + ",'" + js(name) + "','" + js(type) + "','" + js(address) + "')");
+        }
+    }
+
+    private void loadOnlineDrivers() {
+        if (destroyed) return;
+
+        new Thread(() -> {
+            try {
+                JSONObject res = getJson(GET_ONLINE_DRIVERS_URL + "?type=car&v=" + System.currentTimeMillis());
+                JSONArray arr = res.optJSONArray("drivers");
+
+                mainHandler.post(() -> {
+                    if (destroyed || !mapReady) return;
+
+                    eval("clearDrivers()");
+
+                    if (arr == null) return;
+
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject d = arr.optJSONObject(i);
+                        if (d == null) continue;
+
+                        double lat = d.optDouble("latitude", 0);
+                        double lng = d.optDouble("longitude", 0);
+
+                        if (!validCoord(lat, lng)) continue;
+
+                        String name = firstNonEmpty(
+                                d.optString("name", ""),
+                                d.optString("username", ""),
+                                "Driver Car"
+                        );
+
+                        eval("addDriver(" + lat + "," + lng + ",'" + js(name) + "')");
+                    }
+                });
+            } catch (Exception ignored) {}
+        }).start();
+
+        mainHandler.postDelayed(() -> {
+            if (!destroyed && mapReady && !isFinishing()) {
+                loadOnlineDrivers();
+            }
+        }, 15000);
+    }
+
+    private JSONObject getJson(String urlText) throws Exception {
+        HttpURLConnection conn = null;
+
+        try {
+            URL url = new URL(urlText);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
+            conn.setUseCaches(false);
+            conn.setRequestProperty("Accept", "application/json");
+
+            String body = readStream(conn.getInputStream()).trim();
+            return body.length() == 0 ? new JSONObject() : new JSONObject(body);
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    private double distanceMeter(double lat1, double lng1, double lat2, double lng2) {
+        double earth = 6371000;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLng = Math.toRadians(lng2 - lng1);
+
+        double a =
+                Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                        + Math.cos(Math.toRadians(lat1))
+                        * Math.cos(Math.toRadians(lat2))
+                        * Math.sin(dLng / 2)
+                        * Math.sin(dLng / 2);
+
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return earth * c;
     }
 
     private void createOrder() {
@@ -515,12 +849,12 @@ public class PassengerCarActivity extends Activity {
                 JSONObject pickup = new JSONObject();
                 pickup.put("latitude", pickupLat);
                 pickup.put("longitude", pickupLng);
-                pickup.put("address", "Lokasi Jemput");
+                pickup.put("address", firstNonEmpty(pickupAddress, "Lokasi Jemput"));
 
                 JSONObject delivery = new JSONObject();
                 delivery.put("latitude", deliveryLat);
                 delivery.put("longitude", deliveryLng);
-                delivery.put("address", "Lokasi Tujuan");
+                delivery.put("address", firstNonEmpty(deliveryAddress, "Lokasi Tujuan"));
 
                 JSONObject userLocation = new JSONObject();
                 userLocation.put("latitude", pickupLat);
@@ -538,6 +872,8 @@ public class PassengerCarActivity extends Activity {
                 payload.put("price_mode", "server");
                 payload.put("pickup", pickup);
                 payload.put("delivery", delivery);
+                payload.put("pickup_address", firstNonEmpty(pickupAddress, "Lokasi Jemput"));
+                payload.put("delivery_address", firstNonEmpty(deliveryAddress, "Lokasi Tujuan"));
                 payload.put("userLocation", userLocation);
                 payload.put("note", noteInput.getText().toString().trim());
 
@@ -578,6 +914,8 @@ public class PassengerCarActivity extends Activity {
                 .putString("pickup_lng", String.valueOf(pickupLng))
                 .putString("delivery_lat", String.valueOf(deliveryLat))
                 .putString("delivery_lng", String.valueOf(deliveryLng))
+                .putString("pickup_address", firstNonEmpty(pickupAddress, "Lokasi Jemput"))
+                .putString("delivery_address", firstNonEmpty(deliveryAddress, "Lokasi Tujuan"))
                 .putString("active_order_price", res.optString("price", ""))
                 .apply();
 
@@ -592,86 +930,12 @@ public class PassengerCarActivity extends Activity {
             i.putExtra("pickup_lng", String.valueOf(pickupLng));
             i.putExtra("delivery_lat", String.valueOf(deliveryLat));
             i.putExtra("delivery_lng", String.valueOf(deliveryLng));
+            i.putExtra("pickup_address", firstNonEmpty(pickupAddress, "Lokasi Jemput"));
+            i.putExtra("delivery_address", firstNonEmpty(deliveryAddress, "Lokasi Tujuan"));
             startActivity(i);
             finish();
         } catch (Exception e) {
             toastDialog("Order Transcar berhasil dibuat. ID: " + orderId);
-        }
-    }
-
-
-    private void loadOnlineCarDrivers() {
-        if (destroyed) return;
-
-        new Thread(() -> {
-            try {
-                JSONObject res = getJson(GET_ONLINE_DRIVERS_URL + "?type=car&v=" + System.currentTimeMillis());
-                JSONArray arr = res.optJSONArray("drivers");
-
-                mainHandler.post(() -> {
-                    if (destroyed || !mapReady) return;
-
-                    eval("clearDrivers()");
-
-                    if (arr == null) return;
-
-                    for (int i = 0; i < arr.length(); i++) {
-                        JSONObject d = arr.optJSONObject(i);
-                        if (d == null) continue;
-
-                        double lat = d.optDouble("latitude", d.optDouble("lat", 0));
-                        double lng = d.optDouble("longitude", d.optDouble("lng", 0));
-
-                        if (!validCoord(lat, lng)) continue;
-
-                        String name = firstNonEmpty(
-                                d.optString("name", ""),
-                                d.optString("username", ""),
-                                "Driver Car"
-                        );
-
-                        eval("addDriver(" + lat + "," + lng + ",'" + js(name) + "')");
-                    }
-                });
-
-            } catch (Exception ignored) {}
-
-            mainHandler.postDelayed(() -> {
-                if (!destroyed && mapReady) loadOnlineCarDrivers();
-            }, 15000);
-        }).start();
-    }
-
-
-    private JSONObject getJson(String urlText) throws Exception {
-        HttpURLConnection conn = null;
-
-        try {
-            URL url = new URL(urlText);
-            conn = (HttpURLConnection) url.openConnection();
-
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(TIMEOUT_MS);
-            conn.setReadTimeout(TIMEOUT_MS);
-            conn.setUseCaches(false);
-            conn.setRequestProperty("Accept", "application/json");
-
-            int code = conn.getResponseCode();
-
-            InputStream is = code >= 200 && code < 400
-                    ? conn.getInputStream()
-                    : conn.getErrorStream();
-
-            String body = readStream(is).trim();
-
-            return body.length() == 0
-                    ? new JSONObject()
-                    : new JSONObject(body);
-
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
         }
     }
 
@@ -715,7 +979,7 @@ public class PassengerCarActivity extends Activity {
 
     private void eval(String js) { if (mapView != null && mapReady) try { mapView.evaluateJavascript(js, null); } catch (Exception ignored) {} }
     private boolean validCoord(double lat, double lng) { return Double.isFinite(lat) && Double.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 && lat != 0 && lng != 0; }
-    private void resetOrderButton() { ordering = false; setLoading(false); orderBtn.setEnabled(true); orderBtn.setText("Order Mobil"); }
+    private void resetOrderButton() { ordering = false; setLoading(false); orderBtn.setEnabled(true); orderBtn.setText("🚘 Order Mobil"); }
     private void setLoading(boolean b) { if (progressBar != null) progressBar.setVisibility(b ? View.VISIBLE : View.GONE); }
     private int checkSelfPermissionCompat(String p) { return android.os.Build.VERSION.SDK_INT >= 23 ? checkSelfPermission(p) : PackageManager.PERMISSION_GRANTED; }
     private void requestLocationIfNeeded() { if (checkSelfPermissionCompat(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && android.os.Build.VERSION.SDK_INT >= 23) requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION); }
@@ -740,6 +1004,12 @@ public class PassengerCarActivity extends Activity {
         b.setTextColor(Color.parseColor(color));
         b.setBackground(roundStroke("#FFFFFF", "#E2E8F0", dp(14), 1));
         return b;
+    }
+
+    private String shortAddress(String value) {
+        String v = firstNonEmpty(value, "");
+        if (v.length() > 38) return v.substring(0, 38) + "...";
+        return v;
     }
 
     private String shortCoord(double lat, double lng) {
@@ -795,5 +1065,16 @@ public class PassengerCarActivity extends Activity {
     private GradientDrawable roundStroke(String color, String stroke, int radius, int width) { GradientDrawable gd = round(color, radius); gd.setStroke(dp(width), Color.parseColor(stroke)); return gd; }
     private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density + .5f); }
 
-    @Override protected void onDestroy() { destroyed = true; try { if (mapView != null) { mapView.stopLoading(); mapView.destroy(); } } catch (Exception ignored) {} super.onDestroy(); }
+    @Override protected void onDestroy() {
+        destroyed = true;
+        try {
+            mainHandler.removeCallbacksAndMessages(null);
+            if (mapView != null) {
+                mapView.stopLoading();
+                mapView.destroy();
+                mapView = null;
+            }
+        } catch (Exception ignored) {}
+        super.onDestroy();
+    }
 }
