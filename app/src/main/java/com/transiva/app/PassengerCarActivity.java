@@ -642,6 +642,39 @@ public class PassengerCarActivity extends Activity {
         }).start();
     }
 
+
+    private JSONObject getJson(String urlText) throws Exception {
+        HttpURLConnection conn = null;
+
+        try {
+            URL url = new URL(urlText);
+            conn = (HttpURLConnection) url.openConnection();
+
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
+            conn.setUseCaches(false);
+            conn.setRequestProperty("Accept", "application/json");
+
+            int code = conn.getResponseCode();
+
+            InputStream is = code >= 200 && code < 400
+                    ? conn.getInputStream()
+                    : conn.getErrorStream();
+
+            String body = readStream(is).trim();
+
+            return body.length() == 0
+                    ? new JSONObject()
+                    : new JSONObject(body);
+
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
     private JSONObject postJson(String urlText, JSONObject payload) throws Exception {
         HttpURLConnection conn = null;
         try {
