@@ -7,6 +7,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.location.LocationListener;
@@ -18,6 +20,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
+import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -32,6 +35,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -40,10 +44,13 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
 import java.util.Locale;
+import android.util.Base64;
 
 public class DriverTripActivity extends Activity {
     private static final String BASE_URL = "https://transiva.my.id/server/";
     private static final String WEB_APP_URL = "https://transiva.my.id/";
+    private static final String LEAFLET_CSS = WEB_APP_URL + "js/leaflet.css";
+    private static final String LEAFLET_JS  = WEB_APP_URL + "js/leaflet.js";
     private static final String PREF_NAME = "transiva";
     private static final int TIMEOUT_MS = 20000;
     private static final float ARRIVE_RADIUS_METER = 100f;
@@ -112,9 +119,34 @@ public class DriverTripActivity extends Activity {
         driverType = normalizeDriverType(first(driverType, getSharedPreferences(PREF_NAME, MODE_PRIVATE).getString("driver_type", ""), "motor"));
     }
     private String normalizeDriverType(String value){
-        value = first(value, "motor").toLowerCase(Locale.US);
-        if(value.equals("car") || value.equals("mobil") || value.equals("driver_car")) return "car";
-        return "motor";
+        value = first(value, "motor").toLowerCase(Locale.US).trim();
+        if(value.equals("car") || value.equals("mobil") || value.equals("driver_car") || value.equals("transcar") || value.equals("angkot") || value.equals("taxi")) return "car";
+        if(value.equals("bike") || value.equals("motorcycle") || value.equals("moto") || value.equals("driver_motor") || value.equals("transbike")) return "motor";
+        return value.contains("car") || value.contains("mobil") ? "car" : "motor";
+    }
+
+    private String resolveDriverTypeFromOrder(){
+        if(order == null) return normalizeDriverType(driverType);
+        String value = first(
+                order.optString("driver_type"),
+                order.optString("vehicle_type"),
+                order.optString("price_mode"),
+                order.optString("mode"),
+                order.optString("service_mode"),
+                order.optString("order_mode"),
+                order.optString("active_driver_type"),
+                driverType,
+                "motor"
+        );
+        return normalizeDriverType(value);
+    }
+
+    private String vehicleEmoji(){
+        return "car".equals(resolveDriverTypeFromOrder()) ? "🚘" : "🏍️";
+    }
+
+    private String vehicleLabel(){
+        return "car".equals(resolveDriverTypeFromOrder()) ? "Mobil / Car" : "Motor / Bike";
     }
 
     private void loadOrder(){
@@ -138,6 +170,7 @@ public class DriverTripActivity extends Activity {
         if(order != null){
             orderKind = first(getIntent().getStringExtra("order_kind"), order.optString("order_kind"), order.optString("source_table"), order.optString("type"), pref("driver_active_order_kind"), "order").toLowerCase(Locale.US);
             orderKind = orderKind.contains("pickup") ? "pickup" : "order";
+            driverType = resolveDriverTypeFromOrder();
             saveActiveOrder();
         }
     }
@@ -174,10 +207,10 @@ public class DriverTripActivity extends Activity {
         LinearLayout h = card(); h.setPadding(dp(16), dp(14), dp(16), dp(14));
         LinearLayout top = new LinearLayout(this); top.setGravity(Gravity.CENTER_VERTICAL); h.addView(top);
         LinearLayout left = new LinearLayout(this); left.setOrientation(LinearLayout.VERTICAL); top.addView(left, new LinearLayout.LayoutParams(0,-2,1));
-        left.addView(text(cleanServiceLabel(), 14, "#64748B", true)); TextView id = text("#" + orderId(), 24, "#0B3A78", true); id.setMaxLines(2); left.addView(id);
+        left.addView(text(cleanServiceLabel() + " • " + vehicleLabel(), 14, "#64748B", true)); TextView id = text("#" + orderId(), 24, "#0B3A78", true); id.setMaxLines(2); left.addView(id);
         statusBadge = text(statusLabel(status()), 12, "#FFFFFF", true); statusBadge.setGravity(Gravity.CENTER); statusBadge.setPadding(dp(12), dp(7), dp(12), dp(7)); statusBadge.setBackground(gradient("#086BFF", "#2EA2FF", dp(18))); top.addView(statusBadge);
         LinearLayout stats = new LinearLayout(this); stats.setOrientation(LinearLayout.HORIZONTAL); stats.setGravity(Gravity.CENTER); LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1,-2); sp.setMargins(0, dp(14),0,0); h.addView(stats, sp);
-        mini(stats, "💰", "Total Bayar", rupiah(optDouble("price", "fare", "total"))); mini(stats, "🛵", "Jarak", one(optDouble("distance_km")) + " KM"); mini(stats, "⏱️", "Estimasi", zero(optDouble("duration_minutes")) + " menit");
+        mini(stats, "💰", "Total Bayar", rupiah(optDouble("price", "fare", "total"))); mini(stats, vehicleEmoji(), "Jarak", one(optDouble("distance_km")) + " KM"); mini(stats, "⏱️", "Estimasi", zero(optDouble("duration_minutes")) + " menit");
         distanceInfo = text("📡 Mengukur jarak driver...", 13, "#64748B", false); distanceInfo.setPadding(0, dp(10),0,0); h.addView(distanceInfo);
         distanceHint = text("", 13, "#059669", true); distanceHint.setPadding(dp(12), dp(9), dp(12), dp(9)); distanceHint.setBackground(stroke("#ECFDF5", "#86EFAC", dp(14), 1)); LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1,-2); hp.setMargins(0, dp(8),0,0); h.addView(distanceHint, hp);
         add(h,0,dp(8),0,dp(12));
@@ -199,8 +232,8 @@ public class DriverTripActivity extends Activity {
     }
     private void addMapCard(){
         LinearLayout c = card(); c.setPadding(dp(12), dp(12), dp(12), dp(12));
-        c.addView(text("🗺️ Peta Perjalanan", 16, "#0B3A78", true)); c.addView(text("Marker pickup, delivery, dan driver tampil realtime sederhana.", 12, "#64748B", false));
-        mapView = new WebView(this); try{ WebSettings st = mapView.getSettings(); st.setJavaScriptEnabled(true); st.setDomStorageEnabled(true); st.setAllowFileAccess(true); st.setAllowContentAccess(true); st.setCacheMode(WebSettings.LOAD_DEFAULT); mapView.setBackgroundColor(Color.TRANSPARENT); }catch(Exception ignored){}
+        c.addView(text("🗺️ Peta Perjalanan", 16, "#0B3A78", true)); c.addView(text("Ikon driver mengikuti mode order dan dikunci di dalam jalur rute.", 12, "#64748B", false));
+        mapView = new WebView(this); try{ WebSettings st = mapView.getSettings(); st.setJavaScriptEnabled(true); st.setDomStorageEnabled(true); st.setLoadWithOverviewMode(true); st.setUseWideViewPort(true); st.setAllowFileAccess(true); st.setAllowContentAccess(true); st.setCacheMode(WebSettings.LOAD_NO_CACHE); if(Build.VERSION.SDK_INT >= 21) st.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW); mapView.setBackgroundColor(Color.TRANSPARENT); mapView.setWebChromeClient(new WebChromeClient()); }catch(Exception ignored){}
         mapView.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view, String url){
                 mapReady = true;
@@ -213,25 +246,37 @@ public class DriverTripActivity extends Activity {
         double pLat = coord("pickup_lat","user_lat"), pLng = coord("pickup_lng","user_lng"), dLat = coord("delivery_lat","destination_lat"), dLng = coord("delivery_lng","destination_lng");
         double cLat = valid(pLat,pLng) ? pLat : (valid(dLat,dLng) ? dLat : -0.9), cLng = valid(pLat,pLng) ? pLng : (valid(dLat,dLng) ? dLng : 119.87);
         String mode = routeTargetMode();
-        return "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"+
-                "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"+
-                "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"+
-                "<style>html,body,#map{height:100%;margin:0;background:#EAF4FF}.leaflet-container{font-family:Arial,sans-serif}.motorWrap{width:48px;height:48px;display:flex;align-items:center;justify-content:center}.motorWrap img{width:46px;height:46px;transform-origin:center center;filter:drop-shadow(0 4px 8px rgba(0,0,0,.30));transition:transform .25s linear}.routeBadge{position:absolute;z-index:999;top:10px;left:10px;right:10px;background:rgba(255,255,255,.94);border:1px solid #D7E6F8;border-radius:16px;padding:10px 12px;color:#0B3A78;font-size:13px;font-weight:700;box-shadow:0 8px 22px rgba(15,23,42,.12)}</style></head><body><div id='map'></div><div id='badge' class='routeBadge'>Menyiapkan rute...</div><script>"+
-                "var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+mode+"';var lastDriver=[0,0];"+
-                "var map=L.map('map',{zoomControl:true,attributionControl:false}).setView(["+cLat+","+cLng+"],16);"+
-                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);"+
-                "var pickupIcon=L.icon({iconUrl:'file:///android_res/drawable/map_pickup_pin.png',iconSize:[48,48],iconAnchor:[24,45],popupAnchor:[0,-42]});"+
-                "var destIcon=L.icon({iconUrl:'file:///android_res/drawable/map_destination_pin.png',iconSize:[48,48],iconAnchor:[24,45],popupAnchor:[0,-42]});"+
-                "function motorIcon(deg){return L.divIcon({className:'',iconSize:[48,48],iconAnchor:[24,24],html:'<div class=\"motorWrap\"><img src=\"file:///android_res/drawable/map_motor_top.png\" style=\"transform:rotate('+deg+'deg)\"></div>'});}"+
-                "if(pickup[0]&&pickup[1])L.marker(pickup,{icon:pickupIcon}).addTo(map).bindPopup('Lokasi Pickup');"+
-                "if(dest[0]&&dest[1])L.marker(dest,{icon:destIcon}).addTo(map).bindPopup('Tujuan Pengantaran');"+
-                "var driverMarker=null,routeLine=null,lastRouteKey='',animId=null,driverLatLng=null,lastDeg=0;"+
-                "function targetPoint(){return targetMode==='delivery'?dest:pickup;}"+
-                "function setBadge(t){var b=document.getElementById('badge');if(b)b.innerHTML=t;}"+
-                "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(4)+','+b.toFixed(4)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Rute ke tujuan pengantaran':'Rute ke lokasi pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;var pts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});if(routeLine)map.removeLayer(routeLine);routeLine=L.polyline(pts,{weight:6,opacity:.88,color:'#087CFF'}).addTo(map);var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');map.fitBounds(routeLine.getBounds(),{padding:[44,44]});}).catch(function(){setBadge('Rute online gagal dimuat, cek internet');});}"+
-                "window.setTargetMode=function(m){targetMode=m;lastRouteKey='';if(lastDriver[0]&&lastDriver[1])drawRoute(lastDriver[0],lastDriver[1],true);};"+
-                "window.focusTarget=function(m){targetMode=m;lastRouteKey='';if(lastDriver[0]&&lastDriver[1])drawRoute(lastDriver[0],lastDriver[1],true);else{var t=targetPoint();if(t[0]&&t[1])map.setView(t,17);}};"+
-                "function lerp(x,y,t){return x+(y-x)*t;}function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}function moveDriver(a,b,deg){if(!driverMarker){driverLatLng=[a,b];lastDeg=deg||0;driverMarker=L.marker([a,b],{icon:motorIcon(lastDeg)}).addTo(map).bindPopup('Posisi Driver');map.panTo([a,b],{animate:true,duration:.45});return;}var cur=driverMarker.getLatLng();var from=[cur.lat,cur.lng];var to=[a,b];var start=null;var duration=900;if(animId)cancelAnimationFrame(animId);function step(ts){if(!start)start=ts;var t=Math.min(1,(ts-start)/duration);var e=ease(t);var la=lerp(from[0],to[0],e),ln=lerp(from[1],to[1],e);driverLatLng=[la,ln];driverMarker.setLatLng([la,ln]);if(t<1){animId=requestAnimationFrame(step);}else{driverLatLng=to;animId=null;}}lastDeg=deg||lastDeg;driverMarker.setIcon(motorIcon(lastDeg));animId=requestAnimationFrame(step);}window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];moveDriver(a,b,deg||lastDeg);drawRoute(a,b,false);};window.setMapReady=function(){return true;};"+
+        String vehicle = resolveDriverTypeFromOrder();
+        String carIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
+        String bikeIcon = drawableDataUri("map_motor_top", "ic_motor_top", "motor_top", "ic_transbike", "transbike", "motor", "bike_marker");
+        String pickupPin = drawableDataUri("map_pickup_pin", "ic_pickup_pin", "pickup_pin", "pickup_marker");
+        String destPin = drawableDataUri("map_destination_pin", "map_delivery_pin", "ic_destination_pin", "destination_pin", "delivery_marker");
+
+        return "<!doctype html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"+
+                "<link rel='stylesheet' href='"+LEAFLET_CSS+"?v=driver_snap_3'>"+
+                "<script src='"+LEAFLET_JS+"?v=driver_snap_3'></script>"+
+                "<style>html,body,#map{height:100%;width:100%;margin:0;padding:0;background:#EAF4FF;overflow:hidden}.leaflet-container{height:100%;width:100%;font-family:Arial,sans-serif;background:#EAF4FF;border-radius:18px}.leaflet-control-attribution{display:none!important}.leaflet-tile-pane{filter:saturate(.92) contrast(.98) brightness(1.03)}.pin{width:42px;height:42px;border-radius:21px;display:flex;align-items:center;justify-content:center;font-size:22px;background:#fff;box-shadow:0 5px 14px rgba(15,23,42,.24);border:3px solid #fff}.pickup{background:#16a34a;color:#fff}.delivery{background:#ef4444;color:#fff}.pinImg{width:48px;height:48px;object-fit:contain;filter:drop-shadow(0 5px 8px rgba(15,23,42,.28))}.vehicle{width:48px;height:48px;object-fit:contain;transition:transform .25s linear;filter:drop-shadow(0 5px 6px rgba(0,0,0,.38));transform-origin:center center}.vehicleFallback{width:46px;height:46px;border-radius:23px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:28px;transition:transform .25s linear;filter:drop-shadow(0 5px 6px rgba(0,0,0,.38));transform-origin:center center}.routeBadge{position:absolute;z-index:999;top:10px;left:10px;right:10px;background:rgba(255,255,255,.95);border:1px solid #D7E6F8;border-radius:16px;padding:10px 12px;color:#0B3A78;font-size:13px;font-weight:700;box-shadow:0 8px 22px rgba(15,23,42,.12)}</style></head><body><div id='map'></div><div id='badge' class='routeBadge'>Menyiapkan rute...</div><script>"+
+                "var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+mode+"';var vehicleType='"+vehicle+"';"+
+                "var bikeIconData='"+bikeIcon+"',carIconData='"+carIcon+"',pickupPinData='"+pickupPin+"',destPinData='"+destPin+"';"+
+                "var map=null,pickupMarker=null,destMarker=null,driverMarker=null,routeLine=null,routePts=[],lastRouteKey='',drawing=false,animId=null,lastDriver=[0,0],lastDeg=0,driverRaw=null;"+
+                "function valid(a,b){a=+a;b=+b;return isFinite(a)&&isFinite(b)&&a!==0&&b!==0;}function esc(s){return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}"+
+                "function init(){if(typeof L==='undefined'){setTimeout(init,300);return;}if(map)return;map=L.map('map',{zoomControl:true,attributionControl:false,preferCanvas:true}).setView(["+cLat+","+cLng+"],16);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,crossOrigin:true,attribution:''}).addTo(map);if(valid(pickup[0],pickup[1]))pickupMarker=L.marker(pickup,{icon:pinIcon('pickup'),zIndexOffset:600}).addTo(map).bindPopup('Lokasi Pickup');if(valid(dest[0],dest[1]))destMarker=L.marker(dest,{icon:pinIcon('delivery'),zIndexOffset:600}).addTo(map).bindPopup('Tujuan Pengantaran');setTimeout(function(){try{map.invalidateSize(true);}catch(e){}},500);}"+
+                "function setBadge(t){var b=document.getElementById('badge');if(b)b.innerHTML=t;}function targetPoint(){return targetMode==='delivery'?dest:pickup;}function targetLabel(){return targetMode==='delivery'?'tujuan pengantaran':'lokasi pickup';}"+
+                "function pinIcon(type){var data=type==='pickup'?pickupPinData:destPinData;if(data&&data.length>20){return L.divIcon({html:'<img class=pinImg src='+data+'>',className:'',iconSize:[48,48],iconAnchor:[24,44],popupAnchor:[0,-42]});}return L.divIcon({html:'<div class=\"pin '+(type==='pickup'?'pickup':'delivery')+'\">'+(type==='pickup'?'👤':'⌂')+'</div>',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-22]});}"+
+                "function vehicleIcon(type,deg){type=type==='car'?'car':'motor';var data=type==='car'?carIconData:bikeIconData;deg=+deg||0;if(data&&data.length>20){return L.divIcon({html:'<img class=vehicle src='+data+' style=\"transform:rotate('+deg+'deg)\">',className:'',iconSize:[50,50],iconAnchor:[25,25],popupAnchor:[0,-30]});}return L.divIcon({html:'<div class=vehicleFallback style=\"transform:rotate('+deg+'deg)\">'+(type==='car'?'🚘':'🏍️')+'</div>',className:'',iconSize:[50,50],iconAnchor:[25,25],popupAnchor:[0,-30]});}"+
+                "function bearingOf(a,b){try{var lat1=a[0]*Math.PI/180,lat2=b[0]*Math.PI/180,dLng=(b[1]-a[1])*Math.PI/180;var y=Math.sin(dLng)*Math.cos(lat2);var x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLng);var br=(Math.atan2(y,x)*180/Math.PI)%360;return br<0?br+360:br;}catch(e){return null;}}"+
+                "function snapToRoute(lat,lng){lat=+lat;lng=+lng;if(!routePts||routePts.length<2)return{lat:lat,lng:lng,bearing:null};var cos=Math.cos(lat*Math.PI/180);if(!isFinite(cos)||Math.abs(cos)<0.000001)cos=1;var px=lng*cos,py=lat,bestD=999999999,bx=lng,by=lat,bi=0;for(var i=0;i<routePts.length-1;i++){var a=routePts[i],b=routePts[i+1],ax=a[1]*cos,ay=a[0],cx=b[1]*cos,cy=b[0],vx=cx-ax,vy=cy-ay,wx=px-ax,wy=py-ay,len=vx*vx+vy*vy,t=len?((wx*vx+wy*vy)/len):0;if(t<0)t=0;if(t>1)t=1;var qx=ax+vx*t,qy=ay+vy*t,dx=px-qx,dy=py-qy,dd=dx*dx+dy*dy;if(dd<bestD){bestD=dd;bx=qx/cos;by=qy;bi=i;}}var br=bearingOf(routePts[bi],routePts[Math.min(bi+1,routePts.length-1)]);return{lat:by,lng:bx,bearing:br};}"+
+                "function rotateVehicle(deg){if(!driverMarker)return;var el=driverMarker.getElement();if(!el)return;var img=el.querySelector('.vehicle')||el.querySelector('.vehicleFallback');if(img)img.style.transform='rotate('+(+deg||0)+'deg)';}"+
+                "function clearLine(){if(routeLine&&map){map.removeLayer(routeLine);routeLine=null;}routePts=[];}"+
+                "function fitAll(){if(!map)return;var p=[];if(driverMarker)p.push(driverMarker.getLatLng());if(pickupMarker)p.push(pickupMarker.getLatLng());if(destMarker)p.push(destMarker.getLatLng());if(routeLine){try{map.fitBounds(routeLine.getBounds(),{padding:[44,44],maxZoom:17,animate:true});return;}catch(e){}}if(p.length===1)map.setView(p[0],16,{animate:true});else if(p.length>1)map.fitBounds(L.latLngBounds(p),{padding:[44,44],maxZoom:17,animate:true});}"+
+                "function drawStraight(a,b,color,silent){if(!map||!valid(a[0],a[1])||!valid(b[0],b[1]))return;clearLine();routePts=[a,b];routeLine=L.polyline(routePts,{color:color||'#087CFF',weight:5,opacity:.75,dashArray:'8,8',lineCap:'round'}).addTo(map);try{routeLine.bringToBack();}catch(e){}if(!silent)setBadge('Rute sementara ke '+targetLabel());if(driverRaw)setDriver(driverRaw.lat,driverRaw.lng,driverRaw.deg,driverRaw.type,true);}"+
+                "function drawRoute(a,b,force){if(!map||!valid(a,b))return;var t=targetPoint();if(!valid(t[0],t[1])){setBadge('Koordinat target belum lengkap');return;}var key=a.toFixed(4)+','+b.toFixed(4)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;if(drawing)return;drawing=true;lastRouteKey=key;var color=targetMode==='delivery'?'#16a34a':'#087CFF';setBadge('Rute ke '+targetLabel()+' sedang dimuat...');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j||!j.routes||!j.routes[0])throw new Error('no route');var cs=j.routes[0].geometry.coordinates,pts=[];for(var i=0;i<cs.length;i++)pts.push([cs[i][1],cs[i][0]]);clearLine();routePts=pts;routeLine=L.polyline(routePts,{weight:6,opacity:.9,color:color,lineCap:'round',lineJoin:'round'}).addTo(map);try{routeLine.bringToBack();}catch(e){}var km=(j.routes[0].distance/1000).toFixed(1),min=Math.max(1,Math.round(j.routes[0].duration/60));setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');if(driverRaw)setDriver(driverRaw.lat,driverRaw.lng,driverRaw.deg,driverRaw.type,true);fitAll();}).catch(function(){drawStraight([a,b],t,color,false);fitAll();}).finally(function(){drawing=false;});}"+
+                "function setDriver(lat,lng,deg,type,skipRoute){if(!map||!valid(lat,lng))return;type=type==='car'?'car':'motor';vehicleType=type;driverRaw={lat:+lat,lng:+lng,deg:+deg||0,type:type};var t=targetPoint();if(routePts.length<2&&valid(t[0],t[1]))drawStraight([+lat,+lng],t,'#087CFF',true);var s=snapToRoute(lat,lng);var useDeg=(s.bearing!==null&&s.bearing!==undefined)?s.bearing:(+deg||lastDeg);lastDeg=useDeg;var target=L.latLng(s.lat,s.lng);if(!driverMarker){driverMarker=L.marker(target,{icon:vehicleIcon(type,useDeg),zIndexOffset:9999}).addTo(map).bindPopup(type==='car'?'Posisi Driver Mobil':'Posisi Driver Motor');}else{animateDriverTo(target,useDeg,type);}if(!skipRoute)drawRoute(+lat,+lng,false);}"+
+                "function animateDriverTo(target,deg,type){if(animId)cancelAnimationFrame(animId);var cur=driverMarker.getLatLng(),from=[cur.lat,cur.lng],to=[target.lat,target.lng],start=null,duration=850;driverMarker.setIcon(vehicleIcon(type,deg));function lerp(x,y,t){return x+(y-x)*t;}function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}function step(ts){if(!start)start=ts;var t=Math.min(1,(ts-start)/duration),e=ease(t),la=lerp(from[0],to[0],e),ln=lerp(from[1],to[1],e),s=snapToRoute(la,ln),bd=(s.bearing!==null&&s.bearing!==undefined)?s.bearing:deg;driverMarker.setLatLng([s.lat,s.lng]);rotateVehicle(bd);if(t<1)animId=requestAnimationFrame(step);else{animId=null;driverMarker.setLatLng(target);rotateVehicle(deg);}}animId=requestAnimationFrame(step);}"+
+                "window.setVehicleType=function(t){vehicleType=t==='car'?'car':'motor';if(driverRaw){driverRaw.type=vehicleType;if(driverMarker)driverMarker.setIcon(vehicleIcon(vehicleType,lastDeg));}};"+
+                "window.setTargetMode=function(m){targetMode=m==='delivery'?'delivery':'pickup';lastRouteKey='';if(driverRaw){var t=targetPoint();if(valid(t[0],t[1]))drawRoute(driverRaw.lat,driverRaw.lng,true);}};"+
+                "window.focusTarget=function(m){targetMode=m==='delivery'?'delivery':'pickup';lastRouteKey='';if(driverRaw)drawRoute(driverRaw.lat,driverRaw.lng,true);else{var t=targetPoint();if(valid(t[0],t[1]))map.setView(t,17);}};"+
+                "window.updateDrv=function(a,b,deg,type){if(!valid(a,b))return;lastDriver=[+a,+b];setDriver(+a,+b,+deg||lastDeg,type||vehicleType,false);fitAll();};window.setMapReady=function(){return true;};init();setTimeout(init,1000);"+
                 "</script></body></html>";
     }
 
@@ -257,7 +302,7 @@ public class DriverTripActivity extends Activity {
         c.addView(text("🍔 Detail Order Makanan", 18, "#0B3A78", true));
         rowText(c, "🏪 Resto", first(food.optString("restaurant_name"), pickupAddress(), "Resto"));
         rowText(c, "🧾 Total Makanan", rupiah(food.optDouble("food_total", 0)));
-        rowText(c, "🛵 Ongkir", rupiah(food.optDouble("delivery_fee", optDouble("price"))));
+        rowText(c, vehicleEmoji() + " Ongkir", rupiah(food.optDouble("delivery_fee", optDouble("price"))));
         rowText(c, "💳 Pembayaran", first(food.optString("payment_label"), food.optString("payment_method"), "-"));
         rowText(c, "💰 Total Bayar", rupiah(food.optDouble("total", optDouble("price", "total"))));
         TextView menuTitle = text("📦 Menu Pesanan", 16, "#0B3A78", true); menuTitle.setPadding(0, dp(12),0,dp(6)); c.addView(menuTitle);
@@ -292,7 +337,7 @@ public class DriverTripActivity extends Activity {
         LinearLayout c = card(); c.setPadding(dp(16), dp(16), dp(16), dp(16)); c.addView(text("⚡ Aksi Perjalanan", 18, "#0B3A78", true));
         Button chat = primary("💬 Chat Customer"); chat.setOnClickListener(v -> openChat()); c.addView(chat, btnLp(12));
         arrivedPickupBtn = green("📍 Tiba di Lokasi Pickup"); arrivedPickupBtn.setOnClickListener(v -> confirm("Tiba di lokasi pickup?", "arrived_pickup")); c.addView(arrivedPickupBtn, btnLp(10));
-        startDeliveryBtn = green(orderKind.equals("pickup") ? "📦 Paket Sudah Diambil" : "🛵 Lanjutkan Perjalanan"); startDeliveryBtn.setOnClickListener(v -> confirm("Mulai perjalanan ke lokasi delivery?", "on_delivery")); c.addView(startDeliveryBtn, btnLp(10));
+        startDeliveryBtn = green(orderKind.equals("pickup") ? "📦 Paket Sudah Diambil" : vehicleEmoji() + " Lanjutkan Perjalanan"); startDeliveryBtn.setOnClickListener(v -> confirm("Mulai perjalanan ke lokasi delivery?", "on_delivery")); c.addView(startDeliveryBtn, btnLp(10));
         arrivedDeliveryBtn = green("🏁 Tiba di Lokasi Delivery"); arrivedDeliveryBtn.setOnClickListener(v -> confirm("Tiba di lokasi delivery?", "arrived_delivery")); c.addView(arrivedDeliveryBtn, btnLp(10));
         finishBtn = green("✅ Selesaikan Order"); finishBtn.setOnClickListener(v -> confirm("Selesaikan order ini sekarang?", "finished")); c.addView(finishBtn, btnLp(10));
         Button back = outline("← Kembali ke Dashboard"); back.setOnClickListener(v -> finish()); c.addView(back, btnLp(10));
@@ -396,7 +441,8 @@ public class DriverTripActivity extends Activity {
             if(mapView == null || Build.VERSION.SDK_INT < 19 || !mapReady || !valid(lastDriverLat, lastDriverLng)) return;
             double deg = 0;
             if(valid(prevDriverLat, prevDriverLng)) deg = bearing(prevDriverLat, prevDriverLng, lastDriverLat, lastDriverLng);
-            String js = "if(window.setTargetMode)setTargetMode('" + routeTargetMode() + "');if(window.updateDrv)updateDrv(" + lastDriverLat + "," + lastDriverLng + "," + deg + ");";
+            driverType = resolveDriverTypeFromOrder();
+            String js = "if(window.setVehicleType)setVehicleType('" + driverType + "');if(window.setTargetMode)setTargetMode('" + routeTargetMode() + "');if(window.updateDrv)updateDrv(" + lastDriverLat + "," + lastDriverLng + "," + deg + ",'" + driverType + "');";
             mapView.evaluateJavascript(js, null);
             prevDriverLat = lastDriverLat;
             prevDriverLng = lastDriverLng;
@@ -441,6 +487,7 @@ public class DriverTripActivity extends Activity {
                 p.put("username", driverUsername);
                 p.put("latitude", lat);
                 p.put("longitude", lng);
+                driverType = resolveDriverTypeFromOrder();
                 p.put("driver_type", driverType);
                 if(order != null) p.put("order_id", orderId());
                 postJson(BASE_URL + "updateDriverLocation.php", p);
@@ -500,7 +547,7 @@ public class DriverTripActivity extends Activity {
         }
     }
     private JSONObject postJson(String urlText, JSONObject payload)throws Exception{ HttpURLConnection c=(HttpURLConnection)new URL(urlText).openConnection(); c.setConnectTimeout(TIMEOUT_MS); c.setReadTimeout(TIMEOUT_MS); c.setRequestMethod("POST"); c.setRequestProperty("Content-Type","application/json; charset=utf-8"); c.setRequestProperty("Accept","application/json"); c.setDoOutput(true); OutputStream os=c.getOutputStream(); os.write(payload.toString().getBytes(StandardCharsets.UTF_8)); os.flush(); os.close(); InputStream is=c.getResponseCode()>=400?c.getErrorStream():c.getInputStream(); BufferedReader br=new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8)); StringBuilder sb=new StringBuilder(); String line; while((line=br.readLine())!=null) sb.append(line); br.close(); c.disconnect(); String body=sb.toString().trim(); return body.isEmpty()?new JSONObject():new JSONObject(body); }
-    private void saveActiveOrder(){ if(order==null)return; getSharedPreferences(PREF_NAME,MODE_PRIVATE).edit().putString("driver_active_order_json", order.toString()).putString("driver_active_order_id", orderId()).putString("driver_active_order_kind", orderKind).putString("driver_active_order_status", status()).putString("driver_active_pickup_address", pickupAddress()).putString("driver_active_delivery_address", deliveryAddress()).putString("driver_active_pickup_lat", String.valueOf(coord("pickup_lat","user_lat"))).putString("driver_active_pickup_lng", String.valueOf(coord("pickup_lng","user_lng"))).putString("driver_active_delivery_lat", String.valueOf(coord("delivery_lat","destination_lat"))).putString("driver_active_delivery_lng", String.valueOf(coord("delivery_lng","destination_lng"))).putString("driver_active_price", String.valueOf(optDouble("price","fare","total"))).apply(); }
+    private void saveActiveOrder(){ if(order==null)return; getSharedPreferences(PREF_NAME,MODE_PRIVATE).edit().putString("driver_active_order_json", order.toString()).putString("driver_active_order_id", orderId()).putString("driver_active_order_kind", orderKind).putString("driver_active_order_status", status()).putString("driver_active_pickup_address", pickupAddress()).putString("driver_active_delivery_address", deliveryAddress()).putString("driver_active_pickup_lat", String.valueOf(coord("pickup_lat","user_lat"))).putString("driver_active_pickup_lng", String.valueOf(coord("pickup_lng","user_lng"))).putString("driver_active_delivery_lat", String.valueOf(coord("delivery_lat","destination_lat"))).putString("driver_active_delivery_lng", String.valueOf(coord("delivery_lng","destination_lng"))).putString("driver_active_price", String.valueOf(optDouble("price","fare","total"))).putString("driver_type", resolveDriverTypeFromOrder()).putString("active_driver_type", resolveDriverTypeFromOrder()).apply(); }
     private void clearActiveOrder(){ getSharedPreferences(PREF_NAME,MODE_PRIVATE).edit().remove("driver_active_order_json").remove("driver_active_order_id").remove("driver_active_order_kind").remove("driver_active_order_status").apply(); }
     private String orderId(){ return first(order.optString("order_id"), order.optString("id"), "-"); } private String internalId(){ return first(order.optString("id"), order.optString("order_id"), ""); } private String status(){ return first(order.optString("status"), "taken").toLowerCase(Locale.US).trim(); }
     private String pickupAddress(){ return first(order.optString("pickup_address"), order.optString("pickup"), order.optString("sender_address"), "-"); } private String deliveryAddress(){ return first(order.optString("delivery_address"), order.optString("destination_address"), order.optString("destination"), order.optString("receiver_address"), "-"); }
@@ -511,6 +558,23 @@ public class DriverTripActivity extends Activity {
     private boolean valid(double lat,double lng){ return lat!=0 && lng!=0 && !Double.isNaN(lat) && !Double.isNaN(lng); } private String meter(float m){ return m>=1000 ? one(m/1000.0)+" km" : Math.round(m)+" meter"; }
     private String rupiah(double v){ return "Rp " + NumberFormat.getNumberInstance(new Locale("id","ID")).format((long)v); } private String one(double v){ return String.format(Locale.US,"%.1f",v); } private String zero(double v){ return String.format(Locale.US,"%.0f",v); } private String pref(String key){ try{return getSharedPreferences(PREF_NAME,MODE_PRIVATE).getString(key,"");}catch(Exception e){return "";} }
     private String first(String... values){ if(values==null)return ""; for(String s: values) if(s!=null && s.trim().length()>0 && !"null".equalsIgnoreCase(s.trim())) return s.trim(); return ""; }
+    private String drawableDataUri(String... names){
+        try{
+            for(String name: names){
+                int id = getResources().getIdentifier(name, "drawable", getPackageName());
+                if(id <= 0) continue;
+                Bitmap bm = BitmapFactory.decodeResource(getResources(), id);
+                if(bm == null) continue;
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                bm.compress(Bitmap.CompressFormat.PNG, 100, out);
+                String b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                try{ bm.recycle(); }catch(Exception ignored){}
+                return "data:image/png;base64," + b64;
+            }
+        }catch(Exception ignored){}
+        return "";
+    }
+
     private int dp(int v){ return (int)(v * getResources().getDisplayMetrics().density + .5f); } private void add(View v,int l,int t,int r,int b){ LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2); lp.setMargins(l,t,r,b); root.addView(v,lp); }
     private LinearLayout.LayoutParams btnLp(int top){ LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(52)); lp.setMargins(0, dp(top), 0, 0); return lp; }
     private LinearLayout card(){ LinearLayout v=new LinearLayout(this); v.setOrientation(LinearLayout.VERTICAL); v.setBackground(stroke("#FFFFFF", "#D7E6F8", dp(24), 1)); v.setElevation(dp(2)); return v; }
