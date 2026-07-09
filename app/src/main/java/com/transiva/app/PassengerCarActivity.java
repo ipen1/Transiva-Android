@@ -32,6 +32,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -53,6 +54,7 @@ public class PassengerCarActivity extends Activity {
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String CREATE_ORDER_URL = BASE_URL + "server/createOrder.php";
     private static final String RESOLVE_MAPS_URL = BASE_URL + "server/resolve_google_maps.php";
+    private static final String GET_ONLINE_DRIVERS_URL = BASE_URL + "server/get_map_drivers.php";
     private static final int REQ_LOCATION = 44;
     private static final int TIMEOUT_MS = 25000;
 
@@ -66,6 +68,7 @@ public class PassengerCarActivity extends Activity {
 
     private boolean mapReady = false;
     private boolean ordering = false;
+    private boolean destroyed = false;
     private String mode = "pickup";
     private String username = "";
     private int userId = 0;
@@ -342,7 +345,7 @@ public class PassengerCarActivity extends Activity {
                 ".carpin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".route{stroke-linecap:round;stroke-linejoin:round;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map, pickup=null, delivery=null, route=null, allowRoute=false;" +
+                "var map, pickup=null, delivery=null, route=null, allowRoute=false, driverMarkers=[];" +
                 "var pickupIconData='" + js(pickupIcon) + "', deliveryIconData='" + js(deliveryIcon) + "', carIconData='" + js(carIcon) + "', motorIconData='" + js(motorIcon) + "';" +
                 "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView(["+centerLat+","+centerLng+"],17);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:''}).addTo(map);" +
@@ -356,7 +359,7 @@ public class PassengerCarActivity extends Activity {
                 "function setDelivery(lat,lng){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:600}).addTo(map);}" +
                 "function moveTo(lat,lng,z){if(!map)return;map.setView([+lat,+lng],z||17,{animate:true});}" +
                 "function drawRouteAfterOrder(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();route=L.polyline([a,b],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
-                "ready();" +
+                "function clearDrivers(){for(var i=0;i<driverMarkers.length;i++){try{map.removeLayer(driverMarkers[i]);}catch(e){}}driverMarkers=[];}" +"function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var icon=L.divIcon({html:'<img class=carpin src="'+carIconData+'">',className:\"\",iconSize:[46,46],iconAnchor:[23,23]});var m=L.marker([+lat,+lng],{icon:icon,zIndexOffset:500}).addTo(map).bindPopup(name||\"Driver Car\");driverMarkers.push(m);}" +"ready();" +
                 "</script></body></html>";
     }
 
@@ -369,6 +372,7 @@ public class PassengerCarActivity extends Activity {
                 pickLat = validCoord(pLat, pLng) ? pLat : lat;
                 pickLng = validCoord(pLat, pLng) ? pLng : lng;
                 goToMyLocation();
+                loadOnlineCarDrivers();
             });
         }
         @JavascriptInterface public void onCenterChanged(double lat, double lng, double pLat, double pLng) {
@@ -593,6 +597,49 @@ public class PassengerCarActivity extends Activity {
         }
     }
 
+
+    private void loadOnlineCarDrivers() {
+        if (destroyed) return;
+
+        new Thread(() -> {
+            try {
+                JSONObject res = getJson(GET_ONLINE_DRIVERS_URL + "?type=car&v=" + System.currentTimeMillis());
+                JSONArray arr = res.optJSONArray("drivers");
+
+                mainHandler.post(() -> {
+                    if (destroyed || !mapReady) return;
+
+                    eval("clearDrivers()");
+
+                    if (arr == null) return;
+
+                    for (int i = 0; i < arr.length(); i++) {
+                        JSONObject d = arr.optJSONObject(i);
+                        if (d == null) continue;
+
+                        double lat = d.optDouble("latitude", d.optDouble("lat", 0));
+                        double lng = d.optDouble("longitude", d.optDouble("lng", 0));
+
+                        if (!validCoord(lat, lng)) continue;
+
+                        String name = firstNonEmpty(
+                                d.optString("name", ""),
+                                d.optString("username", ""),
+                                "Driver Car"
+                        );
+
+                        eval("addDriver(" + lat + "," + lng + ",'" + js(name) + "')");
+                    }
+                });
+
+            } catch (Exception ignored) {}
+
+            mainHandler.postDelayed(() -> {
+                if (!destroyed && mapReady) loadOnlineCarDrivers();
+            }, 15000);
+        }).start();
+    }
+
     private JSONObject postJson(String urlText, JSONObject payload) throws Exception {
         HttpURLConnection conn = null;
         try {
@@ -713,5 +760,5 @@ public class PassengerCarActivity extends Activity {
     private GradientDrawable roundStroke(String color, String stroke, int radius, int width) { GradientDrawable gd = round(color, radius); gd.setStroke(dp(width), Color.parseColor(stroke)); return gd; }
     private int dp(int v) { return (int)(v * getResources().getDisplayMetrics().density + .5f); }
 
-    @Override protected void onDestroy() { try { if (mapView != null) { mapView.stopLoading(); mapView.destroy(); } } catch (Exception ignored) {} super.onDestroy(); }
+    @Override protected void onDestroy() { destroyed = true; try { if (mapView != null) { mapView.stopLoading(); mapView.destroy(); } } catch (Exception ignored) {} super.onDestroy(); }
 }
