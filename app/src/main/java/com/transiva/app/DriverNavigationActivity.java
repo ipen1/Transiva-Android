@@ -41,6 +41,7 @@ import java.nio.charset.StandardCharsets;
  * - Motor / Car icon support
  * - Location database update preserved
  */
+/* FINAL COMPILE FIX Google Maps Style Navigation */
 public class DriverNavigationActivity extends Activity {
     private static final String LOCATION_API = "https://transiva.my.id/server/updateDriverLocation.php";
     private static final long LOCATION_INTERVAL = 5000;
@@ -182,20 +183,8 @@ Navigasi aktif
                 "function dist(a,b,c,d){var R=6371000;var p1=rad(a),p2=rad(c),dp=rad(c-a),dl=rad(d-b);var q=Math.sin(dp/2)*Math.sin(dp/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);return R*2*Math.atan2(Math.sqrt(q),Math.sqrt(1-q));}"+
                 "function bear(a,b,c,d){var y=Math.sin(rad(d-b))*Math.cos(rad(c));var x=Math.cos(rad(a))*Math.sin(rad(c))-Math.sin(rad(a))*Math.cos(rad(c))*Math.cos(rad(d-b));return (Math.atan2(y,x)*180/Math.PI+360)%360;}"+
                 "function nearestOnRoute(a,b){if(!routePts.length)return [a,b];var best=[a,b],bd=1e12;for(var i=0;i<routePts.length;i++){var p=routePts[i],dd=dist(a,b,p[0],p[1]);if(dd<bd){bd=dd;best=p;}}return bd<=90?best:[a,b];}"+
-                "function animateTo(pos,deg){if(!driverMarker){currentPos=pos;currentDeg=deg||0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg,vehicleType)}).addTo(map);map.setView(pos,18,{animate:false});return;}if(currentPos&&dist(currentPos[0],currentPos[1],pos[0],pos[1])>450){return;}var from=currentPos||driverMarker.getLatLng();from=Array.isArray(from)?from:[from.lat,from.lng];var start=performance.now(),dur=950;function step(now){var t=Math.min(1,(now-start)/dur);var e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;var lat=from[0]+(pos[0]-from[0])*e,lng=from[1]+(pos[1]-from[1])*e;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(deg||currentDeg,vehicleType));if(followNavigationMode){
-map.setView([lat,lng],18.5,{animate:false});
-}
-else{
-map.panTo([lat,lng],{animate:false});
-}if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=deg||currentDeg;}}requestAnimationFrame(step);}"+
-                "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(3)+','+b.toFixed(3)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Membuat rute ke tujuan':'Membuat rute ke pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;routePts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A'}).addTo(map);routeLine2=L.polyline(routePts,{
-weight:7,
-opacity:.95,
-color:'#087CFF',
-className:'routeGlow'
-}).addTo(map);
-
-animateRoute();var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');}).catch(function(){setBadge('Rute online gagal dimuat');});}"+
+                "function animateTo(pos,deg){if(!driverMarker){currentPos=pos;currentDeg=deg||0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg,vehicleType)}).addTo(map);map.setView(pos,18,{animate:false});return;}if(currentPos&&dist(currentPos[0],currentPos[1],pos[0],pos[1])>450){return;}var from=currentPos||driverMarker.getLatLng();from=Array.isArray(from)?from:[from.lat,from.lng];var start=performance.now(),dur=950;function step(now){var t=Math.min(1,(now-start)/dur);var e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;var lat=from[0]+(pos[0]-from[0])*e,lng=from[1]+(pos[1]-from[1])*e;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(deg||currentDeg,vehicleType));if(followNavigationMode){if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=deg||currentDeg;}}requestAnimationFrame(step);}"+
+                "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(3)+','+b.toFixed(3)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Membuat rute ke tujuan':'Membuat rute ke pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;routePts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A'}).addTo(map);routeLine2=L.polyline(routePts,{";+ "animateRoute();"+var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');}).catch(function(){setBadge('Rute online gagal dimuat');});}"+
                 "function enableFollowMode(){
 followNavigationMode=true;
 }
