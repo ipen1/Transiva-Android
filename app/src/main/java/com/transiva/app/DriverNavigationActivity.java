@@ -21,8 +21,18 @@ import android.widget.TextView;
 import org.json.JSONObject;
 
 import java.util.Locale;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 public class DriverNavigationActivity extends Activity {
+    private static final String LOCATION_API = "https://transiva.my.id/server/updateDriverLocation.php";
+    private static final long LOCATION_INTERVAL = 5000;
+
     private WebView mapView;
     private LocationManager locationManager;
     private LocationListener locationListener;
@@ -30,6 +40,9 @@ public class DriverNavigationActivity extends Activity {
 
     private JSONObject order;
     private String targetMode = "pickup";
+    private String driverUsername = "";
+    private String vehicleType = "motor";
+    private long lastUpload = 0;
     private double lastDriverLat = 0, lastDriverLng = 0;
     private double prevDriverLat = 0, prevDriverLng = 0;
 
@@ -42,6 +55,7 @@ public class DriverNavigationActivity extends Activity {
         }catch(Exception ignored){}
 
         loadData();
+        loadDriverIdentity();
         buildView();
         startLocationWatch();
     }
@@ -60,6 +74,16 @@ public class DriverNavigationActivity extends Activity {
         if(!targetMode.equals("delivery")) targetMode = "pickup";
         lastDriverLat = getIntent().getDoubleExtra("driver_lat", 0);
         lastDriverLng = getIntent().getDoubleExtra("driver_lng", 0);
+    }
+
+    
+    private void loadDriverIdentity(){
+        try{
+            driverUsername = getSharedPreferences("transiva", MODE_PRIVATE)
+                    .getString("username","");
+            vehicleType = getSharedPreferences("transiva", MODE_PRIVATE)
+                    .getString("driver_type","motor");
+        }catch(Exception ignored){}
     }
 
     private void buildView(){
@@ -113,7 +137,7 @@ public class DriverNavigationActivity extends Activity {
                 "function dist(a,b,c,d){var R=6371000;var p1=rad(a),p2=rad(c),dp=rad(c-a),dl=rad(d-b);var q=Math.sin(dp/2)*Math.sin(dp/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);return R*2*Math.atan2(Math.sqrt(q),Math.sqrt(1-q));}"+
                 "function bear(a,b,c,d){var y=Math.sin(rad(d-b))*Math.cos(rad(c));var x=Math.cos(rad(a))*Math.sin(rad(c))-Math.sin(rad(a))*Math.cos(rad(c))*Math.cos(rad(d-b));return (Math.atan2(y,x)*180/Math.PI+360)%360;}"+
                 "function nearestOnRoute(a,b){if(!routePts.length)return [a,b];var best=[a,b],bd=1e12;for(var i=0;i<routePts.length;i++){var p=routePts[i],dd=dist(a,b,p[0],p[1]);if(dd<bd){bd=dd;best=p;}}return bd<=90?best:[a,b];}"+
-                "function animateTo(pos,deg){if(!driverMarker){currentPos=pos;currentDeg=deg||0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg)}).addTo(map);map.setView(pos,18,{animate:false});return;}if(currentPos&&dist(currentPos[0],currentPos[1],pos[0],pos[1])>450){return;}var from=currentPos||driverMarker.getLatLng();from=Array.isArray(from)?from:[from.lat,from.lng];var start=performance.now(),dur=950;function step(now){var t=Math.min(1,(now-start)/dur);var e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;var lat=from[0]+(pos[0]-from[0])*e,lng=from[1]+(pos[1]-from[1])*e;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(deg||currentDeg));map.panTo([lat,lng],{animate:false});if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=deg||currentDeg;}}requestAnimationFrame(step);}"+
+                "function animateTo(pos,deg){if(!driverMarker){currentPos=pos;currentDeg=deg||0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg,vehicleType)}).addTo(map);map.setView(pos,18,{animate:false});return;}if(currentPos&&dist(currentPos[0],currentPos[1],pos[0],pos[1])>450){return;}var from=currentPos||driverMarker.getLatLng();from=Array.isArray(from)?from:[from.lat,from.lng];var start=performance.now(),dur=950;function step(now){var t=Math.min(1,(now-start)/dur);var e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;var lat=from[0]+(pos[0]-from[0])*e,lng=from[1]+(pos[1]-from[1])*e;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(deg||currentDeg,vehicleType));map.panTo([lat,lng],{animate:false});if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=deg||currentDeg;}}requestAnimationFrame(step);}"+
                 "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(3)+','+b.toFixed(3)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Membuat rute ke tujuan':'Membuat rute ke pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;routePts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A'}).addTo(map);routeLine2=L.polyline(routePts,{weight:6,opacity:.96,color:'#087CFF'}).addTo(map);var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');}).catch(function(){setBadge('Rute online gagal dimuat');});}"+
                 "window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];drawRoute(a,b,false);var pos=nearestOnRoute(a,b);var finalDeg=deg||currentDeg;if(currentPos)finalDeg=bear(currentPos[0],currentPos[1],pos[0],pos[1]);animateTo(pos,finalDeg);};"+
                 "</script></body></html>";
@@ -134,6 +158,7 @@ public class DriverNavigationActivity extends Activity {
                     lastDriverLat = l.getLatitude();
                     lastDriverLng = l.getLongitude();
                     updateMap();
+                    uploadLocation(lastDriverLat,lastDriverLng);
                 }
                 @Override public void onStatusChanged(String p,int s,Bundle e){}
                 @Override public void onProviderEnabled(String p){}
@@ -152,6 +177,39 @@ public class DriverNavigationActivity extends Activity {
     private void stopLocationWatch(){
         try{ if(locationManager != null && locationListener != null) locationManager.removeUpdates(locationListener); }catch(Exception ignored){}
         locationListener = null;
+    }
+
+    
+    private void uploadLocation(double lat,double lng){
+        long now = System.currentTimeMillis();
+        if(now-lastUpload < LOCATION_INTERVAL) return;
+        lastUpload = now;
+
+        new Thread(() -> {
+            try{
+                JSONObject body = new JSONObject();
+                body.put("username",driverUsername);
+                body.put("driver",driverUsername);
+                body.put("latitude",lat);
+                body.put("longitude",lng);
+                body.put("driver_type",vehicleType);
+
+                HttpURLConnection c =
+                    (HttpURLConnection)new URL(LOCATION_API).openConnection();
+
+                c.setRequestMethod("POST");
+                c.setRequestProperty("Content-Type","application/json");
+                c.setDoOutput(true);
+
+                try(OutputStream os=c.getOutputStream()){
+                    os.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                }
+
+                c.getResponseCode();
+                c.disconnect();
+
+            }catch(Exception ignored){}
+        }).start();
     }
 
     private void updateMap(){
