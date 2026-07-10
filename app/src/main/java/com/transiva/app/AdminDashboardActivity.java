@@ -6,309 +6,227 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.Button;
+import android.widget.GridLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
-import java.text.NumberFormat;
-import java.util.Locale;
+import android.graphics.drawable.GradientDrawable;
+import android.view.View;
 
 public class AdminDashboardActivity extends Activity {
 
-    private static final String HOME_URL = "https://transiva.my.id/?app=1";
-    private static final String BASE = "https://transiva.my.id/server/";
+    private int navy = Color.parseColor("#06142E");
+    private int blue = Color.parseColor("#1976D2");
+    private int bg = Color.parseColor("#F4F7FB");
 
-    private SessionManager sessionManager;
     private LinearLayout root;
-    private LinearLayout summaryBox;
-    private LinearLayout orderBox;
-    private TextView nameText;
-    private TextView statusText;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        try {
-            getWindow().setStatusBarColor(Color.parseColor("#06142E"));
-            getWindow().setNavigationBarColor(Color.parseColor("#06142E"));
-        } catch (Exception ignored) {}
+        getWindow().setStatusBarColor(navy);
+        getWindow().setNavigationBarColor(navy);
 
-        sessionManager = new SessionManager(this);
-        buildUi();
-        loadDashboard();
+        buildUI();
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        loadDashboard();
-    }
+    private void buildUI() {
 
-    private void buildUi() {
         ScrollView scroll = new ScrollView(this);
 
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(28, 34, 28, 34);
-        root.setBackgroundColor(Color.parseColor("#F4F7FB"));
+        root.setPadding(24,30,24,30);
+        root.setBackgroundColor(bg);
 
         scroll.addView(root);
         setContentView(scroll);
 
-        root.addView(title("Transiva Admin"));
 
-        nameText = smallText("Memuat akun admin...");
-        root.addView(nameText);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(20,20,20,20);
+        header.setBackground(cardBackground(Color.WHITE));
 
-        statusText = smallText("");
-        root.addView(statusText);
+        LinearLayout headText = new LinearLayout(this);
+        headText.setOrientation(LinearLayout.VERTICAL);
 
-        summaryBox = new LinearLayout(this);
-        summaryBox.setOrientation(LinearLayout.VERTICAL);
-        root.addView(summaryBox);
+        headText.addView(text("Admin Panel",24,navy,true));
+        headText.addView(text("Administrator",16,Color.DKGRAY,false));
 
-        root.addView(sectionTitle("Menu Admin"));
+        header.addView(headText,new LinearLayout.LayoutParams(0,-2,1));
+        header.addView(text("🛠",30,navy,true));
 
-        addButton(root, "📊 Dashboard Web Admin", HOME_URL + "#admin");
-        addButton(root, "🧾 Semua Order", HOME_URL + "#admin_orders");
-        addButton(root, "👤 Kelola User", HOME_URL + "#admin_users");
-        addButton(root, "🛵 Kelola Driver", HOME_URL + "#admin_drivers");
-        addButton(root, "🍔 Kelola Merchant", HOME_URL + "#admin_merchants");
-        addButton(root, "💰 Saldo & Transaksi", HOME_URL + "#admin_balance");
-        addButton(root, "⚙️ Pengaturan Aplikasi", HOME_URL + "#admin_settings");
+        root.addView(header);
 
-        root.addView(sectionTitle("Order Terbaru"));
 
-        orderBox = new LinearLayout(this);
-        orderBox.setOrientation(LinearLayout.VERTICAL);
-        root.addView(orderBox);
 
-        Button refresh = button("Refresh Dashboard");
-        refresh.setOnClickListener(v -> loadDashboard());
-        root.addView(refresh);
+        root.addView(space());
 
-        Button web = button("Buka WebView Lengkap");
-        web.setOnClickListener(v -> openWeb(HOME_URL));
-        root.addView(web);
 
-        Button logout = button("Logout");
-        logout.setOnClickListener(v -> logout());
+        LinearLayout banner = new LinearLayout(this);
+        banner.setOrientation(LinearLayout.VERTICAL);
+        banner.setPadding(25,25,25,25);
+        banner.setBackground(cardBackground(blue));
+
+        banner.addView(text("Monitoring Driver & Sistem",
+                20,Color.WHITE,true));
+
+        banner.addView(text(
+                "Kelola Driver • Pantau Aktivitas • Admin Center",
+                14,Color.WHITE,false));
+
+        root.addView(banner);
+
+
+
+        root.addView(text("Menu Admin",20,navy,true));
+
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(2);
+
+        addMenu(grid,"🛵🚗","TransDriver");
+        addMenu(grid,"👥","Customer");
+        addMenu(grid,"🏪","Merchant");
+        addMenu(grid,"📍","Business");
+        addMenu(grid,"🧺","TransLaundry");
+        addMenu(grid,"🏝️","TransWisata");
+        addMenu(grid,"🏦","Money Management");
+        addMenu(grid,"💸","WD Driver");
+        addMenu(grid,"✅","Verifikasi User");
+
+        root.addView(grid);
+
+
+
+        root.addView(text("Status Sistem",20,navy,true));
+
+        TextView status = text(
+                "Admin panel aktif\nSistem berjalan normal",
+                16,Color.DKGRAY,false);
+
+        status.setPadding(20,20,20,20);
+        status.setBackground(cardBackground(Color.WHITE));
+
+        root.addView(status);
+
+
+
+        Button profile = button("Profil Admin");
+        root.addView(profile);
+
+
+        Button logout = button("Keluar");
+        logout.setOnClickListener(v -> {
+
+            Intent i = new Intent(
+                    this,
+                    LoginActivity.class
+            );
+
+            i.setFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK |
+                    Intent.FLAG_ACTIVITY_CLEAR_TASK
+            );
+
+            startActivity(i);
+            finish();
+
+        });
+
         root.addView(logout);
     }
 
-    private void loadDashboard() {
-        if (sessionManager == null) sessionManager = new SessionManager(this);
 
-        String username = safe(sessionManager.getUsername());
-        String role = safe(sessionManager.getRole());
 
-        nameText.setText("Halo, " + (username.isEmpty() ? "Admin" : username) + " • " + (role.isEmpty() ? "admin" : role));
-        statusText.setText("Memuat data admin...");
-        summaryBox.removeAllViews();
-        orderBox.removeAllViews();
+    private void addMenu(GridLayout grid,String icon,String title){
 
-        new Thread(() -> {
-            String summaryJson = "";
-            String ordersJson = "";
-
-            try {
-                summaryJson = get(BASE + "admin_dashboard.php?username=" + enc(username));
-            } catch (Exception ignored) {}
-
-            try {
-                ordersJson = get(BASE + "get_orders.php?admin=1&limit=5");
-            } catch (Exception ignored) {}
-
-            final String s = summaryJson;
-            final String o = ordersJson;
-
-            runOnUiThread(() -> {
-                showSummary(s);
-                showOrders(o);
-                statusText.setText("Dashboard admin siap");
-            });
-        }).start();
-    }
-
-    private void showSummary(String json) {
-        try {
-            JSONObject obj = new JSONObject(json);
-            JSONObject data = obj.optJSONObject("data");
-            if (data == null) data = obj;
-
-            int users = data.optInt("users", data.optInt("total_users", 0));
-            int drivers = data.optInt("drivers", data.optInt("total_drivers", 0));
-            int merchants = data.optInt("merchants", data.optInt("total_merchants", 0));
-            int orders = data.optInt("orders", data.optInt("total_orders", 0));
-            int today = data.optInt("today_orders", data.optInt("orders_today", 0));
-            int income = data.optInt("income", data.optInt("revenue", data.optInt("profit", 0)));
-
-            summaryBox.addView(cardText("📊 Ringkasan Platform\n" +
-                    "User: " + users + "\n" +
-                    "Driver: " + drivers + "\n" +
-                    "Merchant: " + merchants + "\n" +
-                    "Total order: " + orders + "\n" +
-                    "Order hari ini: " + today + "\n" +
-                    "Pendapatan: " + rupiah(income)));
-
-        } catch (Exception e) {
-            summaryBox.addView(cardText("📊 Ringkasan Platform\nEndpoint admin_dashboard.php belum tersedia / data belum terbaca. Tombol menu admin tetap bisa membuka WebView."));
-        }
-    }
-
-    private void showOrders(String json) {
-        try {
-            JSONObject obj = new JSONObject(json);
-            JSONArray arr = obj.optJSONArray("orders");
-
-            if (arr == null) arr = obj.optJSONArray("data");
-
-            if (arr == null || arr.length() == 0) {
-                orderBox.addView(cardText("Belum ada order terbaru / endpoint belum tersedia."));
-                return;
-            }
-
-            int max = Math.min(arr.length(), 5);
-            for (int i = 0; i < max; i++) {
-                JSONObject order = arr.optJSONObject(i);
-                if (order != null) orderBox.addView(orderCard(order));
-            }
-        } catch (Exception e) {
-            orderBox.addView(cardText("Order terbaru belum terbaca."));
-        }
-    }
-
-    private TextView orderCard(JSONObject order) {
-        String id = order.optString("id", order.optString("order_id", "-"));
-        String type = order.optString("order_type", order.optString("type", "order"));
-        String status = order.optString("status", "-");
-        String customer = order.optString("username", order.optString("customer", order.optString("user", "-")));
-        String driver = order.optString("driver", "-");
-        int price = order.optInt("price", order.optInt("total", order.optInt("fare", 0)));
-
-        TextView card = cardText("🧾 Order #" + id + "\n" +
-                "Layanan: " + type + "\n" +
-                "Customer: " + customer + "\n" +
-                "Driver: " + driver + "\n" +
-                "Status: " + status + "\n" +
-                "Nominal: " + rupiah(price));
-
-        card.setOnClickListener(v -> openWeb(HOME_URL + "#admin_orders"));
-        return card;
-    }
-
-    private void openWeb(String url) {
-        Intent i = new Intent(this, MainActivity.class);
-        i.putExtra("url", url);
-        startActivity(i);
-    }
-
-    private void logout() {
-        try {
-            if (sessionManager != null) sessionManager.clearSession();
-        } catch (Exception ignored) {}
-
-        Toast.makeText(this, "Logout berhasil", Toast.LENGTH_SHORT).show();
-
-        Intent i = new Intent(this, LoginActivity.class);
-        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        startActivity(i);
-        finish();
-    }
-
-    private String get(String link) throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(link).openConnection();
-        conn.setConnectTimeout(12000);
-        conn.setReadTimeout(12000);
-        conn.setRequestMethod("GET");
-
-        BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
-        StringBuilder sb = new StringBuilder();
-        String line;
-
-        while ((line = br.readLine()) != null) sb.append(line);
-
-        br.close();
-        conn.disconnect();
-        return sb.toString();
-    }
-
-    private String enc(String value) {
-        try { return URLEncoder.encode(value == null ? "" : value, "UTF-8"); }
-        catch (Exception e) { return ""; }
-    }
-
-    private String safe(String value) { return value == null ? "" : value.trim(); }
-
-    private String rupiah(int value) {
-        return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format(value);
-    }
-
-    private void addButton(LinearLayout parent, String label, String url) {
-        Button b = button(label);
-        b.setOnClickListener(v -> openWeb(url));
-        parent.addView(b);
-    }
-
-    private TextView title(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(27);
-        t.setTypeface(null, 1);
-        t.setTextColor(Color.parseColor("#06142E"));
-        t.setPadding(0, 0, 0, 18);
-        return t;
-    }
-
-    private TextView sectionTitle(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(20);
-        t.setTypeface(null, 1);
-        t.setTextColor(Color.parseColor("#06142E"));
-        t.setPadding(0, 18, 0, 8);
-        return t;
-    }
-
-    private TextView smallText(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(15);
-        t.setTextColor(Color.parseColor("#1F2937"));
-        t.setPadding(0, 6, 0, 12);
-        return t;
-    }
-
-    private TextView cardText(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(16);
-        t.setTextColor(Color.parseColor("#111827"));
-        t.setBackgroundColor(Color.WHITE);
-        t.setPadding(26, 22, 26, 22);
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 10, 0, 14);
-        t.setLayoutParams(lp);
-        return t;
-    }
-
-    private Button button(String text) {
         Button b = new Button(this);
-        b.setText(text);
+
+        b.setText(icon+"\n"+title);
+        b.setTextSize(15);
+        b.setAllCaps(false);
+        b.setGravity(Gravity.CENTER);
+
+        b.setBackground(cardBackground(Color.WHITE));
+
+        GridLayout.LayoutParams lp =
+                new GridLayout.LayoutParams();
+
+        lp.width = 0;
+        lp.height = 150;
+        lp.columnSpec =
+                GridLayout.spec(
+                        GridLayout.UNDEFINED,
+                        1f
+                );
+
+        lp.setMargins(8,8,8,8);
+
+        b.setLayoutParams(lp);
+
+        grid.addView(b);
+
+    }
+
+
+
+    private Button button(String txt){
+
+        Button b=new Button(this);
+
+        b.setText(txt);
         b.setAllCaps(false);
         b.setTextSize(16);
-        b.setGravity(Gravity.CENTER);
+
         return b;
     }
+
+
+
+    private TextView text(
+            String t,
+            int size,
+            int color,
+            boolean bold){
+
+        TextView v=new TextView(this);
+
+        v.setText(t);
+        v.setTextSize(size);
+        v.setTextColor(color);
+
+        if(bold)
+            v.setTypeface(null,1);
+
+        v.setPadding(5,8,5,8);
+
+        return v;
+    }
+
+
+
+    private View space(){
+
+        TextView v=new TextView(this);
+
+        v.setHeight(20);
+
+        return v;
+    }
+
+
+
+    private GradientDrawable cardBackground(int color){
+
+        GradientDrawable g =
+                new GradientDrawable();
+
+        g.setColor(color);
+        g.setCornerRadius(30);
+
+        return g;
+    }
+
 }
