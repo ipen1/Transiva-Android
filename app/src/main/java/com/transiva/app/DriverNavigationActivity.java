@@ -168,10 +168,8 @@ stroke-linecap:round;
 stroke-linejoin:round;
 }
 </style></head><body><div id='map'></div><div id='badge' class='topBadge'>Menyiapkan navigasi...</div>
-<div id='turnPanel' class='turnPanel'>
 ⬆️ Menyiapkan arah perjalanan...
 </div>
-<div id='navPanel' style='position:absolute;z-index:999;bottom:20px;left:15px;right:15px;background:white;border-radius:20px;padding:16px;font-size:15px;font-weight:800;color:#0B3A78;box-shadow:0 8px 30px rgba(0,0,0,.25)'>
 Navigasi aktif
 </div><div class='centerDot'></div><script>"+
                 "var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+targetMode+"';var lastDriver=[0,0];var currentPos=null;var currentDeg=0;var routePts=[];var routeLine1=null;var routeLine2=null;var driverMarker=null;var lastRouteKey='';"+
