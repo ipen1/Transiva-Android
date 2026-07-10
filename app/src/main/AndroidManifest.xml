@@ -314,6 +314,11 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/AppTheme" />
+        <activity
+            android:name=".AdminDriverWithdrawManagementActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
 
         <activity
             android:name=".MainActivity"
