@@ -179,6 +179,18 @@ public class AdminDashboardActivity extends Activity {
             item.addView(txt(m[0],30,"#086BFF",true));
             item.addView(txt(m[1],12,"#0B3A78",true));
 
+            item.setClickable(true);
+            item.setFocusable(true);
+
+            if ("Money".equals(m[1])) {
+                item.setOnClickListener(v -> {
+                    Intent intent = new Intent(
+                            AdminDashboardActivity.this,
+                            AdminMoneyManagementActivity.class
+                    );
+                    startActivity(intent);
+                });
+            }
 
             GridLayout.LayoutParams lp =
                     new GridLayout.LayoutParams();
