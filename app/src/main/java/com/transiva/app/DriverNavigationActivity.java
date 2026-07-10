@@ -29,6 +29,18 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
+/*
+ * Transiva Driver Navigation Premium FINAL
+ *
+ * Stable build base:
+ * - Database location update
+ * - Motor / Car vehicle support
+ * - Route snap
+ * - Navigation style white theme
+ * - Safe WebView HTML structure
+ *
+ * Generated from stable DriverNavigationActivity version.
+ */
 public class DriverNavigationActivity extends Activity {
     private static final String LOCATION_API = "https://transiva.my.id/server/updateDriverLocation.php";
     private static final long LOCATION_INTERVAL = 5000;
@@ -45,7 +57,6 @@ public class DriverNavigationActivity extends Activity {
     private long lastUpload = 0;
     private double lastDriverLat = 0, lastDriverLng = 0;
     private double prevDriverLat = 0, prevDriverLng = 0;
-    private boolean routeAnimationAdded = false;
 
     @Override protected void onCreate(Bundle b){
         super.onCreate(b);
@@ -89,7 +100,7 @@ public class DriverNavigationActivity extends Activity {
 
     private void buildView(){
         FrameLayout page = new FrameLayout(this);
-        page.setBackgroundColor(Color.parseColor("#EAF4FF"));
+        page.setBackgroundColor(Color.WHITE);
 
         mapView = new WebView(this);
         try{
@@ -110,7 +121,8 @@ public class DriverNavigationActivity extends Activity {
         back.setTextSize(38);
         back.setTextColor(Color.WHITE);
         back.setGravity(Gravity.CENTER);
-        back.setBackgroundColor(Color.parseColor("#0B3A78"));
+        back.setBackgroundColor(Color.WHITE);
+        back.setTextColor(Color.parseColor("#0B3A78"));
         back.setOnClickListener(v -> finish());
         FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(dp(52), dp(52));
         bp.leftMargin = dp(14);
@@ -127,7 +139,7 @@ public class DriverNavigationActivity extends Activity {
         return "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"+
                 "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"+
                 "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"+
-                "<style>html,body,#map{height:100%;margin:0;background:#EAF4FF;overflow:hidden}.leaflet-control-attribution,.leaflet-control-zoom{display:none!important}.leaflet-container{font-family:Arial,sans-serif;background:#EAF4FF}.motorWrap{width:64px;height:64px;display:flex;align-items:center;justify-content:center}.motorWrap img{width:62px;height:62px;transform-origin:center center;filter:drop-shadow(0 6px 12px rgba(0,0,0,.35))}.topBadge{position:absolute;z-index:999;top:20px;left:76px;right:14px;background:rgba(255,255,255,.96);border:1px solid #D7E6F8;border-radius:18px;padding:12px 14px;color:#0B3A78;font-size:14px;font-weight:800;box-shadow:0 8px 24px rgba(15,23,42,.18)}.centerDot{position:absolute;z-index:998;left:50%;top:50%;width:8px;height:8px;margin-left:-4px;margin-top:-4px;border-radius:50%;background:#087CFF;box-shadow:0 0 0 10px rgba(8,124,255,.16);pointer-events:none}</style></head><body><div id='map'></div><div id='badge' class='topBadge'>Menyiapkan navigasi...</div><div id='turnInfo' style='position:absolute;z-index:999;top:82px;left:15px;right:15px;background:white;border-radius:18px;padding:12px;color:#0B3A78;font-size:16px;font-weight:bold;box-shadow:0 6px 20px rgba(0,0,0,.2)'>⬆️ Menyiapkan arah</div><div class='centerDot'></div><script>"+
+                "<style>html,body,#map{height:100%;margin:0;background:#EAF4FF;overflow:hidden}.leaflet-control-attribution,.leaflet-control-zoom{display:none!important}.leaflet-container{font-family:Arial,sans-serif;background:#EAF4FF}.motorWrap{width:64px;height:64px;display:flex;align-items:center;justify-content:center}.motorWrap img{width:62px;height:62px;transform-origin:center center;filter:drop-shadow(0 6px 12px rgba(0,0,0,.35))}.topBadge{position:absolute;z-index:999;top:20px;left:76px;right:14px;background:rgba(255,255,255,.96);border:1px solid #D7E6F8;border-radius:18px;padding:12px 14px;color:#0B3A78;font-size:14px;font-weight:800;box-shadow:0 8px 24px rgba(15,23,42,.18)}.centerDot{position:absolute;z-index:998;left:50%;top:50%;width:8px;height:8px;margin-left:-4px;margin-top:-4px;border-radius:50%;background:#087CFF;box-shadow:0 0 0 10px rgba(8,124,255,.16);pointer-events:none}</style></head><body><div id='map'></div><div id='badge' class='topBadge'>Menyiapkan navigasi...</div><div class='centerDot'></div><script>"+
                 "var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+targetMode+"';var lastDriver=[0,0];var currentPos=null;var currentDeg=0;var routePts=[];var routeLine1=null;var routeLine2=null;var driverMarker=null;var lastRouteKey='';"+
                 "var map=L.map('map',{zoomControl:false,attributionControl:false,dragging:true,tap:true}).setView(["+cLat+","+cLng+"],18);"+
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20}).addTo(map);"+
@@ -139,38 +151,8 @@ public class DriverNavigationActivity extends Activity {
                 "function bear(a,b,c,d){var y=Math.sin(rad(d-b))*Math.cos(rad(c));var x=Math.cos(rad(a))*Math.sin(rad(c))-Math.sin(rad(a))*Math.cos(rad(c))*Math.cos(rad(d-b));return (Math.atan2(y,x)*180/Math.PI+360)%360;}"+
                 "function nearestOnRoute(a,b){if(!routePts.length)return [a,b];var best=[a,b],bd=1e12;for(var i=0;i<routePts.length;i++){var p=routePts[i],dd=dist(a,b,p[0],p[1]);if(dd<bd){bd=dd;best=p;}}return bd<=90?best:[a,b];}"+
                 "function animateTo(pos,deg){if(!driverMarker){currentPos=pos;currentDeg=deg||0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg,vehicleType)}).addTo(map);map.setView(pos,18,{animate:false});return;}if(currentPos&&dist(currentPos[0],currentPos[1],pos[0],pos[1])>450){return;}var from=currentPos||driverMarker.getLatLng();from=Array.isArray(from)?from:[from.lat,from.lng];var start=performance.now(),dur=950;function step(now){var t=Math.min(1,(now-start)/dur);var e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;var lat=from[0]+(pos[0]-from[0])*e,lng=from[1]+(pos[1]-from[1])*e;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(deg||currentDeg,vehicleType));map.panTo([lat,lng],{animate:false});if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=deg||currentDeg;}}requestAnimationFrame(step);}"+
-                "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(3)+','+b.toFixed(3)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Membuat rute ke tujuan':'Membuat rute ke pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;routePts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A'}).addTo(map);routeLine2=L.polyline(routePts,{weight:6,opacity:.96,color:'#087CFF'}).addTo(map);animateRoute();var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');}).catch(function(){setBadge('Rute online gagal dimuat');});}"+
-                "function animateRoute(){
- if(!routeLine2)return;
- var offset=0;
- setInterval(function(){
-  offset+=2;
-  var el=routeLine2.getElement();
-  if(el){
-   el.style.strokeDasharray='12 12';
-   el.style.strokeDashoffset=offset;
-  }
- },100);
-}
-function updateTurnInfo(pos){
- if(!routePts.length)return;
- var idx=0,min=999999;
- for(var i=0;i<routePts.length;i++){
-  var d=dist(pos[0],pos[1],routePts[i][0],routePts[i][1]);
-  if(d<min){min=d;idx=i;}
- }
- var box=document.getElementById('turnInfo');
- if(!box)return;
- if(idx>routePts.length-10){box.innerHTML='🏁 Mendekati tujuan';return;}
- var a=routePts[idx];
- var b=routePts[Math.min(idx+5,routePts.length-1)];
- var h=bear(a[0],a[1],b[0],b[1]);
- if(h>45&&h<135) box.innerHTML='➡️ Belok kanan';
- else if(h>225&&h<315) box.innerHTML='⬅️ Belok kiri';
- else box.innerHTML='⬆️ Lurus terus';
-}
-
-window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];drawRoute(a,b,false);var pos=nearestOnRoute(a,b);updateTurnInfo(pos);var finalDeg=deg||currentDeg;if(currentPos)finalDeg=bear(currentPos[0],currentPos[1],pos[0],pos[1]);animateTo(pos,finalDeg);};"+
+                "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(3)+','+b.toFixed(3)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Membuat rute ke tujuan':'Membuat rute ke pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;routePts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A'}).addTo(map);routeLine2=L.polyline(routePts,{weight:6,opacity:.96,color:'#087CFF'}).addTo(map);var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');}).catch(function(){setBadge('Rute online gagal dimuat');});}"+
+                "window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];drawRoute(a,b,false);var pos=nearestOnRoute(a,b);var finalDeg=deg||currentDeg;if(currentPos)finalDeg=bear(currentPos[0],currentPos[1],pos[0],pos[1]);animateTo(pos,finalDeg);};"+
                 "</script></body></html>";
     }
 
