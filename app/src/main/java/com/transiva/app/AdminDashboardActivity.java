@@ -180,17 +180,34 @@ public class AdminDashboardActivity extends Activity {
             item.addView(txt(m[1],12,"#0B3A78",true));
 
             item.setClickable(true);
-            item.setFocusable(true);
+item.setFocusable(true);
 
-            if ("Money".equals(m[1])) {
-                item.setOnClickListener(v -> {
-                    Intent intent = new Intent(
-                            AdminDashboardActivity.this,
-                            AdminMoneyManagementActivity.class
-                    );
-                    startActivity(intent);
-                });
-            }
+item.setOnClickListener(v -> {
+
+    Intent intent = null;
+
+    switch (m[1]) {
+
+        case "Money":
+            intent = new Intent(
+                    AdminDashboardActivity.this,
+                    AdminMoneyManagementActivity.class
+            );
+            break;
+
+        case "WD Driver":
+            intent = new Intent(
+                    AdminDashboardActivity.this,
+                    AdminDriverWithdrawManagementActivity.class
+            );
+            break;
+    }
+
+    if (intent != null) {
+        startActivity(intent);
+    }
+
+});
 
             GridLayout.LayoutParams lp =
                     new GridLayout.LayoutParams();
