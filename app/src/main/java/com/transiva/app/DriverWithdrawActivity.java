@@ -19,6 +19,9 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.Spinner;
+import android.widget.ArrayAdapter;
+import android.widget.AdapterView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -49,7 +52,8 @@ public class DriverWithdrawActivity extends Activity {
 
     private TextView balanceText;
     private LinearLayout historyBox;
-    private EditText amountInput, bankInput, accountNumberInput, accountNameInput, noteInput;
+    private EditText amountInput, otherBankInput, accountNumberInput, accountNameInput, noteInput;
+    private Spinner bankSpinner;
     private Button submitBtn, backBtn;
     private ProgressBar progressBar;
 
@@ -143,9 +147,92 @@ public class DriverWithdrawActivity extends Activity {
         quick.addView(chip("200rb", 200000), qlp2);
         add(form, quick, 0, 0, 0, dp(12));
 
-        form.addView(label("Nama Bank / E-Wallet"));
-        bankInput = input("Contoh: BRI / DANA / OVO", InputType.TYPE_CLASS_TEXT);
-        form.addView(bankInput, fieldLp());
+        form.addView(label("Pilih Bank / E-Wallet"));
+
+        final String[] bankOptions = new String[]{
+                "Pilih Bank / E-Wallet",
+                "OVO",
+                "DANA",
+                "GoPay",
+                "BRI",
+                "BCA",
+                "BNI",
+                "Mandiri",
+                "Sinarmas",
+                "Bank Sulteng",
+                "Others"
+        };
+
+        bankSpinner = new Spinner(this);
+        ArrayAdapter<String> bankAdapter = new ArrayAdapter<String>(
+                this,
+                android.R.layout.simple_spinner_item,
+                bankOptions
+        ) {
+            @Override
+            public View getView(int position, View convertView, android.view.ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convertView, parent);
+                view.setTextSize(14);
+                view.setTextColor(Color.parseColor(
+                        position == 0 ? "#94A3B8" : "#0F172A"
+                ));
+                view.setPadding(dp(13), 0, dp(13), 0);
+                return view;
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, android.view.ViewGroup parent) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+                view.setTextSize(14);
+                view.setTextColor(Color.parseColor("#0F172A"));
+                view.setPadding(dp(14), dp(12), dp(14), dp(12));
+                return view;
+            }
+        };
+
+        bankAdapter.setDropDownViewResource(
+                android.R.layout.simple_spinner_dropdown_item
+        );
+        bankSpinner.setAdapter(bankAdapter);
+        bankSpinner.setBackground(
+                roundStroke("#FFFFFF", "#D8E4F2", dp(15), 1)
+        );
+        form.addView(bankSpinner, fieldLp());
+
+        otherBankInput = input(
+                "Tulis nama bank / e-wallet lainnya",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS
+        );
+        otherBankInput.setVisibility(View.GONE);
+        form.addView(otherBankInput, fieldLp());
+
+        bankSpinner.setOnItemSelectedListener(
+                new AdapterView.OnItemSelectedListener() {
+                    @Override
+                    public void onItemSelected(
+                            AdapterView<?> parent,
+                            View view,
+                            int position,
+                            long id
+                    ) {
+                        boolean isOther =
+                                position == bankOptions.length - 1;
+
+                        otherBankInput.setVisibility(
+                                isOther ? View.VISIBLE : View.GONE
+                        );
+
+                        if (!isOther) {
+                            otherBankInput.setText("");
+                        }
+                    }
+
+                    @Override
+                    public void onNothingSelected(AdapterView<?> parent) {
+                        otherBankInput.setVisibility(View.GONE);
+                    }
+                }
+        );
 
         form.addView(label("Nomor Rekening / E-Wallet"));
         accountNumberInput = input("Nomor tujuan", InputType.TYPE_CLASS_NUMBER);
@@ -261,14 +348,48 @@ public class DriverWithdrawActivity extends Activity {
 
     private void confirmSubmit() {
         final long amount = parseLong(amountInput.getText().toString());
-        final String bank = safe(bankInput.getText().toString());
+        final String selectedBank = bankSpinner == null
+                || bankSpinner.getSelectedItem() == null
+                ? ""
+                : safe(String.valueOf(bankSpinner.getSelectedItem()));
+
+        final boolean otherSelected =
+                "Others".equalsIgnoreCase(selectedBank);
+
+        final String bank = otherSelected
+                ? safe(otherBankInput.getText().toString())
+                : selectedBank;
         final String accNo = safe(accountNumberInput.getText().toString());
         final String accName = safe(accountNameInput.getText().toString());
         final String note = safe(noteInput.getText().toString());
 
         if (amount < 10000) { showInfo("Nominal Tidak Valid", "Minimal WD Rp 10.000"); return; }
         if (amount > balance) { showInfo("Saldo Tidak Cukup", "Saldo tersedia hanya " + rupiah(balance)); return; }
-        if (bank.length() == 0 || accNo.length() == 0 || accName.length() == 0) { showInfo("Data Belum Lengkap", "Bank/e-wallet, nomor tujuan, dan nama pemilik wajib diisi."); return; }
+        if (selectedBank.length() == 0
+                || "Pilih Bank / E-Wallet".equalsIgnoreCase(selectedBank)) {
+            showInfo(
+                    "Bank Belum Dipilih",
+                    "Silakan pilih bank atau e-wallet tujuan."
+            );
+            return;
+        }
+
+        if (otherSelected && bank.length() == 0) {
+            showInfo(
+                    "Nama Bank Belum Diisi",
+                    "Silakan tulis nama bank atau e-wallet lainnya."
+            );
+            otherBankInput.requestFocus();
+            return;
+        }
+
+        if (accNo.length() == 0 || accName.length() == 0) {
+            showInfo(
+                    "Data Belum Lengkap",
+                    "Nomor rekening/e-wallet dan nama pemilik wajib diisi."
+            );
+            return;
+        }
 
         new AlertDialog.Builder(this)
                 .setTitle("Ajukan Withdraw")
@@ -287,7 +408,10 @@ public class DriverWithdrawActivity extends Activity {
                 JSONObject p = new JSONObject();
                 p.put("username", username);
                 p.put("amount", amount);
-                p.put("method", "bank");
+                String method = isEwallet(bank)
+                        ? "ewallet"
+                        : "bank";
+                p.put("method", method);
                 p.put("bank_name", bank);
                 p.put("account_number", accNo);
                 p.put("account_name", accName);
@@ -302,6 +426,10 @@ public class DriverWithdrawActivity extends Activity {
                     if (ok) {
                         amountInput.setText("");
                         noteInput.setText("");
+                        accountNumberInput.setText("");
+                        accountNameInput.setText("");
+                        otherBankInput.setText("");
+                        bankSpinner.setSelection(0);
                     }
                     loadAll(false);
                 });
@@ -371,6 +499,13 @@ public class DriverWithdrawActivity extends Activity {
     private String safe(String v) { return v == null ? "" : v.trim(); }
     private String firstNonEmpty(String... vals) { if (vals == null) return ""; for (String v : vals) if (v != null && v.trim().length() > 0 && !"null".equalsIgnoreCase(v.trim())) return v.trim(); return ""; }
     private long parseLong(String v) { try { return Long.parseLong(safe(v).replace(".", "").replace(",", "")); } catch (Exception e) { return 0; } }
+    private boolean isEwallet(String bank) {
+        String value = safe(bank).toLowerCase(Locale.US);
+        return "ovo".equals(value)
+                || "dana".equals(value)
+                || "gopay".equals(value);
+    }
+
     private String statusLabel(String s) { if ("approved".equals(s)) return "Berhasil"; if ("rejected".equals(s)) return "Ditolak"; return "Pending"; }
     private String statusIcon(String s) { if ("approved".equals(s)) return "✓"; if ("rejected".equals(s)) return "×"; return "⏳"; }
     private String statusColor(String s) { if ("approved".equals(s)) return "#059669"; if ("rejected".equals(s)) return "#DC2626"; return "#B45309"; }
