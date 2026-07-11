@@ -13,7 +13,7 @@ import android.graphics.Typeface;
 
 import android.graphics.drawable.GradientDrawable;
 
-import android.view.Space;
+import android.widget.Space;
 import android.view.View;
 import android.view.ViewOutlineProvider;
 
