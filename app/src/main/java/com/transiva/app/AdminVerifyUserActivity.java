@@ -30,6 +30,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
 public class AdminVerifyUserActivity extends Activity {
@@ -50,6 +51,10 @@ public class AdminVerifyUserActivity extends Activity {
     private boolean loading = false;
     private boolean processing = false;
 
+    private SessionManager sessionManager;
+    private String adminUsername = "";
+    private String adminToken = "";
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -65,8 +70,20 @@ public class AdminVerifyUserActivity extends Activity {
                     );
         }
 
+        sessionManager = new SessionManager(this);
+        adminUsername = safe(sessionManager.getUsername());
+        adminToken = safe(sessionManager.getToken());
+
         buildUi();
-        loadUsers(true);
+
+        if (adminUsername.isEmpty() || adminToken.isEmpty()) {
+            showMessage(
+                    "Sesi admin native tidak lengkap. Silakan logout lalu login kembali.",
+                    false
+            );
+        } else {
+            loadUsers(true);
+        }
     }
 
     @Override
@@ -275,6 +292,10 @@ public class AdminVerifyUserActivity extends Activity {
                         BASE_URL
                                 + "adminGetUnverifiedUsers.php?v="
                                 + System.currentTimeMillis()
+                                + "&admin_username="
+                                + encode(adminUsername)
+                                + "&admin_token="
+                                + encode(adminToken)
                 );
 
                 if (!response.optBoolean("success", false)) {
@@ -523,6 +544,8 @@ public class AdminVerifyUserActivity extends Activity {
             try {
                 JSONObject payload = new JSONObject();
                 payload.put("id", userId);
+                payload.put("admin_username", adminUsername);
+                payload.put("admin_token", adminToken);
 
                 JSONObject response = postJson(
                         BASE_URL + "adminVerifyUserEmail.php",
@@ -638,6 +661,20 @@ public class AdminVerifyUserActivity extends Activity {
                     "Accept",
                     "application/json"
             );
+
+            if (!adminUsername.isEmpty()) {
+                connection.setRequestProperty(
+                        "X-Admin-Username",
+                        adminUsername
+                );
+            }
+
+            if (!adminToken.isEmpty()) {
+                connection.setRequestProperty(
+                        "X-Admin-Token",
+                        adminToken
+                );
+            }
 
             if (payload != null) {
                 byte[] body = payload
@@ -959,6 +996,21 @@ public class AdminVerifyUserActivity extends Activity {
         }
 
         return "";
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private String encode(String value) {
+        try {
+            return URLEncoder.encode(
+                    safe(value),
+                    "UTF-8"
+            );
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     private String readableError(Exception exception) {
