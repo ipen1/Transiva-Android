@@ -7,12 +7,16 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
-import android.view.View;
-import android.widget.*;
-import android.graphics.drawable.GradientDrawable;
+import android.widget.Button;
+import android.widget.GridLayout;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Space;
+import android.widget.TextView;
 
 public class AdminDashboardActivity extends Activity {
 
@@ -21,7 +25,6 @@ public class AdminDashboardActivity extends Activity {
     private static final String CHANNEL_ID = "transiva_admin_updates";
 
     private final int NAVY = Color.parseColor("#071426");
-    private final int BLUE = Color.parseColor("#086BFF");
     private final int BG = Color.parseColor("#F3F8FF");
 
     @Override
@@ -32,7 +35,6 @@ public class AdminDashboardActivity extends Activity {
         getWindow().setNavigationBarColor(NAVY);
 
         createNotificationChannel();
-
         buildLayout();
 
         sendAdminNotification(
@@ -41,60 +43,66 @@ public class AdminDashboardActivity extends Activity {
         );
     }
 
-
-    private void buildLayout(){
-
+    private void buildLayout() {
         ScrollView scroll = new ScrollView(this);
 
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16),dp(22),dp(16),dp(28));
+        root.setPadding(dp(16), dp(22), dp(16), dp(28));
         root.setBackgroundColor(BG);
 
         scroll.addView(root);
         setContentView(scroll);
 
-
         addHeader();
         gap(14);
-
         addBanner();
         gap(14);
-
         addMenu();
-
         gap(14);
-
         addStatus();
-
         gap(14);
 
         Button logout = button("Keluar");
-
         logout.setOnClickListener(v -> {
-            Intent i = new Intent(this, LoginActivity.class);
-            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
-                    Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(i);
+            Intent intent = new Intent(this, LoginActivity.class);
+            intent.setFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TASK
+            );
+            startActivity(intent);
             finish();
         });
 
-        root.addView(logout,
-                new LinearLayout.LayoutParams(-1,dp(50)));
-
+        root.addView(
+                logout,
+                new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        dp(50)
+                )
+        );
     }
 
-
-    private void addHeader(){
-
-        LinearLayout h = new LinearLayout(this);
-        h.setGravity(Gravity.CENTER_VERTICAL);
+    private void addHeader() {
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
 
         LinearLayout left = new LinearLayout(this);
         left.setOrientation(LinearLayout.VERTICAL);
 
-        left.addView(txt("Selamat Datang 👋",13,"#64748B",false));
-        left.addView(txt("Admin Transiva",23,"#0B3A78",true));
+        left.addView(txt(
+                "Selamat Datang 👋",
+                13,
+                "#64748B",
+                false
+        ));
+
+        left.addView(txt(
+                "Admin Transiva",
+                23,
+                "#0B3A78",
+                true
+        ));
 
         TextView badge = txt(
                 "Verified Admin",
@@ -103,48 +111,49 @@ public class AdminDashboardActivity extends Activity {
                 true
         );
 
-        badge.setPadding(dp(10),dp(4),dp(10),dp(4));
-        badge.setBackground(card("#EAF4FF","#B9DBFF"));
-
+        badge.setPadding(dp(10), dp(4), dp(10), dp(4));
+        badge.setBackground(card("#EAF4FF", "#B9DBFF"));
         left.addView(badge);
 
-        h.addView(left,new LinearLayout.LayoutParams(0,-2,1));
-
-        h.addView(
-                txt("🛠️",32,"#0B3A78",true)
+        header.addView(
+                left,
+                new LinearLayout.LayoutParams(0, -2, 1f)
         );
 
-        root.addView(h);
+        header.addView(txt(
+                "🛠️",
+                32,
+                "#0B3A78",
+                true
+        ));
+
+        root.addView(header);
     }
 
+    private void addBanner() {
+        LinearLayout banner = new LinearLayout(this);
+        banner.setOrientation(LinearLayout.VERTICAL);
+        banner.setPadding(dp(18), dp(18), dp(18), dp(18));
+        banner.setBackground(gradient());
 
-    private void addBanner(){
-
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(18),dp(18),dp(18),dp(18));
-        card.setBackground(gradient());
-
-        card.addView(txt(
+        banner.addView(txt(
                 "🛡 Admin Control Center",
                 18,
                 "#FFFFFF",
                 true
         ));
 
-        card.addView(txt(
+        banner.addView(txt(
                 "Monitoring Driver • Customer • Merchant • Sistem",
                 13,
                 "#FFFFFF",
                 false
         ));
 
-        root.addView(card);
+        root.addView(banner);
     }
 
-
-    private void addMenu(){
-
+    private void addMenu() {
         root.addView(txt(
                 "Menu Admin",
                 18,
@@ -155,220 +164,258 @@ public class AdminDashboardActivity extends Activity {
         GridLayout grid = new GridLayout(this);
         grid.setColumnCount(3);
 
-        String[][] menu={
-                {"🛵","Driver"},
-                {"👥","Customer"},
-                {"🏪","Merchant"},
-                {"📍","Business"},
-                {"🧺","Laundry"},
-                {"🏝️","Wisata"},
-                {"🏦","Money"},
-                {"💸","WD Driver"},
-                {"✅","Verifikasi"}
+        String[][] menu = {
+                {"🛵", "Driver"},
+                {"👥", "Customer"},
+                {"🏪", "Merchant"},
+                {"📍", "Business"},
+                {"🧺", "Laundry"},
+                {"🏝️", "Wisata"},
+                {"🏦", "Money"},
+                {"💸", "WD Driver"},
+                {"✅", "Verifikasi"}
         };
 
+        for (String[] itemData : menu) {
+            final String menuName = itemData[1];
 
-        for(String[] m:menu){
-
-            LinearLayout item=new LinearLayout(this);
+            LinearLayout item = new LinearLayout(this);
             item.setOrientation(LinearLayout.VERTICAL);
             item.setGravity(Gravity.CENTER);
-            item.setPadding(dp(8),dp(12),dp(8),dp(10));
-            item.setBackground(card("#FFFFFF","#D7E6F8"));
-
-            item.addView(txt(m[0],30,"#086BFF",true));
-            item.addView(txt(m[1],12,"#0B3A78",true));
-
+            item.setPadding(dp(8), dp(12), dp(8), dp(10));
+            item.setBackground(card("#FFFFFF", "#D7E6F8"));
             item.setClickable(true);
-item.setFocusable(true);
+            item.setFocusable(true);
 
-item.setOnClickListener(v -> {
+            item.addView(txt(
+                    itemData[0],
+                    30,
+                    "#086BFF",
+                    true
+            ));
 
-    Intent intent = null;
+            item.addView(txt(
+                    menuName,
+                    12,
+                    "#0B3A78",
+                    true
+            ));
 
-    switch (m[1]) {
+            item.setOnClickListener(v -> openMenu(menuName));
 
-        case "Money":
-            intent = new Intent(
-                    AdminDashboardActivity.this,
-                    AdminMoneyManagementActivity.class
-            );
-            break;
-
-        case "WD Driver":
-            intent = new Intent(
-                    AdminDashboardActivity.this,
-                    AdminDriverWithdrawManagementActivity.class
-            );
-            break;
-    }
-
-    if (intent != null) {
-        startActivity(intent);
-    }
-
-});
-
-            GridLayout.LayoutParams lp =
+            GridLayout.LayoutParams params =
                     new GridLayout.LayoutParams();
 
-            lp.width=(getResources().getDisplayMetrics().widthPixels-dp(50))/3;
-            lp.height=dp(105);
-            lp.setMargins(dp(4),dp(4),dp(4),dp(8));
+            params.width =
+                    (getResources()
+                            .getDisplayMetrics()
+                            .widthPixels - dp(50)) / 3;
 
-            grid.addView(item,lp);
+            params.height = dp(105);
+            params.setMargins(
+                    dp(4),
+                    dp(4),
+                    dp(4),
+                    dp(8)
+            );
+
+            grid.addView(item, params);
         }
 
         root.addView(grid);
     }
 
+    private void openMenu(String menuName) {
+        Intent intent = null;
 
-    private void addStatus(){
+        switch (menuName) {
+            case "Money":
+                intent = new Intent(
+                        this,
+                        AdminMoneyManagementActivity.class
+                );
+                break;
 
-        LinearLayout c=new LinearLayout(this);
-        c.setOrientation(LinearLayout.VERTICAL);
-        c.setPadding(dp(16),dp(16),dp(16),dp(16));
-        c.setBackground(card("#FFFFFF","#D7E6F8"));
+            case "WD Driver":
+                intent = new Intent(
+                        this,
+                        AdminDriverWithdrawManagementActivity.class
+                );
+                break;
 
-        c.addView(txt(
+            case "Verifikasi":
+                intent = new Intent(
+                        this,
+                        AdminVerifyUserActivity.class
+                );
+                break;
+        }
+
+        if (intent != null) {
+            startActivity(intent);
+        }
+    }
+
+    private void addStatus() {
+        LinearLayout status = new LinearLayout(this);
+        status.setOrientation(LinearLayout.VERTICAL);
+        status.setPadding(dp(16), dp(16), dp(16), dp(16));
+        status.setBackground(card("#FFFFFF", "#D7E6F8"));
+
+        status.addView(txt(
                 "Status Sistem",
                 17,
                 "#0B3A78",
                 true
         ));
 
-        c.addView(txt(
+        status.addView(txt(
                 "🟢 Admin panel aktif\nNotifikasi sistem aktif",
                 13,
                 "#64748B",
                 false
         ));
 
-        root.addView(c);
+        root.addView(status);
     }
 
-
-    private Button button(String s){
-
-        Button b=new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextColor(Color.WHITE);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setBackground(gradient());
-
-        return b;
+    private Button button(String text) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setAllCaps(false);
+        button.setTextColor(Color.WHITE);
+        button.setTypeface(Typeface.DEFAULT_BOLD);
+        button.setBackground(gradient());
+        return button;
     }
 
+    private TextView txt(
+            String text,
+            int size,
+            String color,
+            boolean bold
+    ) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(size);
+        view.setTextColor(Color.parseColor(color));
 
-    private TextView txt(String s,int z,String c,boolean bold){
+        if (bold) {
+            view.setTypeface(Typeface.DEFAULT_BOLD);
+        }
 
-        TextView t=new TextView(this);
-        t.setText(s);
-        t.setTextSize(z);
-        t.setTextColor(Color.parseColor(c));
-
-        if(bold)
-            t.setTypeface(Typeface.DEFAULT_BOLD);
-
-        return t;
+        return view;
     }
 
-
-    private GradientDrawable card(String bg,String stroke){
-
-        GradientDrawable g=new GradientDrawable();
-        g.setColor(Color.parseColor(bg));
-        g.setCornerRadius(dp(22));
-        g.setStroke(dp(1),Color.parseColor(stroke));
-
-        return g;
+    private GradientDrawable card(
+            String background,
+            String stroke
+    ) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(Color.parseColor(background));
+        drawable.setCornerRadius(dp(22));
+        drawable.setStroke(
+                dp(1),
+                Color.parseColor(stroke)
+        );
+        return drawable;
     }
 
+    private GradientDrawable gradient() {
+        GradientDrawable drawable = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{
+                        Color.parseColor("#086BFF"),
+                        Color.parseColor("#2EA2FF")
+                }
+        );
 
-    private GradientDrawable gradient(){
-
-        GradientDrawable g =
-                new GradientDrawable(
-                        GradientDrawable.Orientation.LEFT_RIGHT,
-                        new int[]{
-                                Color.parseColor("#086BFF"),
-                                Color.parseColor("#2EA2FF")
-                        });
-
-        g.setCornerRadius(dp(24));
-
-        return g;
+        drawable.setCornerRadius(dp(24));
+        return drawable;
     }
 
-
-    private void gap(int h){
-        Space s=new Space(this);
-        root.addView(s,new LinearLayout.LayoutParams(1,dp(h)));
+    private void gap(int height) {
+        Space space = new Space(this);
+        root.addView(
+                space,
+                new LinearLayout.LayoutParams(1, dp(height))
+        );
     }
 
-
-    private void createNotificationChannel(){
-
-        if(Build.VERSION.SDK_INT>=26){
-
-            NotificationChannel c =
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel channel =
                     new NotificationChannel(
                             CHANNEL_ID,
                             "Transiva Admin Updates",
                             NotificationManager.IMPORTANCE_DEFAULT
                     );
 
-            NotificationManager nm =
+            NotificationManager manager =
                     getSystemService(NotificationManager.class);
 
-            if(nm!=null)
-                nm.createNotificationChannel(c);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
         }
     }
 
+    private void sendAdminNotification(
+            String title,
+            String message
+    ) {
+        try {
+            NotificationManager manager =
+                    (NotificationManager)
+                            getSystemService(NOTIFICATION_SERVICE);
 
-    private void sendAdminNotification(String title,String msg){
+            Intent intent =
+                    new Intent(this, AdminDashboardActivity.class);
 
-        try{
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
 
-            NotificationManager nm =
-                    (NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
 
-            Intent i=new Intent(this,AdminDashboardActivity.class);
-
-            PendingIntent pi =
+            PendingIntent pendingIntent =
                     PendingIntent.getActivity(
                             this,
                             1,
-                            i,
-                            PendingIntent.FLAG_IMMUTABLE
+                            intent,
+                            flags
                     );
 
+            android.app.Notification.Builder builder =
+                    Build.VERSION.SDK_INT >= 26
+                            ? new android.app.Notification.Builder(
+                                    this,
+                                    CHANNEL_ID
+                            )
+                            : new android.app.Notification.Builder(this);
 
-            android.app.Notification.Builder b =
-                    Build.VERSION.SDK_INT>=26 ?
-                            new android.app.Notification.Builder(this,CHANNEL_ID):
-                            new android.app.Notification.Builder(this);
-
-
-            b.setSmallIcon(android.R.drawable.ic_dialog_info)
+            builder.setSmallIcon(
+                            android.R.drawable.ic_dialog_info
+                    )
                     .setContentTitle(title)
-                    .setContentText(msg)
-                    .setContentIntent(pi)
+                    .setContentText(message)
+                    .setContentIntent(pendingIntent)
                     .setAutoCancel(true);
 
-
-            if(nm!=null)
-                nm.notify(1001,b.build());
-
-        }catch(Exception ignored){}
+            if (manager != null) {
+                manager.notify(1001, builder.build());
+            }
+        } catch (Exception ignored) {
+        }
     }
 
-
-    private int dp(int v){
-        return (int)(v*getResources()
-                .getDisplayMetrics()
-                .density+0.5f);
+    private int dp(int value) {
+        return (int) (
+                value
+                        * getResources()
+                        .getDisplayMetrics()
+                        .density
+                        + 0.5f
+        );
     }
 }
