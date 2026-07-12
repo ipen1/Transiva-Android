@@ -33,6 +33,8 @@ import com.transiva.app.customer.domain.Promo;
 import com.transiva.app.customer.presentation.CustomerDashboardContract;
 import com.transiva.app.customer.presentation.CustomerDashboardPresenter;
 
+import org.json.JSONObject;
+
 import java.text.NumberFormat;
 import java.util.List;
 import java.util.Locale;
@@ -40,30 +42,36 @@ import java.util.Locale;
 public class CustomerDashboardActivity extends Activity implements CustomerDashboardContract.View {
 
     private static final int REQ_LOCATION = 1201;
+    private static final long PROMO_INTERVAL_MS = 4500L;
 
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private CustomerDashboardPresenter presenter;
     private LinearLayout content;
-    private TextView verificationStatusText;
+    private TextView locationText;
     private TextView balanceText;
     private TextView orderText;
-    private LinearLayout promoTrack;
+    private TextView verificationText;
     private HorizontalScrollView promoScroll;
+    private LinearLayout promoTrack;
     private LinearLayout promoDots;
-    private final Handler promoHandler = new Handler(Looper.getMainLooper());
-    private int activePromoIndex = 0;
-    private int promoCount = 0;
-    private final Runnable promoAutoSlide = new Runnable() {
-        @Override public void run() {
-            if (promoCount < 2 || promoScroll == null) return;
-            activePromoIndex = (activePromoIndex + 1) % promoCount;
-            scrollToPromo(activePromoIndex, true);
-            promoHandler.postDelayed(this, 4500);
-        }
-    };
     private ProgressBar loading;
+    private int promoCount;
+    private int activePromoIndex;
 
     private String username = "User";
-    private int userId = 0;
+    private int userId;
+
+    private final Runnable promoAutoRunnable = new Runnable() {
+        @Override public void run() {
+            if (promoCount > 1 && promoScroll != null) {
+                activePromoIndex = (activePromoIndex + 1) % promoCount;
+                int target = activePromoIndex * (dp(275) + dp(9));
+                promoScroll.smoothScrollTo(target, 0);
+                updatePromoDots(activePromoIndex);
+                uiHandler.postDelayed(this, PROMO_INTERVAL_MS);
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,24 +82,22 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         presenter = new CustomerDashboardPresenter(new CustomerDashboardRepositoryImpl(), this);
         setContentView(buildScreen());
         presenter.load(username, userId);
+        loadLocation();
     }
 
-    @Override
-    protected void onResume() {
+    @Override protected void onResume() {
         super.onResume();
         if (presenter != null) presenter.refresh(username, userId);
         startPromoAutoSlide();
     }
 
-    @Override
-    protected void onPause() {
-        promoHandler.removeCallbacks(promoAutoSlide);
+    @Override protected void onPause() {
+        stopPromoAutoSlide();
         super.onPause();
     }
 
-    @Override
-    protected void onDestroy() {
-        promoHandler.removeCallbacksAndMessages(null);
+    @Override protected void onDestroy() {
+        stopPromoAutoSlide();
         if (presenter != null) presenter.destroy();
         super.onDestroy();
     }
@@ -102,9 +108,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
             username = first(session.getUsername(), session.getName(), "User");
             try {
                 userId = Integer.parseInt(first(session.getId(), session.getUserId(), "0"));
-            } catch (Exception ignored) {
-                userId = 0;
-            }
+            } catch (Exception ignored) { userId = 0; }
         } catch (Exception ignored) {
             username = "User";
             userId = 0;
@@ -159,68 +163,51 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
 
         TextView name = text(username.toLowerCase(Locale.getDefault()), 23, "#0B3A78", true);
         LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(-1, -2);
-        nameLp.setMargins(0, dp(1), 0, 0);
+        nameLp.setMargins(0, dp(1), 0, dp(4));
         left.addView(name, nameLp);
 
-        boolean verified = isUserVerified();
+        verificationText = text(isVerifiedUser() ? "✓ Terverifikasi" : "• Belum Terverifikasi",
+                10, isVerifiedUser() ? "#0E9F4B" : "#D97706", true);
+        verificationText.setPadding(dp(8), dp(4), dp(8), dp(4));
+        verificationText.setBackground(Shape.round(
+                isVerifiedUser() ? "#EAFBF1" : "#FFF7E6", dp(12)));
+        left.addView(verificationText, new LinearLayout.LayoutParams(-2, -2));
 
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.HORIZONTAL);
-        card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(10), dp(8), dp(11), dp(8));
-        card.setBackground(Shape.roundStroke(
-                verified ? "#FFFBEB" : "#FFF7ED",
-                verified ? "#F6C344" : "#FDBA74",
-                dp(18), 1));
-        card.setElevation(dp(2));
+        LinearLayout locationCard = new LinearLayout(this);
+        locationCard.setOrientation(LinearLayout.HORIZONTAL);
+        locationCard.setGravity(Gravity.CENTER_VERTICAL);
+        locationCard.setPadding(dp(7), dp(6), dp(8), dp(6));
+        locationCard.setBackground(Shape.roundStroke("#FFFFFF", "#DFEAF6", dp(16), 1));
+        locationCard.setElevation(dp(2));
+        locationCard.setOnClickListener(v -> loadLocation());
 
-        TextView shield = text(verified ? "✓" : "!", 22, "#FFFFFF", true);
-        shield.setGravity(Gravity.CENTER);
-        shield.setBackground(Shape.gradient(
-                verified ? "#F5B923" : "#F97316",
-                verified ? "#FFD86A" : "#FB923C",
-                dp(18)));
-        card.addView(shield, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        ImageView pin = new ImageView(this);
+        pin.setImageResource(drawable("ic_location_pin"));
+        pin.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        locationCard.addView(pin, new LinearLayout.LayoutParams(dp(28), dp(28)));
 
-        LinearLayout copy = new LinearLayout(this);
-        copy.setOrientation(LinearLayout.VERTICAL);
-        copy.setPadding(dp(8), 0, 0, 0);
-        copy.addView(text("Verifikasi Akun", 10, "#0B3A78", true));
-
-        verificationStatusText = text(
-                verified ? "Terverifikasi" : "Belum diverifikasi",
-                11,
-                verified ? "#16A34A" : "#EA580C",
-                true);
-        verificationStatusText.setSingleLine(true);
-        copy.addView(verificationStatusText);
-        card.addView(copy, new LinearLayout.LayoutParams(dp(92), -2));
-
-        row.addView(card, new LinearLayout.LayoutParams(dp(150), dp(64)));
+        locationText = text("Memuat...", 10, "#0B3A78", true);
+        locationText.setSingleLine(true);
+        locationText.setPadding(dp(4), 0, 0, 0);
+        locationCard.addView(locationText, new LinearLayout.LayoutParams(dp(70), -2));
+        row.addView(locationCard, new LinearLayout.LayoutParams(dp(110), dp(48)));
     }
 
-    private boolean isUserVerified() {
-        SharedPreferences sp = getSharedPreferences("transiva", MODE_PRIVATE);
-        if (sp.getBoolean("is_verified", false)
-                || sp.getBoolean("verified", false)
-                || sp.getBoolean("user_verified", false)) return true;
-
-        String value = first(
-                sp.getString("verification_status", ""),
-                sp.getString("verify_status", ""),
-                sp.getString("account_status", "")
-        ).toLowerCase(Locale.US);
-
-        return value.equals("verified")
-                || value.equals("terverifikasi")
-                || value.equals("approved")
-                || value.equals("1");
+    private boolean isVerifiedUser() {
+        try {
+            SharedPreferences prefs = getSharedPreferences("transiva_native_session", MODE_PRIVATE);
+            JSONObject raw = new JSONObject(prefs.getString("raw_user", "{}"));
+            return raw.optInt("email_verified", 0) == 1
+                    || raw.optInt("verified_by_admin", 0) == 1
+                    || raw.optBoolean("verified", false)
+                    || raw.optBoolean("is_verified", false);
+        } catch (Exception ignored) { return false; }
     }
 
     private void buildWalletCard() {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackground(Shape.gradient("#075EF4", "#22A4FF", dp(17)));
-        frame.setElevation(dp(5));
+        frame.setBackground(Shape.gradient("#075EF4", "#22A4FF", dp(22)));
+        frame.setElevation(dp(3));
         LinearLayout.LayoutParams frameLp = new LinearLayout.LayoutParams(-1, dp(170));
         frameLp.setMargins(0, dp(14), 0, dp(16));
         content.addView(frame, frameLp);
@@ -236,12 +223,8 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(13), dp(16), dp(10));
         frame.addView(card, new FrameLayout.LayoutParams(-1, -1));
-
         card.addView(text("Transiva Pay", 15, "#FFFFFF", true));
-        TextView sub = text("Saldo Anda", 11, "#EAF4FF", false);
-        LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
-        subLp.setMargins(0, dp(5), 0, 0);
-        card.addView(sub, subLp);
+        card.addView(text("Saldo Anda", 11, "#EAF4FF", false));
 
         balanceText = text("Memuat saldo...", 25, "#FFFFFF", true);
         balanceText.setSingleLine(true);
@@ -252,32 +235,11 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
-        actions.addView(walletAction("＋", "Isi Saldo", () -> startActivity(new Intent(this, CustomerTopUpActivity.class))));
-        actions.addView(walletAction("⇄", "Transfer", () -> Toast.makeText(this, "Fitur transfer segera tersedia", Toast.LENGTH_SHORT).show()));
-        actions.addView(walletAction("◷", "Riwayat Transaksi", this::openBalanceTransactionHistory));
-    }
-
-
-    private void openBalanceTransactionHistory() {
-        String[] candidates = new String[]{
-                "com.transiva.app.CustomerBalanceHistoryActivity",
-                "com.transiva.app.BalanceTransactionHistoryActivity",
-                "com.transiva.app.CustomerTransactionHistoryActivity"
-        };
-
-        for (String className : candidates) {
-            try {
-                Class<?> target = Class.forName(className);
-                startActivity(new Intent(this, target));
-                return;
-            } catch (ClassNotFoundException ignored) {}
-        }
-
-        Toast.makeText(
-                this,
-                "Halaman riwayat transaksi saldo sedang disiapkan",
-                Toast.LENGTH_SHORT
-        ).show();
+        actions.addView(walletAction("＋", "Isi Saldo", () ->
+                startActivity(new Intent(this, CustomerTopUpActivity.class))));
+        actions.addView(walletAction("⇄", "Transfer", () ->
+                Toast.makeText(this, "Fitur transfer segera tersedia", Toast.LENGTH_SHORT).show()));
+        actions.addView(walletAction("◷", "Transaksi", this::openBalanceTransactions));
     }
 
     private View walletAction(String symbol, String label, Runnable action) {
@@ -290,6 +252,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         button.setBackground(Shape.round("#FFFFFF", dp(13)));
         item.addView(button, new LinearLayout.LayoutParams(dp(44), dp(44)));
         TextView caption = text(label, 10, "#FFFFFF", true);
+        caption.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams capLp = new LinearLayout.LayoutParams(-2, -2);
         capLp.setMargins(0, dp(4), 0, 0);
         item.addView(caption, capLp);
@@ -297,20 +260,32 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         return item;
     }
 
-    private void buildPromoSection() {
-        content.addView(sectionHeader("Promo Hari Ini", ""));
+    private void openBalanceTransactions() {
+        String[] candidates = {
+                "com.transiva.app.CustomerBalanceHistoryActivity",
+                "com.transiva.app.BalanceTransactionHistoryActivity",
+                "com.transiva.app.CustomerTransactionHistoryActivity"
+        };
+        for (String className : candidates) {
+            try {
+                startActivity(new Intent(this, Class.forName(className)));
+                return;
+            } catch (Exception ignored) {}
+        }
+        Toast.makeText(this, "Riwayat transaksi saldo sedang disiapkan", Toast.LENGTH_SHORT).show();
+    }
 
+    private void buildPromoSection() {
+        content.addView(sectionHeader("Promo Hari Ini"));
         promoScroll = new HorizontalScrollView(this);
         promoScroll.setHorizontalScrollBarEnabled(false);
-        promoScroll.setFillViewport(false);
-
+        promoScroll.setClipToPadding(false);
         promoTrack = new LinearLayout(this);
         promoTrack.setOrientation(LinearLayout.HORIZONTAL);
         promoScroll.addView(promoTrack, new HorizontalScrollView.LayoutParams(-2, -2));
-
-        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, dp(126));
-        scrollLp.setMargins(0, dp(7), 0, dp(5));
-        content.addView(promoScroll, scrollLp);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(126));
+        lp.setMargins(0, dp(7), 0, dp(5));
+        content.addView(promoScroll, lp);
 
         promoDots = new LinearLayout(this);
         promoDots.setGravity(Gravity.CENTER);
@@ -318,76 +293,42 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         dotsLp.setMargins(0, 0, 0, dp(13));
         content.addView(promoDots, dotsLp);
 
-        promoScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldScrollX, oldScrollY) -> {
-            if (promoCount < 2) return;
-            int pageWidth = dp(284);
-            int index = Math.round((float) scrollX / pageWidth);
-            index = Math.max(0, Math.min(promoCount - 1, index));
+        promoScroll.setOnScrollChangeListener((v, scrollX, scrollY, oldX, oldY) -> {
+            if (promoCount <= 1) return;
+            int width = dp(275) + dp(9);
+            int index = Math.max(0, Math.min(promoCount - 1,
+                    Math.round((float) scrollX / width)));
             if (index != activePromoIndex) {
                 activePromoIndex = index;
-                updatePromoDots();
+                updatePromoDots(index);
             }
+            stopPromoAutoSlide();
+            uiHandler.postDelayed(promoAutoRunnable, PROMO_INTERVAL_MS);
         });
     }
 
     private void renderPromos(List<Promo> promos) {
         promoTrack.removeAllViews();
-
-        if (promos == null || promos.isEmpty()) {
-            promoTrack.addView(promoBanner(
-                    new Promo("Hemat Perjalanan", "Diskon 20% TransRide dan TransCar hari ini.", "JALAN20"), 0));
-            promoTrack.addView(promoBanner(
-                    new Promo("Gratis Antar", "Potongan ongkir TransFood untuk minimum belanja Rp50.000.", "FOODHEMAT"), 1));
-            promoCount = 2;
-        } else {
-            promoCount = Math.min(promos.size(), 2);
-            for (int i = 0; i < promoCount; i++) {
-                promoTrack.addView(promoBanner(promos.get(i), i));
-            }
+        promoDots.removeAllViews();
+        promoCount = promos == null ? 0 : Math.min(2, promos.size());
+        if (promoCount == 0) return;
+        for (int i = 0; i < promoCount; i++) promoTrack.addView(promoBanner(promos.get(i)));
+        for (int i = 0; i < promoCount; i++) {
+            View dot = new View(this);
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(7), dp(7));
+            dotLp.setMargins(dp(3), 0, dp(3), 0);
+            promoDots.addView(dot, dotLp);
         }
-
         activePromoIndex = 0;
-        buildPromoDots();
-        promoScroll.post(() -> scrollToPromo(0, false));
+        updatePromoDots(0);
+        promoScroll.post(() -> promoScroll.scrollTo(0, 0));
         startPromoAutoSlide();
     }
 
-    private void buildPromoDots() {
-        promoDots.removeAllViews();
-        for (int i = 0; i < promoCount; i++) {
-            View dot = new View(this);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(7), dp(7));
-            lp.setMargins(dp(3), 0, dp(3), 0);
-            promoDots.addView(dot, lp);
-        }
-        updatePromoDots();
-    }
-
-    private void updatePromoDots() {
-        for (int i = 0; i < promoDots.getChildCount(); i++) {
-            promoDots.getChildAt(i).setBackground(
-                    Shape.round(i == activePromoIndex ? "#0B7CFF" : "#CBD5E1", dp(5))
-            );
-        }
-    }
-
-    private void scrollToPromo(int index, boolean smooth) {
-        if (promoScroll == null) return;
-        int x = index * dp(284);
-        if (smooth) promoScroll.smoothScrollTo(x, 0);
-        else promoScroll.scrollTo(x, 0);
-        updatePromoDots();
-    }
-
-    private void startPromoAutoSlide() {
-        promoHandler.removeCallbacks(promoAutoSlide);
-        if (promoCount > 1) promoHandler.postDelayed(promoAutoSlide, 4500);
-    }
-
-    private View promoBanner(Promo promo, int index) {
+    private View promoBanner(Promo promo) {
         FrameLayout card = new FrameLayout(this);
-        card.setBackground(Shape.gradient(index % 2 == 0 ? "#0759E8" : "#006EDC", index % 2 == 0 ? "#099FE8" : "#18B5FF", dp(17)));
-        card.setElevation(dp(3));
+        card.setBackground(Shape.gradient(promo.themeStart, promo.themeEnd, dp(17)));
+        card.setElevation(dp(2));
 
         ImageView image = new ImageView(this);
         image.setImageResource(drawable("img_promo_vehicle"));
@@ -405,25 +346,42 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(dp(165), -2);
         descLp.setMargins(0, dp(2), 0, dp(6));
         box.addView(desc, descLp);
-        TextView code = text("Kode: " + promo.code, 10, "#FFFFFF", true);
-        code.setPadding(dp(7), dp(4), dp(7), dp(4));
-        code.setBackground(Shape.roundStroke("#0A6FEA", "#FFFFFF", dp(8), 1));
-        box.addView(code, new LinearLayout.LayoutParams(-2, -2));
-
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(275), dp(118));
-        lp.setMargins(0, 0, dp(9), 0);
-        card.setLayoutParams(lp);
+        if (!promo.code.isEmpty()) {
+            TextView code = text("Kode: " + promo.code, 10, "#FFFFFF", true);
+            code.setPadding(dp(7), dp(4), dp(7), dp(4));
+            code.setBackground(Shape.roundStroke("#0A6FEA", "#FFFFFF", dp(8), 1));
+            box.addView(code, new LinearLayout.LayoutParams(-2, -2));
+        }
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(dp(275), dp(118));
+        cardLp.setMargins(0, 0, dp(9), 0);
+        card.setLayoutParams(cardLp);
         return card;
     }
 
+    private void updatePromoDots(int selected) {
+        if (promoDots == null) return;
+        for (int i = 0; i < promoDots.getChildCount(); i++) {
+            promoDots.getChildAt(i).setBackground(Shape.round(
+                    i == selected ? "#0B7CFF" : "#CBD5E1", dp(4)));
+        }
+    }
+
+    private void startPromoAutoSlide() {
+        stopPromoAutoSlide();
+        if (promoCount > 1) uiHandler.postDelayed(promoAutoRunnable, PROMO_INTERVAL_MS);
+    }
+
+    private void stopPromoAutoSlide() {
+        uiHandler.removeCallbacks(promoAutoRunnable);
+    }
+
     private void buildServiceSection() {
-        content.addView(sectionHeader("Layanan Transiva", ""));
+        content.addView(sectionHeader("Layanan Transiva"));
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams gridLp = new LinearLayout.LayoutParams(-1, -2);
         gridLp.setMargins(0, dp(7), 0, dp(14));
         content.addView(grid, gridLp);
-
         grid.addView(serviceRow(
                 service("TransRide", "ic_service_ride", TransRideActivity.class),
                 service("TransCar", "ic_service_car", PassengerCarActivity.class),
@@ -433,8 +391,10 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         grid.addView(serviceRow(
                 service("Laundry", "ic_service_laundry", TransLaundryActivity.class),
                 service("Pickup", "ic_service_pickup", TransPickupActivity.class),
-                serviceAction("TransMart", "ic_service_mart", () -> Toast.makeText(this, "TransMart segera tersedia", Toast.LENGTH_SHORT).show()),
-                serviceAction("Lainnya", "ic_service_more", () -> Toast.makeText(this, "Layanan lainnya segera tersedia", Toast.LENGTH_SHORT).show())
+                serviceAction("TransMart", "ic_service_mart", () ->
+                        Toast.makeText(this, "TransMart segera tersedia", Toast.LENGTH_SHORT).show()),
+                serviceAction("Lainnya", "ic_service_more", () ->
+                        Toast.makeText(this, "Layanan lainnya segera tersedia", Toast.LENGTH_SHORT).show())
         ));
     }
 
@@ -484,14 +444,12 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, dp(92));
         cardLp.setMargins(0, 0, 0, dp(15));
         content.addView(card, cardLp);
-
         ImageView illustration = new ImageView(this);
         illustration.setImageResource(drawable("img_order_empty"));
         illustration.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         FrameLayout.LayoutParams artLp = new FrameLayout.LayoutParams(dp(105), -1);
         artLp.gravity = Gravity.END;
         card.addView(illustration, artLp);
-
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(dp(14), dp(12), dp(110), dp(10));
@@ -508,7 +466,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
     }
 
     private void buildRecommendationSection() {
-        content.addView(sectionHeader("Rekomendasi untukmu", ""));
+        content.addView(sectionHeader("Rekomendasi untukmu"));
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(this);
@@ -534,16 +492,16 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         subLp.setMargins(0, dp(5), 0, 0);
         card.addView(sub, subLp);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(145), dp(84));
-        lp.setMargins(0, 0, dp(9), 0);
+        lp.setMargins(0, 0, dp(8), 0);
         card.setLayoutParams(lp);
         return card;
     }
 
-    private LinearLayout sectionHeader(String title, String action) {
+    private LinearLayout sectionHeader(String title) {
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(text(title, 16, "#0B3A78", true), new LinearLayout.LayoutParams(0, -2, 1));
-        if (action != null && !action.isEmpty()) header.addView(text(action, 10, "#0B7CFF", true));
+        header.addView(text(title, 16, "#0B3A78", true),
+                new LinearLayout.LayoutParams(0, -2, 1));
         return header;
     }
 
@@ -557,7 +515,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         nav.addView(navItem("Beranda", "ic_nav_home", null, true), navLp());
         nav.addView(navItem("Aktivitas", "ic_nav_activity", CustomerHistoryActivity.class, false), navLp());
         nav.addView(navItem("Pesan", "ic_nav_chat", CustomerChatActivity.class, false), navLp());
-        nav.addView(navItem("Pay", "ic_nav_wallet", CustomerTopUpActivity.class, false), navLp());
+        nav.addView(navAction("Transaksi", "ic_nav_wallet", this::openBalanceTransactions, false), navLp());
         nav.addView(navItem("Akun", "ic_nav_profile", ProfileActivity.class, false), navLp());
         return nav;
     }
@@ -565,6 +523,11 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
     private LinearLayout.LayoutParams navLp() { return new LinearLayout.LayoutParams(0, -1, 1); }
 
     private View navItem(String label, String icon, Class<?> target, boolean active) {
+        return navAction(label, icon,
+                target == null ? null : () -> startActivity(new Intent(this, target)), active);
+    }
+
+    private View navAction(String label, String icon, Runnable action, boolean active) {
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
@@ -577,14 +540,15 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-1, -2);
         titleLp.setMargins(0, dp(2), 0, 0);
         item.addView(title, titleLp);
-        if (target != null) item.setOnClickListener(v -> startActivity(new Intent(this, target)));
+        if (action != null) item.setOnClickListener(v -> action.run());
         return item;
     }
 
     private void loadLocation() {
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
                 && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION}, REQ_LOCATION);
             return;
         }
         try {
@@ -593,8 +557,9 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
             boolean gps = manager.isProviderEnabled(LocationManager.GPS_PROVIDER);
             boolean network = manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
             if (!gps && !network) {
-                verificationStatusText.setText("Aktifkan GPS");
-                verificationStatusText.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)));
+                locationText.setText("GPS mati");
+                locationText.setOnClickListener(v ->
+                        startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)));
                 return;
             }
             String provider = gps ? LocationManager.GPS_PROVIDER : LocationManager.NETWORK_PROVIDER;
@@ -606,30 +571,42 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
                 @Override public void onProviderEnabled(String provider) {}
                 @Override public void onProviderDisabled(String provider) {}
             }, Looper.getMainLooper());
-        } catch (Exception error) {
-            verificationStatusText.setText("Lokasi gagal");
-        }
+        } catch (Exception error) { locationText.setText("Lokasi gagal"); }
     }
 
     private void resolveLocation(Location location) {
         new Thread(() -> {
             String result = "Lokasi saya";
             try {
-                List<Address> list = new Geocoder(this, new Locale("id", "ID")).getFromLocation(location.getLatitude(), location.getLongitude(), 1);
+                List<Address> list = new Geocoder(this, new Locale("id", "ID"))
+                        .getFromLocation(location.getLatitude(), location.getLongitude(), 1);
                 if (list != null && !list.isEmpty()) {
                     Address address = list.get(0);
-                    result = first(address.getSubLocality(), address.getLocality(), address.getSubAdminArea(), "Lokasi saya");
+                    result = first(address.getSubLocality(), address.getLocality(),
+                            address.getSubAdminArea(), "Lokasi saya");
                 }
-                new SessionManager(this).saveLastLocation(String.valueOf(location.getLatitude()), String.valueOf(location.getLongitude()));
+                new SessionManager(this).saveLastLocation(
+                        String.valueOf(location.getLatitude()),
+                        String.valueOf(location.getLongitude()));
             } catch (Exception ignored) {}
             String finalResult = result;
-            runOnUiThread(() -> verificationStatusText.setText(finalResult));
+            runOnUiThread(() -> locationText.setText(finalResult));
         }).start();
     }
 
-    @Override public void showLoading(boolean visible) { if (loading != null) loading.setVisibility(visible ? View.VISIBLE : View.GONE); }
-    @Override public void showDashboard(DashboardState state) { balanceText.setText(rupiah(state.balance)); orderText.setText(state.activeOrderText); renderPromos(state.promos); }
-    @Override public void showError(String message) { Toast.makeText(this, message, Toast.LENGTH_SHORT).show(); }
+    @Override public void showLoading(boolean visible) {
+        if (loading != null) loading.setVisibility(visible ? View.VISIBLE : View.GONE);
+    }
+
+    @Override public void showDashboard(DashboardState state) {
+        balanceText.setText(rupiah(state.balance));
+        orderText.setText(state.activeOrderText);
+        renderPromos(state.promos);
+    }
+
+    @Override public void showError(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+    }
 
     private TextView text(String value, int sp, String color, boolean bold) {
         TextView view = new TextView(this);
@@ -641,13 +618,22 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         return view;
     }
 
-    private int drawable(String name) { return getResources().getIdentifier(name, "drawable", getPackageName()); }
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
-    private String rupiah(double amount) { return NumberFormat.getCurrencyInstance(new Locale("id", "ID")).format(amount); }
+    private int drawable(String name) {
+        return getResources().getIdentifier(name, "drawable", getPackageName());
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private String rupiah(double amount) {
+        return NumberFormat.getCurrencyInstance(new Locale("id", "ID")).format(amount);
+    }
 
     private String first(String... values) {
         for (String value : values) {
-            if (value != null && !value.trim().isEmpty() && !"null".equalsIgnoreCase(value.trim())) return value.trim();
+            if (value != null && !value.trim().isEmpty()
+                    && !"null".equalsIgnoreCase(value.trim())) return value.trim();
         }
         return "";
     }
@@ -655,7 +641,8 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_LOCATION && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) loadLocation();
-        else if (requestCode == REQ_LOCATION) verificationStatusText.setText("Izin ditolak");
+        if (requestCode == REQ_LOCATION && grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) loadLocation();
+        else if (requestCode == REQ_LOCATION) locationText.setText("Izin ditolak");
     }
 }
