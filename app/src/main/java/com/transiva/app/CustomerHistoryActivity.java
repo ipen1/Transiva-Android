@@ -2282,6 +2282,8 @@ public class CustomerHistoryActivity extends Activity {
     ) {
         return status.contains("completed")
                 || status.contains("complete")
+                || status.contains("finished")
+                || status.equals("finish")
                 || status.contains("selesai")
                 || status.contains("delivered")
                 || status.contains("done")
