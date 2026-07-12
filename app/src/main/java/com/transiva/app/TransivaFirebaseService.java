@@ -9,7 +9,6 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.AudioAttributes;
-import android.net.Uri;
 import android.os.Build;
 import android.text.TextUtils;
 
@@ -20,6 +19,8 @@ import androidx.core.content.ContextCompat;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
+import org.json.JSONObject;
+
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -28,14 +29,21 @@ import java.util.Map;
 
 public class TransivaFirebaseService extends FirebaseMessagingService {
 
-    public static final String BASE_URL = "https://transiva.my.id/server/";
+    public static final String BASE_URL =
+            "https://transiva.my.id/server/";
 
-    private static final String CH_ORDER = "transiva_order_channel";
-    private static final String CH_WALLET = "transiva_wallet_channel";
-    private static final String CH_CHAT = "transiva_chat_channel";
-    private static final String CH_PROMO = "transiva_promo_channel";
-    private static final String CH_BROADCAST = "transiva_broadcast_channel";
-    private static final String CH_GENERAL = "transiva_general_channel";
+    private static final String CH_ORDER =
+            "transiva_order_channel";
+    private static final String CH_WALLET =
+            "transiva_wallet_channel";
+    private static final String CH_CHAT =
+            "transiva_chat_channel";
+    private static final String CH_PROMO =
+            "transiva_promo_channel";
+    private static final String CH_BROADCAST =
+            "transiva_broadcast_channel";
+    private static final String CH_GENERAL =
+            "transiva_general_channel";
 
     @Override
     public void onCreate() {
@@ -46,241 +54,719 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
     @Override
     public void onNewToken(String token) {
         super.onNewToken(token);
-        saveTokenLocal(token);
-        sendTokenToServer(token);
+
+        String cleanToken = safe(token);
+
+        if (cleanToken.isEmpty()) {
+            return;
+        }
+
+        saveTokenLocal(cleanToken);
+        sendTokenToServer(cleanToken);
     }
 
     @Override
-    public void onMessageReceived(RemoteMessage remoteMessage) {
+    public void onMessageReceived(
+            RemoteMessage remoteMessage
+    ) {
         super.onMessageReceived(remoteMessage);
         createChannels();
 
-        Map<String, String> data = remoteMessage.getData();
+        Map<String, String> data =
+                remoteMessage.getData();
+
         if (data == null || data.isEmpty()) {
-            String title = remoteMessage.getNotification() != null ? remoteMessage.getNotification().getTitle() : "Transiva";
-            String body = remoteMessage.getNotification() != null ? remoteMessage.getNotification().getBody() : "Notifikasi baru";
-            showNotification("general", title, body, null, null, null, data);
+            String title =
+                    remoteMessage.getNotification() != null
+                            ? remoteMessage
+                                    .getNotification()
+                                    .getTitle()
+                            : "Transiva";
+
+            String body =
+                    remoteMessage.getNotification() != null
+                            ? remoteMessage
+                                    .getNotification()
+                                    .getBody()
+                            : "Notifikasi baru";
+
+            showNotification(
+                    "general",
+                    first(title, "Transiva"),
+                    first(body, "Notifikasi baru"),
+                    "",
+                    "",
+                    "",
+                    data
+            );
             return;
         }
 
-        String type = first(data.get("type"), data.get("notif_type"), data.get("category"), "general").toLowerCase();
-        String title = first(data.get("title"), "Transiva");
-        String body = first(data.get("body"), data.get("message"), "Notifikasi baru");
-        String orderId = first(data.get("order_id"), data.get("id_order"), data.get("orderId"), "");
-        String roomId = first(data.get("room_id"), data.get("chat_room"), "");
-        String url = first(data.get("url"), data.get("link"), "");
+        String type = first(
+                data.get("type"),
+                data.get("notif_type"),
+                data.get("category"),
+                "general"
+        ).toLowerCase();
 
-        showNotification(type, title, body, orderId, roomId, url, data);
-    }
-
-    private void showNotification(String type, String title, String body, String orderId, String roomId, String url, Map<String, String> data) {
-        String channelId = channelForType(type);
-        Intent intent = buildOpenIntent(type, orderId, roomId, url, data);
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-
-        int requestCode = Math.abs((type + "|" + first(orderId, "") + "|" + first(roomId, "") + "|" + System.currentTimeMillis()).hashCode());
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-                this,
-                requestCode,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        String title = first(
+                data.get("title"),
+                "Transiva"
         );
 
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, channelId)
-                .setSmallIcon(getSmallIcon())
-                .setContentTitle(title)
-                .setContentText(body)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
-                .setAutoCancel(true)
-                .setContentIntent(pendingIntent)
-                .setPriority(priorityForType(type))
-                .setCategory(categoryForType(type))
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setDefaults(NotificationCompat.DEFAULT_SOUND | NotificationCompat.DEFAULT_VIBRATE | NotificationCompat.DEFAULT_LIGHTS);
+        String body = first(
+                data.get("body"),
+                data.get("message"),
+                "Notifikasi baru"
+        );
 
-        if (isOrder(type)) {
-            builder.setOngoing(false);
-        }
+        String orderId = first(
+                data.get("order_id"),
+                data.get("id_order"),
+                data.get("orderId"),
+                ""
+        );
 
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        String roomId = first(
+                data.get("room_id"),
+                data.get("chat_room"),
+                ""
+        );
+
+        String url = first(
+                data.get("url"),
+                data.get("link"),
+                ""
+        );
+
+        showNotification(
+                type,
+                title,
+                body,
+                orderId,
+                roomId,
+                url,
+                data
+        );
+    }
+
+    private void showNotification(
+            String type,
+            String title,
+            String body,
+            String orderId,
+            String roomId,
+            String url,
+            Map<String, String> data
+    ) {
+        String channelId = channelForType(type);
+
+        Intent intent = buildOpenIntent(
+                type,
+                orderId,
+                roomId,
+                url,
+                data
+        );
+
+        intent.addFlags(
+                Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
+        );
+
+        int requestCode = Math.abs(
+                (
+                        type
+                                + "|"
+                                + first(orderId, "")
+                                + "|"
+                                + first(roomId, "")
+                                + "|"
+                                + System.currentTimeMillis()
+                ).hashCode()
+        );
+
+        PendingIntent pendingIntent =
+                PendingIntent.getActivity(
+                        this,
+                        requestCode,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT
+                                | PendingIntent.FLAG_IMMUTABLE
+                );
+
+        NotificationCompat.Builder builder =
+                new NotificationCompat.Builder(
+                        this,
+                        channelId
+                )
+                        .setSmallIcon(getSmallIcon())
+                        .setContentTitle(first(title, "Transiva"))
+                        .setContentText(
+                                first(body, "Notifikasi baru")
+                        )
+                        .setStyle(
+                                new NotificationCompat.BigTextStyle()
+                                        .bigText(
+                                                first(
+                                                        body,
+                                                        "Notifikasi baru"
+                                                )
+                                        )
+                        )
+                        .setAutoCancel(true)
+                        .setContentIntent(pendingIntent)
+                        .setPriority(priorityForType(type))
+                        .setCategory(categoryForType(type))
+                        .setVisibility(
+                                NotificationCompat.VISIBILITY_PUBLIC
+                        )
+                        .setDefaults(
+                                NotificationCompat.DEFAULT_SOUND
+                                        | NotificationCompat.DEFAULT_VIBRATE
+                                        | NotificationCompat.DEFAULT_LIGHTS
+                        );
+
+        if (
+                Build.VERSION.SDK_INT >= 33
+                        && ContextCompat.checkSelfPermission(
+                                this,
+                                Manifest.permission.POST_NOTIFICATIONS
+                        ) != PackageManager.PERMISSION_GRANTED
+        ) {
             return;
         }
 
-        NotificationManagerCompat.from(this).notify(requestCode, builder.build());
+        NotificationManagerCompat
+                .from(this)
+                .notify(requestCode, builder.build());
     }
 
-    private Intent buildOpenIntent(String type, String orderId, String roomId, String url, Map<String, String> data) {
-        Intent intent;
-        String screen = data != null ? first(data.get("screen"), "") : "";
-        String targetRole = data != null ? first(data.get("target_role"), data.get("role"), "") : "";
-        String senderType = data != null ? first(data.get("sender_type"), "") : "";
+    private Intent buildOpenIntent(
+            String type,
+            String orderId,
+            String roomId,
+            String url,
+            Map<String, String> data
+    ) {
+        String screen =
+                data != null
+                        ? first(data.get("screen"), "")
+                        : "";
+
+        String targetRole =
+                data != null
+                        ? first(
+                                data.get("target_role"),
+                                data.get("role"),
+                                ""
+                        )
+                        : "";
+
+        String senderType =
+                data != null
+                        ? first(data.get("sender_type"), "")
+                        : "";
 
         if (isChat(type)) {
-            boolean openDriverChat = "driver".equalsIgnoreCase(targetRole) || "customer".equalsIgnoreCase(senderType);
-            intent = new Intent(this, openDriverChat ? DriverChatActivity.class : CustomerChatActivity.class);
-            intent.putExtra("room_id", first(roomId, orderId));
+            boolean driver =
+                    "driver".equalsIgnoreCase(targetRole)
+                            || "customer".equalsIgnoreCase(
+                                    senderType
+                            );
+
+            Intent intent = new Intent(
+                    this,
+                    driver
+                            ? DriverChatActivity.class
+                            : CustomerChatActivity.class
+            );
+
+            intent.putExtra(
+                    "room_id",
+                    first(roomId, orderId)
+            );
             intent.putExtra("order_id", orderId);
             intent.putExtra("from_fcm", true);
             return intent;
         }
 
-        if (isOrder(type) || "driver_order".equalsIgnoreCase(screen)) {
-            boolean driverScreen = "driver".equalsIgnoreCase(targetRole) || "driver_order".equalsIgnoreCase(screen) || "driver_accept".equalsIgnoreCase(first(data != null ? data.get("action_accept") : "", ""));
-            intent = new Intent(this, driverScreen ? DriverDashboardActivity.class : CustomerTripActivity.class);
+        if (
+                isOrder(type)
+                        || "driver_order".equalsIgnoreCase(screen)
+        ) {
+            boolean driverScreen =
+                    "driver".equalsIgnoreCase(targetRole)
+                            || "driver_order".equalsIgnoreCase(
+                                    screen
+                            );
+
+            Intent intent = new Intent(
+                    this,
+                    driverScreen
+                            ? DriverDashboardActivity.class
+                            : CustomerTripActivity.class
+            );
+
             intent.putExtra("order_id", orderId);
             intent.putExtra("from_fcm", true);
             return intent;
         }
 
         if (isWallet(type)) {
-            boolean driverWallet = "driver".equalsIgnoreCase(targetRole) || type.contains("driver") || type.contains("withdraw");
-            intent = new Intent(this, driverWallet ? DriverTopUpActivity.class : CustomerTopUpActivity.class);
+            boolean driverWallet =
+                    "driver".equalsIgnoreCase(targetRole)
+                            || type.contains("driver")
+                            || type.contains("withdraw");
+
+            Intent intent = new Intent(
+                    this,
+                    driverWallet
+                            ? DriverTopUpActivity.class
+                            : CustomerTopUpActivity.class
+            );
+
             intent.putExtra("from_fcm", true);
             return intent;
         }
 
-        if (!TextUtils.isEmpty(url) && (url.startsWith("http://") || url.startsWith("https://"))) {
-            intent = new Intent(this, MainActivity.class);
+        // Promo customer langsung membuka dashboard customer.
+        if (
+                type.contains("promo")
+                        || "customer_dashboard".equalsIgnoreCase(
+                                screen
+                        )
+        ) {
+            Intent intent = new Intent(
+                    this,
+                    CustomerDashboardActivity.class
+            );
+
+            intent.putExtra("from_fcm", true);
+            intent.putExtra("notif_type", type);
+            intent.putExtra(
+                    "promo_id",
+                    data != null
+                            ? first(data.get("promo_id"), "")
+                            : ""
+            );
+            return intent;
+        }
+
+        if (
+                !TextUtils.isEmpty(url)
+                        && (
+                        url.startsWith("http://")
+                                || url.startsWith("https://")
+                )
+        ) {
+            Intent intent =
+                    new Intent(this, MainActivity.class);
+
             intent.putExtra("url", url);
             intent.putExtra("from_fcm", true);
             return intent;
         }
 
-        intent = new Intent(this, NativeHomeActivity.class);
+        Intent intent =
+                new Intent(this, NativeHomeActivity.class);
+
         intent.putExtra("from_fcm", true);
         intent.putExtra("notif_type", type);
         return intent;
     }
 
     private void createChannels() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
 
-        createChannel(CH_ORDER, "Order Transiva", "Notifikasi order baru dan status order", NotificationManager.IMPORTANCE_HIGH);
-        createChannel(CH_WALLET, "Financial Transiva", "Deposit, saldo, dan penarikan", NotificationManager.IMPORTANCE_HIGH);
-        createChannel(CH_CHAT, "Chat Transiva", "Pesan customer dan driver", NotificationManager.IMPORTANCE_HIGH);
-        createChannel(CH_PROMO, "Promo Transiva", "Promo dan penawaran", NotificationManager.IMPORTANCE_DEFAULT);
-        createChannel(CH_BROADCAST, "Broadcast Admin", "Pengumuman admin Transiva", NotificationManager.IMPORTANCE_HIGH);
-        createChannel(CH_GENERAL, "Transiva", "Notifikasi umum", NotificationManager.IMPORTANCE_DEFAULT);
+        createChannel(
+                CH_ORDER,
+                "Order Transiva",
+                "Order baru dan pembaruan status",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+
+        createChannel(
+                CH_WALLET,
+                "Financial Transiva",
+                "Saldo, deposit, dan penarikan",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+
+        createChannel(
+                CH_CHAT,
+                "Chat Transiva",
+                "Pesan customer dan driver",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+
+        createChannel(
+                CH_PROMO,
+                "Promo Transiva",
+                "Promo dan penawaran Transiva",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+
+        createChannel(
+                CH_BROADCAST,
+                "Broadcast Admin",
+                "Pengumuman admin Transiva",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+
+        createChannel(
+                CH_GENERAL,
+                "Transiva",
+                "Notifikasi umum",
+                NotificationManager.IMPORTANCE_DEFAULT
+        );
     }
 
-    private void createChannel(String id, String name, String desc, int importance) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm == null || nm.getNotificationChannel(id) != null) return;
+    private void createChannel(
+            String id,
+            String name,
+            String description,
+            int importance
+    ) {
+        if (Build.VERSION.SDK_INT < 26) {
+            return;
+        }
 
-        NotificationChannel channel = new NotificationChannel(id, name, importance);
-        channel.setDescription(desc);
+        NotificationManager manager =
+                (NotificationManager)
+                        getSystemService(
+                                Context.NOTIFICATION_SERVICE
+                        );
+
+        if (manager == null) {
+            return;
+        }
+
+        NotificationChannel existing =
+                manager.getNotificationChannel(id);
+
+        if (existing != null) {
+            // Importance channel tidak bisa dinaikkan setelah dibuat.
+            // Hapus channel promo lama agar dibuat ulang HIGH.
+            if (
+                    CH_PROMO.equals(id)
+                            && existing.getImportance()
+                            < NotificationManager.IMPORTANCE_HIGH
+            ) {
+                manager.deleteNotificationChannel(id);
+            } else {
+                return;
+            }
+        }
+
+        NotificationChannel channel =
+                new NotificationChannel(
+                        id,
+                        name,
+                        importance
+                );
+
+        channel.setDescription(description);
         channel.enableVibration(true);
         channel.enableLights(true);
-        channel.setSound(android.provider.Settings.System.DEFAULT_NOTIFICATION_URI,
+
+        channel.setSound(
+                android.provider.Settings
+                        .System
+                        .DEFAULT_NOTIFICATION_URI,
                 new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build());
-        nm.createNotificationChannel(channel);
+                        .setUsage(
+                                AudioAttributes.USAGE_NOTIFICATION
+                        )
+                        .setContentType(
+                                AudioAttributes
+                                        .CONTENT_TYPE_SONIFICATION
+                        )
+                        .build()
+        );
+
+        manager.createNotificationChannel(channel);
     }
 
     private String channelForType(String type) {
         type = first(type, "general").toLowerCase();
-        if (isChat(type)) return CH_CHAT;
-        if (isWallet(type)) return CH_WALLET;
-        if (isOrder(type)) return CH_ORDER;
-        if (type.contains("promo")) return CH_PROMO;
-        if (type.contains("broadcast") || type.contains("admin")) return CH_BROADCAST;
+
+        if (isChat(type)) {
+            return CH_CHAT;
+        }
+
+        if (isWallet(type)) {
+            return CH_WALLET;
+        }
+
+        if (isOrder(type)) {
+            return CH_ORDER;
+        }
+
+        if (type.contains("promo")) {
+            return CH_PROMO;
+        }
+
+        if (
+                type.contains("broadcast")
+                        || type.contains("admin")
+        ) {
+            return CH_BROADCAST;
+        }
+
         return CH_GENERAL;
     }
 
     private int priorityForType(String type) {
         type = first(type, "").toLowerCase();
-        if (isChat(type) || isOrder(type) || isWallet(type) || type.contains("broadcast")) {
+
+        if (
+                isChat(type)
+                        || isOrder(type)
+                        || isWallet(type)
+                        || type.contains("broadcast")
+                        || type.contains("promo")
+        ) {
             return NotificationCompat.PRIORITY_HIGH;
         }
+
         return NotificationCompat.PRIORITY_DEFAULT;
     }
 
     private String categoryForType(String type) {
         type = first(type, "").toLowerCase();
-        if (isChat(type)) return NotificationCompat.CATEGORY_MESSAGE;
-        if (isOrder(type)) return NotificationCompat.CATEGORY_STATUS;
-        if (isWallet(type)) return NotificationCompat.CATEGORY_STATUS;
-        if (type.contains("promo")) return NotificationCompat.CATEGORY_PROMO;
+
+        if (isChat(type)) {
+            return NotificationCompat.CATEGORY_MESSAGE;
+        }
+
+        if (isOrder(type) || isWallet(type)) {
+            return NotificationCompat.CATEGORY_STATUS;
+        }
+
+        if (type.contains("promo")) {
+            return NotificationCompat.CATEGORY_PROMO;
+        }
+
         return NotificationCompat.CATEGORY_MESSAGE;
     }
 
     private boolean isChat(String type) {
         type = first(type, "").toLowerCase();
-        return type.contains("chat") || type.contains("message");
+
+        return type.contains("chat")
+                || type.contains("message");
     }
 
     private boolean isOrder(String type) {
         type = first(type, "").toLowerCase();
-        return type.contains("order") || type.contains("ride") || type.contains("food") || type.contains("pickup") || type.contains("wisata") || type.contains("merchant");
+
+        return type.contains("order")
+                || type.contains("ride")
+                || type.contains("food")
+                || type.contains("pickup")
+                || type.contains("wisata")
+                || type.contains("merchant");
     }
 
     private boolean isWallet(String type) {
         type = first(type, "").toLowerCase();
-        return type.contains("wallet") || type.contains("financial") || type.contains("deposit") || type.contains("withdraw") || type.contains("saldo") || type.contains("balance");
+
+        return type.contains("wallet")
+                || type.contains("financial")
+                || type.contains("deposit")
+                || type.contains("withdraw")
+                || type.contains("saldo")
+                || type.contains("balance");
     }
 
     private int getSmallIcon() {
         try {
             return getApplicationInfo().icon;
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             return android.R.drawable.ic_dialog_info;
         }
     }
 
     private void saveTokenLocal(String token) {
-        getSharedPreferences("transiva_fcm", MODE_PRIVATE).edit().putString("fcm_token", token).apply();
+        String cleanToken = safe(token);
+
+        getSharedPreferences(
+                "transiva_fcm",
+                MODE_PRIVATE
+        )
+                .edit()
+                .putString("fcm_token", cleanToken)
+                .putLong(
+                        "fcm_token_saved_at",
+                        System.currentTimeMillis()
+                )
+                .apply();
+
+        getSharedPreferences(
+                "transiva_native_session",
+                MODE_PRIVATE
+        )
+                .edit()
+                .putString("fcm_token", cleanToken)
+                .putLong(
+                        "fcm_token_saved_at",
+                        System.currentTimeMillis()
+                )
+                .apply();
     }
 
     private void sendTokenToServer(String token) {
         new Thread(() -> {
+            HttpURLConnection connection = null;
+
             try {
-                SharedPreferences sp1 = getSharedPreferences("transiva_session", MODE_PRIVATE);
-                SharedPreferences sp2 = getSharedPreferences("TransivaSession", MODE_PRIVATE);
-                SharedPreferences sp3 = getSharedPreferences("user_session", MODE_PRIVATE);
+                SharedPreferences session =
+                        getSharedPreferences(
+                                "transiva_native_session",
+                                MODE_PRIVATE
+                        );
 
-                String userId = first(sp1.getString("user_id", ""), sp2.getString("user_id", ""), sp3.getString("user_id", ""), sp1.getString("id", ""), sp2.getString("id", ""), sp3.getString("id", ""));
-                String username = first(sp1.getString("username", ""), sp2.getString("username", ""), sp3.getString("username", ""));
+                SharedPreferences fcm =
+                        getSharedPreferences(
+                                "transiva_fcm",
+                                MODE_PRIVATE
+                        );
 
-                String json = "{"
-                        + "\"token\":" + quote(token) + ","
-                        + "\"fcm_token\":" + quote(token) + ","
-                        + "\"user_id\":" + quote(userId) + ","
-                        + "\"username\":" + quote(username)
-                        + "}";
+                JSONObject rawUser = new JSONObject(
+                        session.getString(
+                                "raw_user",
+                                "{}"
+                        )
+                );
 
-                URL url = new URL(BASE_URL + "save_fcm_token.php");
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setConnectTimeout(12000);
-                conn.setReadTimeout(12000);
-                conn.setDoOutput(true);
-                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                try (OutputStream os = conn.getOutputStream()) {
-                    os.write(json.getBytes(StandardCharsets.UTF_8));
+                String userId = first(
+                        session.getString("user_id", ""),
+                        session.getString("id", ""),
+                        rawUser.optString("user_id", ""),
+                        rawUser.optString("id", ""),
+                        String.valueOf(
+                                fcm.getInt("user_id", 0)
+                        )
+                );
+
+                if ("0".equals(userId)) {
+                    userId = "";
                 }
-                conn.getResponseCode();
-                conn.disconnect();
+
+                String username = first(
+                        session.getString("username", ""),
+                        rawUser.optString("username", ""),
+                        fcm.getString("username", "")
+                );
+
+                String role = first(
+                        session.getString("role", ""),
+                        rawUser.optString("role", ""),
+                        fcm.getString("role", ""),
+                        "customer"
+                );
+
+                // Token boleh disimpan lokal saat logout,
+                // tetapi jangan upload tanpa identitas.
+                if (
+                        userId.isEmpty()
+                                && username.isEmpty()
+                ) {
+                    return;
+                }
+
+                JSONObject payload = new JSONObject();
+                payload.put("token", token);
+                payload.put("fcm_token", token);
+                payload.put("user_id", userId);
+                payload.put("id", userId);
+                payload.put("username", username);
+                payload.put("role", role);
+                payload.put(
+                        "platform",
+                        "android_native"
+                );
+
+                URL url = new URL(
+                        BASE_URL + "save_fcm_token.php"
+                );
+
+                connection =
+                        (HttpURLConnection)
+                                url.openConnection();
+
+                connection.setRequestMethod("POST");
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(15000);
+                connection.setDoOutput(true);
+                connection.setUseCaches(false);
+                connection.setRequestProperty(
+                        "Content-Type",
+                        "application/json; charset=UTF-8"
+                );
+                connection.setRequestProperty(
+                        "Accept",
+                        "application/json"
+                );
+
+                try (
+                        OutputStream output =
+                                connection.getOutputStream()
+                ) {
+                    output.write(
+                            payload
+                                    .toString()
+                                    .getBytes(
+                                            StandardCharsets.UTF_8
+                                    )
+                    );
+                }
+
+                connection.getResponseCode();
+
             } catch (Exception ignored) {
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
             }
         }).start();
     }
 
-    private String quote(String s) {
-        if (s == null) s = "";
-        return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\"";
+    private String safe(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        value = value.trim();
+
+        if (
+                value.isEmpty()
+                        || "null".equalsIgnoreCase(value)
+                        || "undefined".equalsIgnoreCase(value)
+        ) {
+            return "";
+        }
+
+        return value;
     }
 
     private String first(String... values) {
-        if (values == null) return "";
-        for (String v : values) {
-            if (v != null) {
-                v = v.trim();
-                if (!v.isEmpty() && !"null".equalsIgnoreCase(v) && !"undefined".equalsIgnoreCase(v)) return v;
+        if (values == null) {
+            return "";
+        }
+
+        for (String value : values) {
+            value = safe(value);
+
+            if (!value.isEmpty()) {
+                return value;
             }
         }
+
         return "";
     }
 }
