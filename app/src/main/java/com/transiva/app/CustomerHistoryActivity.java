@@ -3,7 +3,6 @@ package com.transiva.app;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -11,14 +10,21 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -28,463 +34,2864 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 public class CustomerHistoryActivity extends Activity {
 
-    private static final String BASE_URL = "https://transiva.my.id/";
-    private static final String PREF_NAME = "transiva";
+    private static final String BASE_URL =
+            "https://transiva.my.id/";
+
     private static final int TIMEOUT_MS = 20000;
 
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private FrameLayout page;
-    private LinearLayout root;
-    private LinearLayout listBox;
-    private ProgressBar progressBar;
+    private static final String TAB_ACTIVE = "active";
+    private static final String TAB_HISTORY = "history";
 
-    private int userId = 0;
+    private final Handler mainHandler =
+            new Handler(Looper.getMainLooper());
+
+    private final List<JSONObject> allOrders =
+            new ArrayList<>();
+
+    private FrameLayout page;
+    private LinearLayout content;
+    private LinearLayout listBox;
+    private LinearLayout serviceChipRow;
+    private LinearLayout tabRow;
+    private ProgressBar progressBar;
+    private EditText searchInput;
+    private TextView summaryTotal;
+    private TextView summaryActive;
+    private TextView summaryDone;
+    private TextView summarySpent;
+
+    private int userId;
     private String username = "User";
-    private String filter = "all";
-    private final List<JSONObject> orders = new ArrayList<>();
+
+    private String selectedTab = TAB_ACTIVE;
+    private String selectedService = "all";
+    private String searchQuery = "";
+    private boolean loading;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        try {
-            getWindow().setStatusBarColor(Color.WHITE);
-            getWindow().setNavigationBarColor(Color.WHITE);
-            if (android.os.Build.VERSION.SDK_INT >= 23) {
-                getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
-            }
-        } catch (Exception ignored) {}
+
+        getWindow().setStatusBarColor(
+                Color.parseColor("#0B7CFF")
+        );
+
+        getWindow().setNavigationBarColor(
+                Color.parseColor("#071426")
+        );
 
         loadSession();
-        buildBase();
-        renderPage();
+        setContentView(buildScreen());
         loadHistory();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (!loading && listBox != null) {
+            loadHistory();
+        }
     }
 
     private void loadSession() {
         try {
-            SessionManager session = new SessionManager(this);
-            if (session.isLoggedIn()) {
-                username = firstNonEmpty(session.getUsername(), session.getName(), "User");
-                try { userId = Integer.parseInt(firstNonEmpty(session.getId(), session.getUserId(), "0")); } catch (Exception ignored) {}
-                return;
-            }
-        } catch (Exception ignored) {}
+            SessionManager session =
+                    new SessionManager(this);
 
-        try {
-            SharedPreferences sp = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-            username = firstNonEmpty(sp.getString("username", ""), sp.getString("player_username", ""), "User");
-            userId = sp.getInt("id", sp.getInt("user_id", 0));
-        } catch (Exception ignored) {}
+            username = first(
+                    session.getUsername(),
+                    session.getName(),
+                    "User"
+            );
+
+            try {
+                userId = Integer.parseInt(
+                        first(
+                                session.getId(),
+                                session.getUserId(),
+                                "0"
+                        )
+                );
+            } catch (Exception ignored) {
+                userId = 0;
+            }
+
+        } catch (Exception ignored) {
+            username = "User";
+            userId = 0;
+        }
     }
 
-    private void buildBase() {
+    private View buildScreen() {
         page = new FrameLayout(this);
-        page.setBackgroundColor(Color.parseColor("#F7FAFF"));
+
+        page.setBackgroundColor(
+                Color.parseColor("#F6F9FE")
+        );
+
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+
+        page.addView(
+                shell,
+                new FrameLayout.LayoutParams(-1, -1)
+        );
 
         ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
-        page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
 
-        root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(18), dp(16), dp(28));
-        scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
+        shell.addView(
+                scroll,
+                new LinearLayout.LayoutParams(-1, 0, 1)
+        );
 
-        progressBar = new ProgressBar(this);
-        progressBar.setVisibility(View.GONE);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(52), dp(52));
-        lp.gravity = Gravity.CENTER;
-        page.addView(progressBar, lp);
+        content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(
+                dp(14),
+                dp(14),
+                dp(14),
+                dp(24)
+        );
 
-        setContentView(page);
-    }
+        scroll.addView(
+                content,
+                new ScrollView.LayoutParams(-1, -2)
+        );
 
-    private void renderPage() {
-        root.removeAllViews();
-        buildTopBar();
-        buildSummaryCard();
-        buildFilterTabs();
+        buildHeader();
+        buildSummary();
+        buildTabs();
+        buildSearch();
+        buildServiceFilters();
 
         listBox = new LinearLayout(this);
         listBox.setOrientation(LinearLayout.VERTICAL);
-        root.addView(listBox, new LinearLayout.LayoutParams(-1, -2));
-        renderList();
+
+        LinearLayout.LayoutParams listLp =
+                new LinearLayout.LayoutParams(-1, -2);
+
+        listLp.setMargins(
+                0,
+                dp(12),
+                0,
+                0
+        );
+
+        content.addView(listBox, listLp);
+
+        shell.addView(
+                buildBottomNavigation(),
+                new LinearLayout.LayoutParams(-1, dp(66))
+        );
+
+        progressBar = new ProgressBar(this);
+        progressBar.setVisibility(View.GONE);
+
+        FrameLayout.LayoutParams progressLp =
+                new FrameLayout.LayoutParams(
+                        dp(44),
+                        dp(44)
+                );
+
+        progressLp.gravity = Gravity.CENTER;
+
+        page.addView(progressBar, progressLp);
+
+        renderOrders();
+
+        return page;
     }
 
-    private void buildTopBar() {
+    private void buildHeader() {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, 0, 0, dp(16));
 
-        TextView back = text("‹", 34, "#0B3A78", true);
-        back.setGravity(Gravity.CENTER);
-        back.setBackground(round("#FFFFFF", dp(18)));
-        back.setOnClickListener(v -> finish());
-        row.addView(back, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        TextView title = text(
+                "Aktivitas",
+                24,
+                "#0B3A78",
+                true
+        );
 
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dp(12), 0, 0, 0);
-        col.addView(text("Riwayat Customer", 23, "#0B3A78", true));
-        col.addView(text("Semua pesanan dan transaksi layanan Transiva", 12, "#64748B", false));
-        row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout titleBox =
+                new LinearLayout(this);
 
-        Button refresh = smallButton("↻", "#FFFFFF", "#0B7CFF");
-        refresh.setOnClickListener(v -> loadHistory());
-        row.addView(refresh, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        titleBox.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        titleBox.addView(title);
+
+        titleBox.addView(
+                text(
+                        "Pantau semua pesanan Transiva",
+                        11,
+                        "#718096",
+                        false
+                )
+        );
+
+        row.addView(
+                titleBox,
+                new LinearLayout.LayoutParams(
+                        0,
+                        -2,
+                        1
+                )
+        );
+
+        TextView refresh = text(
+                "↻",
+                25,
+                "#0B7CFF",
+                true
+        );
+
+        refresh.setGravity(Gravity.CENTER);
+        refresh.setBackground(
+                roundStroke(
+                        "#FFFFFF",
+                        "#DCE8F6",
+                        16,
+                        1
+                )
+        );
+
+        refresh.setOnClickListener(
+                view -> loadHistory()
+        );
+
+        row.addView(
+                refresh,
+                new LinearLayout.LayoutParams(
+                        dp(44),
+                        dp(44)
+                )
+        );
+
+        content.addView(row);
     }
 
-    private void buildSummaryCard() {
-        LinearLayout card = card();
-        card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        card.setBackground(roundGradient("#FFFFFF", "#EEF7FF", dp(22)));
-        card.addView(text("Halo, " + username, 17, "#0B3A78", true));
-        TextView sub = text("Pantau riwayat order selesai, dibatalkan, atau masih aktif dari satu halaman native.", 12, "#64748B", false);
-        sub.setPadding(0, dp(6), 0, 0);
-        card.addView(sub);
-        addWithMargin(card, 0, 0, 0, dp(14));
+    private void buildSummary() {
+        LinearLayout card =
+                new LinearLayout(this);
+
+        card.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        card.setPadding(
+                dp(15),
+                dp(14),
+                dp(15),
+                dp(14)
+        );
+
+        card.setBackground(
+                gradient(
+                        "#0868F5",
+                        "#23A7FF",
+                        20
+                )
+        );
+
+        card.setElevation(dp(3));
+
+        LinearLayout.LayoutParams cardLp =
+                new LinearLayout.LayoutParams(-1, -2);
+
+        cardLp.setMargins(
+                0,
+                dp(14),
+                0,
+                dp(14)
+        );
+
+        content.addView(card, cardLp);
+
+        card.addView(
+                text(
+                        "Ringkasan aktivitas",
+                        13,
+                        "#EAF5FF",
+                        true
+                )
+        );
+
+        TextView greeting = text(
+                "Halo, " + username,
+                19,
+                "#FFFFFF",
+                true
+        );
+
+        LinearLayout.LayoutParams greetingLp =
+                new LinearLayout.LayoutParams(-1, -2);
+
+        greetingLp.setMargins(
+                0,
+                dp(2),
+                0,
+                dp(12)
+        );
+
+        card.addView(greeting, greetingLp);
+
+        LinearLayout stats =
+                new LinearLayout(this);
+
+        stats.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        summaryTotal = summaryMetric(
+                stats,
+                "0",
+                "Total"
+        );
+
+        summaryActive = summaryMetric(
+                stats,
+                "0",
+                "Berjalan"
+        );
+
+        summaryDone = summaryMetric(
+                stats,
+                "0",
+                "Selesai"
+        );
+
+        summarySpent = summaryMetric(
+                stats,
+                "Rp0",
+                "Pengeluaran"
+        );
+
+        card.addView(stats);
     }
 
-    private void buildFilterTabs() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setPadding(0, 0, 0, dp(14));
+    private TextView summaryMetric(
+            LinearLayout parent,
+            String value,
+            String label
+    ) {
+        LinearLayout item =
+                new LinearLayout(this);
 
-        Button all = filterButton("Semua", "all".equals(filter));
-        Button active = filterButton("Aktif", "active".equals(filter));
-        Button done = filterButton("Selesai", "done".equals(filter));
-        Button cancel = filterButton("Batal", "cancel".equals(filter));
+        item.setOrientation(
+                LinearLayout.VERTICAL
+        );
 
-        all.setOnClickListener(v -> { filter = "all"; renderPage(); });
-        active.setOnClickListener(v -> { filter = "active"; renderPage(); });
-        done.setOnClickListener(v -> { filter = "done"; renderPage(); });
-        cancel.setOnClickListener(v -> { filter = "cancel"; renderPage(); });
+        item.setGravity(Gravity.CENTER);
 
-        row.addView(all, new LinearLayout.LayoutParams(0, dp(44), 1));
-        addGap(row);
-        row.addView(active, new LinearLayout.LayoutParams(0, dp(44), 1));
-        addGap(row);
-        row.addView(done, new LinearLayout.LayoutParams(0, dp(44), 1));
-        addGap(row);
-        row.addView(cancel, new LinearLayout.LayoutParams(0, dp(44), 1));
-        root.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        TextView number = text(
+                value,
+                15,
+                "#FFFFFF",
+                true
+        );
+
+        number.setGravity(Gravity.CENTER);
+        number.setSingleLine(true);
+
+        TextView caption = text(
+                label,
+                9,
+                "#DDEFFF",
+                false
+        );
+
+        caption.setGravity(Gravity.CENTER);
+
+        item.addView(number);
+        item.addView(caption);
+
+        parent.addView(
+                item,
+                new LinearLayout.LayoutParams(
+                        0,
+                        -2,
+                        1
+                )
+        );
+
+        return number;
     }
 
-    private void renderList() {
-        if (listBox == null) return;
-        listBox.removeAllViews();
+    private void buildTabs() {
+        tabRow = new LinearLayout(this);
+        tabRow.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
 
-        if (orders.isEmpty()) {
-            addStatusTo(listBox, "Riwayat masih kosong atau sedang dimuat...");
+        tabRow.setPadding(
+                dp(4),
+                dp(4),
+                dp(4),
+                dp(4)
+        );
+
+        tabRow.setBackground(
+                round(
+                        "#EAF1FA",
+                        15
+                )
+        );
+
+        content.addView(
+                tabRow,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        dp(48)
+                )
+        );
+
+        rebuildTabs();
+    }
+
+    private void rebuildTabs() {
+        tabRow.removeAllViews();
+
+        Button active = tabButton(
+                "Sedang Berjalan",
+                TAB_ACTIVE.equals(selectedTab)
+        );
+
+        Button history = tabButton(
+                "Riwayat",
+                TAB_HISTORY.equals(selectedTab)
+        );
+
+        active.setOnClickListener(view -> {
+            selectedTab = TAB_ACTIVE;
+            rebuildTabs();
+            renderOrders();
+        });
+
+        history.setOnClickListener(view -> {
+            selectedTab = TAB_HISTORY;
+            rebuildTabs();
+            renderOrders();
+        });
+
+        tabRow.addView(
+                active,
+                new LinearLayout.LayoutParams(
+                        0,
+                        -1,
+                        1
+                )
+        );
+
+        LinearLayout.LayoutParams historyLp =
+                new LinearLayout.LayoutParams(
+                        0,
+                        -1,
+                        1
+                );
+
+        historyLp.setMargins(
+                dp(4),
+                0,
+                0,
+                0
+        );
+
+        tabRow.addView(history, historyLp);
+    }
+
+    private Button tabButton(
+            String label,
+            boolean active
+    ) {
+        Button button = new Button(this);
+
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextSize(11);
+
+        button.setTextColor(
+                Color.parseColor(
+                        active
+                                ? "#0B7CFF"
+                                : "#64748B"
+                )
+        );
+
+        button.setTypeface(
+                Typeface.DEFAULT,
+                active
+                        ? Typeface.BOLD
+                        : Typeface.NORMAL
+        );
+
+        button.setBackground(
+                active
+                        ? round("#FFFFFF", 12)
+                        : round("#EAF1FA", 12)
+        );
+
+        if (active) {
+            button.setElevation(dp(1));
+        }
+
+        return button;
+    }
+
+    private void buildSearch() {
+        searchInput = new EditText(this);
+
+        searchInput.setHint(
+                "Cari order, driver, merchant..."
+        );
+
+        searchInput.setSingleLine(true);
+        searchInput.setTextSize(12);
+
+        searchInput.setTextColor(
+                Color.parseColor("#0F172A")
+        );
+
+        searchInput.setHintTextColor(
+                Color.parseColor("#94A3B8")
+        );
+
+        searchInput.setPadding(
+                dp(14),
+                0,
+                dp(14),
+                0
+        );
+
+        searchInput.setBackground(
+                roundStroke(
+                        "#FFFFFF",
+                        "#DCE8F6",
+                        15,
+                        1
+                )
+        );
+
+        searchInput.setImeOptions(
+                EditorInfo.IME_ACTION_SEARCH
+        );
+
+        searchInput.addTextChangedListener(
+                new TextWatcher() {
+                    @Override
+                    public void beforeTextChanged(
+                            CharSequence sequence,
+                            int start,
+                            int count,
+                            int after
+                    ) {
+                    }
+
+                    @Override
+                    public void onTextChanged(
+                            CharSequence sequence,
+                            int start,
+                            int before,
+                            int count
+                    ) {
+                        searchQuery =
+                                sequence == null
+                                        ? ""
+                                        : sequence
+                                        .toString()
+                                        .trim()
+                                        .toLowerCase(
+                                                Locale.ROOT
+                                        );
+
+                        renderOrders();
+                    }
+
+                    @Override
+                    public void afterTextChanged(
+                            Editable editable
+                    ) {
+                    }
+                }
+        );
+
+        LinearLayout.LayoutParams searchLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        dp(48)
+                );
+
+        searchLp.setMargins(
+                0,
+                dp(12),
+                0,
+                dp(10)
+        );
+
+        content.addView(searchInput, searchLp);
+    }
+
+    private void buildServiceFilters() {
+        HorizontalScrollView scroll =
+                new HorizontalScrollView(this);
+
+        scroll.setHorizontalScrollBarEnabled(
+                false
+        );
+
+        scroll.setClipToPadding(false);
+
+        serviceChipRow =
+                new LinearLayout(this);
+
+        serviceChipRow.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        scroll.addView(
+                serviceChipRow,
+                new HorizontalScrollView.LayoutParams(
+                        -2,
+                        -2
+                )
+        );
+
+        content.addView(
+                scroll,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        dp(42)
+                )
+        );
+
+        rebuildServiceFilters();
+    }
+
+    private void rebuildServiceFilters() {
+        serviceChipRow.removeAllViews();
+
+        addServiceChip("Semua", "all");
+        addServiceChip("TransRide", "ride");
+        addServiceChip("TransCar", "car");
+        addServiceChip("TransFood", "food");
+        addServiceChip("Laundry", "laundry");
+        addServiceChip("Pickup", "pickup");
+        addServiceChip("TransTour", "tour");
+        addServiceChip("TransMart", "mart");
+    }
+
+    private void addServiceChip(
+            String label,
+            String value
+    ) {
+        boolean selected =
+                value.equals(selectedService);
+
+        TextView chip = text(
+                label,
+                10,
+                selected
+                        ? "#FFFFFF"
+                        : "#52647A",
+                selected
+        );
+
+        chip.setGravity(Gravity.CENTER);
+
+        chip.setPadding(
+                dp(13),
+                dp(7),
+                dp(13),
+                dp(7)
+        );
+
+        chip.setBackground(
+                selected
+                        ? round("#0B7CFF", 15)
+                        : roundStroke(
+                                "#FFFFFF",
+                                "#DCE8F6",
+                                15,
+                                1
+                        )
+        );
+
+        chip.setOnClickListener(view -> {
+            selectedService = value;
+            rebuildServiceFilters();
+            renderOrders();
+        });
+
+        LinearLayout.LayoutParams chipLp =
+                new LinearLayout.LayoutParams(
+                        -2,
+                        dp(34)
+                );
+
+        chipLp.setMargins(
+                0,
+                0,
+                dp(7),
+                0
+        );
+
+        serviceChipRow.addView(chip, chipLp);
+    }
+
+    private void updateSummary() {
+        int total = allOrders.size();
+        int active = 0;
+        int done = 0;
+        double spent = 0;
+
+        for (JSONObject order : allOrders) {
+            String status = normalizedStatus(
+                    order.optString("status")
+            );
+
+            if (isActiveStatus(status)) {
+                active++;
+            }
+
+            if (isCompletedStatus(status)) {
+                done++;
+                spent += orderPrice(order);
+            }
+        }
+
+        summaryTotal.setText(
+                String.valueOf(total)
+        );
+
+        summaryActive.setText(
+                String.valueOf(active)
+        );
+
+        summaryDone.setText(
+                String.valueOf(done)
+        );
+
+        summarySpent.setText(
+                compactRupiah(spent)
+        );
+    }
+
+    private void renderOrders() {
+        if (listBox == null) {
             return;
         }
 
-        int shown = 0;
-        for (JSONObject order : orders) {
-            if (!passesFilter(order)) continue;
-            addOrderCard(order);
-            shown++;
+        listBox.removeAllViews();
+        updateSummary();
+
+        if (loading) {
+            addInfoState(
+                    "Memuat aktivitas...",
+                    "Data pesanan sedang diperbarui."
+            );
+            return;
         }
 
-        if (shown == 0) addStatusTo(listBox, "Tidak ada riwayat untuk filter ini.");
+        List<JSONObject> filtered =
+                filteredOrders();
+
+        if (filtered.isEmpty()) {
+            if (TAB_ACTIVE.equals(selectedTab)) {
+                addEmptyState(
+                        "Belum ada aktivitas berjalan",
+                        "Pesan layanan Transiva dan pantau prosesnya di sini.",
+                        "Pesan Sekarang",
+                        () -> startActivity(
+                                new Intent(
+                                        this,
+                                        CustomerDashboardActivity.class
+                                )
+                        )
+                );
+            } else {
+                addEmptyState(
+                        "Riwayat belum tersedia",
+                        "Pesanan yang selesai atau dibatalkan akan tampil di sini.",
+                        "Kembali ke Beranda",
+                        () -> startActivity(
+                                new Intent(
+                                        this,
+                                        CustomerDashboardActivity.class
+                                )
+                        )
+                );
+            }
+
+            return;
+        }
+
+        TextView section = text(
+                TAB_ACTIVE.equals(selectedTab)
+                        ? "Pesanan berjalan"
+                        : "Riwayat pesanan",
+                15,
+                "#0B3A78",
+                true
+        );
+
+        LinearLayout.LayoutParams sectionLp =
+                new LinearLayout.LayoutParams(-1, -2);
+
+        sectionLp.setMargins(
+                0,
+                0,
+                0,
+                dp(9)
+        );
+
+        listBox.addView(section, sectionLp);
+
+        for (JSONObject order : filtered) {
+            listBox.addView(
+                    buildOrderCard(order)
+            );
+        }
     }
 
-    private boolean passesFilter(JSONObject order) {
-        String status = norm(order.optString("status"));
-        if ("all".equals(filter)) return true;
-        if ("active".equals(filter)) return !isFinished(status) && !isCanceled(status);
-        if ("done".equals(filter)) return isFinished(status);
-        if ("cancel".equals(filter)) return isCanceled(status);
-        return true;
+    private List<JSONObject> filteredOrders() {
+        List<JSONObject> result =
+                new ArrayList<>();
+
+        for (JSONObject order : allOrders) {
+            String status = normalizedStatus(
+                    order.optString("status")
+            );
+
+            boolean tabMatch =
+                    TAB_ACTIVE.equals(selectedTab)
+                            ? isActiveStatus(status)
+                            : !isActiveStatus(status);
+
+            if (!tabMatch) {
+                continue;
+            }
+
+            if (!serviceMatches(order)) {
+                continue;
+            }
+
+            if (!queryMatches(order)) {
+                continue;
+            }
+
+            result.add(order);
+        }
+
+        return result;
     }
 
-    private void addOrderCard(JSONObject order) {
-        LinearLayout card = card();
-        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+    private boolean serviceMatches(
+            JSONObject order
+    ) {
+        if ("all".equals(selectedService)) {
+            return true;
+        }
 
-        LinearLayout top = new LinearLayout(this);
+        String type = serviceType(order);
+
+        return type.contains(selectedService);
+    }
+
+    private boolean queryMatches(
+            JSONObject order
+    ) {
+        if (searchQuery.isEmpty()) {
+            return true;
+        }
+
+        String haystack =
+                (
+                        first(
+                                order.optString("order_id"),
+                                order.optString("id"),
+                                ""
+                        )
+                                + " "
+                                + serviceName(order)
+                                + " "
+                                + order.optString("driver")
+                                + " "
+                                + order.optString(
+                                "driver_username"
+                        )
+                                + " "
+                                + order.optString(
+                                "restaurant_name"
+                        )
+                                + " "
+                                + order.optString(
+                                "merchant_name"
+                        )
+                                + " "
+                                + order.optString(
+                                "wisata_name"
+                        )
+                                + " "
+                                + order.optString(
+                                "pickup_address"
+                        )
+                                + " "
+                                + order.optString(
+                                "delivery_address"
+                        )
+                )
+                        .toLowerCase(Locale.ROOT);
+
+        return haystack.contains(searchQuery);
+    }
+
+    private View buildOrderCard(
+            JSONObject order
+    ) {
+        LinearLayout card =
+                new LinearLayout(this);
+
+        card.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        card.setPadding(
+                dp(14),
+                dp(13),
+                dp(14),
+                dp(13)
+        );
+
+        card.setBackground(
+                roundStroke(
+                        "#FFFFFF",
+                        "#E3ECF7",
+                        18,
+                        1
+                )
+        );
+
+        card.setElevation(dp(1));
+
+        LinearLayout.LayoutParams cardLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
+        cardLp.setMargins(
+                0,
+                0,
+                0,
+                dp(10)
+        );
+
+        card.setLayoutParams(cardLp);
+
+        LinearLayout top =
+                new LinearLayout(this);
+
         top.setGravity(Gravity.CENTER_VERTICAL);
-        card.addView(top, new LinearLayout.LayoutParams(-1, -2));
 
-        LinearLayout titleCol = new LinearLayout(this);
-        titleCol.setOrientation(LinearLayout.VERTICAL);
-        String id = firstNonEmpty(order.optString("order_id"), order.optString("id"), "-");
-        titleCol.addView(text(serviceIcon(order) + " " + serviceName(order), 16, "#0F172A", true));
-        titleCol.addView(text("Order #" + id, 12, "#64748B", false));
-        top.addView(titleCol, new LinearLayout.LayoutParams(0, -2, 1));
+        FrameLayout iconFrame =
+                new FrameLayout(this);
 
-        TextView badge = text(statusLabel(order.optString("status")), 11, statusColor(order.optString("status")), true);
+        iconFrame.setBackground(
+                round(
+                        serviceSoftColor(order),
+                        14
+                )
+        );
+
+        ImageView icon = new ImageView(this);
+
+        int iconResource =
+                serviceDrawable(order);
+
+        if (iconResource != 0) {
+            icon.setImageResource(iconResource);
+        }
+
+        icon.setScaleType(
+                ImageView.ScaleType.CENTER_INSIDE
+        );
+
+        FrameLayout.LayoutParams iconLp =
+                new FrameLayout.LayoutParams(
+                        dp(32),
+                        dp(32)
+                );
+
+        iconLp.gravity = Gravity.CENTER;
+
+        iconFrame.addView(icon, iconLp);
+
+        top.addView(
+                iconFrame,
+                new LinearLayout.LayoutParams(
+                        dp(48),
+                        dp(48)
+                )
+        );
+
+        LinearLayout titleBox =
+                new LinearLayout(this);
+
+        titleBox.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        titleBox.setPadding(
+                dp(10),
+                0,
+                dp(6),
+                0
+        );
+
+        titleBox.addView(
+                text(
+                        serviceName(order),
+                        14,
+                        "#0F3C75",
+                        true
+                )
+        );
+
+        titleBox.addView(
+                text(
+                        "Order #"
+                                + first(
+                                order.optString(
+                                        "order_id"
+                                ),
+                                order.optString("id"),
+                                "-"
+                        ),
+                        9,
+                        "#8495A8",
+                        false
+                )
+        );
+
+        top.addView(
+                titleBox,
+                new LinearLayout.LayoutParams(
+                        0,
+                        -2,
+                        1
+                )
+        );
+
+        String status =
+                normalizedStatus(
+                        order.optString("status")
+                );
+
+        TextView badge = text(
+                statusLabel(status),
+                9,
+                statusTextColor(status),
+                true
+        );
+
         badge.setGravity(Gravity.CENTER);
-        badge.setPadding(dp(10), dp(5), dp(10), dp(5));
-        badge.setBackground(roundStroke(statusBg(order.optString("status")), statusStroke(order.optString("status")), dp(18), 1));
-        top.addView(badge, new LinearLayout.LayoutParams(-2, -2));
 
-        addInfo(card, "Pickup", firstNonEmpty(order.optString("pickup_address"), order.optString("from_address"), order.optString("restaurant_name"), order.optString("wisata_name"), "-"));
-        addInfo(card, "Tujuan", firstNonEmpty(order.optString("delivery_address"), order.optString("to_address"), order.optString("destination"), order.optString("address"), "-"));
-        addInfo(card, "Driver", firstNonEmpty(order.optString("driver"), order.optString("driver_username"), "Belum ada"));
+        badge.setPadding(
+                dp(9),
+                dp(5),
+                dp(9),
+                dp(5)
+        );
+
+        badge.setBackground(
+                round(
+                        statusBackground(status),
+                        13
+                )
+        );
+
+        top.addView(badge);
+
+        card.addView(top);
+
+        String mainLine = orderMainLine(order);
+
+        if (!mainLine.isEmpty()) {
+            TextView route = text(
+                    mainLine,
+                    12,
+                    "#26384D",
+                    true
+            );
+
+            route.setMaxLines(2);
+
+            LinearLayout.LayoutParams routeLp =
+                    new LinearLayout.LayoutParams(
+                            -1,
+                            -2
+                    );
+
+            routeLp.setMargins(
+                    0,
+                    dp(10),
+                    0,
+                    0
+            );
+
+            card.addView(route, routeLp);
+        }
+
+        String progress =
+                progressDescription(order);
+
+        if (!progress.isEmpty()) {
+            LinearLayout progressRow =
+                    new LinearLayout(this);
+
+            progressRow.setGravity(
+                    Gravity.CENTER_VERTICAL
+            );
+
+            View dot = new View(this);
+
+            dot.setBackground(
+                    round(
+                            statusDotColor(status),
+                            4
+                    )
+            );
+
+            progressRow.addView(
+                    dot,
+                    new LinearLayout.LayoutParams(
+                            dp(8),
+                            dp(8)
+                    )
+            );
+
+            TextView progressText = text(
+                    progress,
+                    11,
+                    "#64748B",
+                    false
+            );
+
+            LinearLayout.LayoutParams progressTextLp =
+                    new LinearLayout.LayoutParams(
+                            0,
+                            -2,
+                            1
+                    );
+
+            progressTextLp.setMargins(
+                    dp(7),
+                    0,
+                    0,
+                    0
+            );
+
+            progressRow.addView(
+                    progressText,
+                    progressTextLp
+            );
+
+            LinearLayout.LayoutParams progressLp =
+                    new LinearLayout.LayoutParams(
+                            -1,
+                            -2
+                    );
+
+            progressLp.setMargins(
+                    0,
+                    dp(7),
+                    0,
+                    0
+            );
+
+            card.addView(progressRow, progressLp);
+        }
+
+        LinearLayout meta =
+                new LinearLayout(this);
+
+        meta.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView time = text(
+                displayDate(order),
+                10,
+                "#8495A8",
+                false
+        );
+
+        meta.addView(
+                time,
+                new LinearLayout.LayoutParams(
+                        0,
+                        -2,
+                        1
+                )
+        );
 
         double price = orderPrice(order);
-        if (price > 0) {
-            TextView total = text(rupiah(price), 19, "#0B7CFF", true);
-            total.setPadding(0, dp(8), 0, 0);
-            card.addView(total);
+
+        TextView total = text(
+                price > 0
+                        ? rupiah(price)
+                        : "-",
+                13,
+                "#0B3A78",
+                true
+        );
+
+        meta.addView(total);
+
+        LinearLayout.LayoutParams metaLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
+        metaLp.setMargins(
+                0,
+                dp(10),
+                0,
+                0
+        );
+
+        card.addView(meta, metaLp);
+
+        LinearLayout actions =
+                new LinearLayout(this);
+
+        actions.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        actions.setPadding(
+                0,
+                dp(11),
+                0,
+                0
+        );
+
+        Button detail =
+                outlineButton("Lihat Detail");
+
+        detail.setOnClickListener(
+                view -> showOrderDetail(order)
+        );
+
+        actions.addView(
+                detail,
+                new LinearLayout.LayoutParams(
+                        0,
+                        dp(42),
+                        1
+                )
+        );
+
+        if (isActiveStatus(status)) {
+            Button track =
+                    primaryButton(
+                            trackButtonLabel(order)
+                    );
+
+            track.setOnClickListener(
+                    view -> openActiveOrder(order)
+            );
+
+            LinearLayout.LayoutParams trackLp =
+                    new LinearLayout.LayoutParams(
+                            0,
+                            dp(42),
+                            1
+                    );
+
+            trackLp.setMargins(
+                    dp(8),
+                    0,
+                    0,
+                    0
+            );
+
+            actions.addView(track, trackLp);
+
+        } else {
+            Button repeat =
+                    primaryButton("Pesan Lagi");
+
+            repeat.setOnClickListener(
+                    view -> openRepeat(order)
+            );
+
+            LinearLayout.LayoutParams repeatLp =
+                    new LinearLayout.LayoutParams(
+                            0,
+                            dp(42),
+                            1
+                    );
+
+            repeatLp.setMargins(
+                    dp(8),
+                    0,
+                    0,
+                    0
+            );
+
+            actions.addView(repeat, repeatLp);
         }
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setPadding(0, dp(12), 0, 0);
-        Button detail = outlineButton("Detail");
-        Button repeat = primaryButton("Pesan Lagi");
-        detail.setOnClickListener(v -> showOrderDetail(order));
-        repeat.setOnClickListener(v -> openRepeat(order));
-        actions.addView(detail, new LinearLayout.LayoutParams(0, dp(46), 1));
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0, dp(46), 1);
-        rlp.setMargins(dp(10), 0, 0, 0);
-        actions.addView(repeat, rlp);
         card.addView(actions);
 
-        addWithMarginTo(listBox, card, 0, 0, 0, dp(12));
+        return card;
     }
 
-    private void addInfo(LinearLayout parent, String label, String value) {
-        if (value == null || value.trim().length() == 0 || "-".equals(value.trim())) return;
-        LinearLayout row = new LinearLayout(this);
-        row.setPadding(0, dp(7), 0, 0);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(text(label, 12, "#64748B", false), new LinearLayout.LayoutParams(dp(72), -2));
-        TextView v = text(value, 13, "#0F172A", true);
-        v.setMaxLines(2);
-        row.addView(v, new LinearLayout.LayoutParams(0, -2, 1));
-        parent.addView(row);
-    }
+    private void addEmptyState(
+            String title,
+            String description,
+            String buttonLabel,
+            Runnable action
+    ) {
+        LinearLayout card =
+                new LinearLayout(this);
 
-    private void showOrderDetail(JSONObject o) {
-        String msg = "Order ID: " + firstNonEmpty(o.optString("order_id"), o.optString("id"), "-")
-                + "\nLayanan: " + serviceName(o)
-                + "\nStatus: " + statusLabel(o.optString("status"))
-                + "\nPickup: " + firstNonEmpty(o.optString("pickup_address"), o.optString("restaurant_name"), "-")
-                + "\nTujuan: " + firstNonEmpty(o.optString("delivery_address"), o.optString("destination"), "-")
-                + "\nDriver: " + firstNonEmpty(o.optString("driver"), o.optString("driver_username"), "-")
-                + "\nTotal: " + rupiah(orderPrice(o));
-        showInfo("Detail Riwayat", msg);
-    }
+        card.setOrientation(
+                LinearLayout.VERTICAL
+        );
 
-    private void openRepeat(JSONObject o) {
-        String type = norm(firstNonEmpty(o.optString("order_type"), o.optString("service_type"), o.optString("service")));
-        try {
-            if (type.contains("food")) { startActivity(new Intent(this, TransFoodActivity.class)); return; }
-            if (type.contains("wisata") || type.contains("tour")) { startActivity(new Intent(this, TranstourActivity.class)); return; }
-            if (type.contains("laundry")) { startActivity(new Intent(this, TransLaundryActivity.class)); return; }
-            if (type.contains("car") || type.contains("mobil") || type.contains("transcar")) { startActivity(new Intent(this, PassengerCarActivity.class)); return; }
-            startActivity(new Intent(this, TransRideActivity.class));
-        } catch (Exception e) {
-            showInfo("Pesan Lagi", "Halaman layanan belum tersedia di native app ini.");
+        card.setGravity(Gravity.CENTER);
+
+        card.setPadding(
+                dp(20),
+                dp(26),
+                dp(20),
+                dp(24)
+        );
+
+        card.setBackground(
+                roundStroke(
+                        "#FFFFFF",
+                        "#E3ECF7",
+                        19,
+                        1
+                )
+        );
+
+        ImageView image = new ImageView(this);
+
+        int emptyDrawable =
+                drawable("img_order_empty");
+
+        if (emptyDrawable != 0) {
+            image.setImageResource(
+                    emptyDrawable
+            );
         }
+
+        image.setScaleType(
+                ImageView.ScaleType.CENTER_INSIDE
+        );
+
+        card.addView(
+                image,
+                new LinearLayout.LayoutParams(
+                        dp(100),
+                        dp(82)
+                )
+        );
+
+        TextView heading = text(
+                title,
+                15,
+                "#0B3A78",
+                true
+        );
+
+        heading.setGravity(Gravity.CENTER);
+
+        card.addView(heading);
+
+        TextView body = text(
+                description,
+                11,
+                "#718096",
+                false
+        );
+
+        body.setGravity(Gravity.CENTER);
+
+        LinearLayout.LayoutParams bodyLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
+        bodyLp.setMargins(
+                0,
+                dp(6),
+                0,
+                dp(14)
+        );
+
+        card.addView(body, bodyLp);
+
+        Button button =
+                primaryButton(buttonLabel);
+
+        button.setOnClickListener(
+                view -> action.run()
+        );
+
+        card.addView(
+                button,
+                new LinearLayout.LayoutParams(
+                        dp(180),
+                        dp(44)
+                )
+        );
+
+        listBox.addView(card);
+    }
+
+    private void addInfoState(
+            String title,
+            String description
+    ) {
+        LinearLayout card =
+                new LinearLayout(this);
+
+        card.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        card.setPadding(
+                dp(16),
+                dp(18),
+                dp(16),
+                dp(18)
+        );
+
+        card.setBackground(
+                roundStroke(
+                        "#FFFFFF",
+                        "#E3ECF7",
+                        17,
+                        1
+                )
+        );
+
+        card.addView(
+                text(
+                        title,
+                        14,
+                        "#0B3A78",
+                        true
+                )
+        );
+
+        TextView body = text(
+                description,
+                11,
+                "#718096",
+                false
+        );
+
+        LinearLayout.LayoutParams bodyLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
+        bodyLp.setMargins(
+                0,
+                dp(5),
+                0,
+                0
+        );
+
+        card.addView(body, bodyLp);
+
+        listBox.addView(card);
     }
 
     private void loadHistory() {
-        if (userId <= 0) {
-            addStatusTo(listBox, "User ID tidak ditemukan. Silakan login ulang.");
+        if (loading) {
             return;
         }
-        setLoading(true);
+
+        if (userId <= 0) {
+            toast(
+                    "Sesi pengguna tidak ditemukan. Silakan login ulang."
+            );
+            renderOrders();
+            return;
+        }
+
+        loading = true;
+        progressBar.setVisibility(View.VISIBLE);
+        renderOrders();
+
         new Thread(() -> {
             try {
-                JSONObject res = getJson(BASE_URL + "server/get_user_orders.php?user_id=" + Uri.encode(String.valueOf(userId)) + "&_=" + System.currentTimeMillis());
-                JSONArray arr = res.optJSONArray("orders");
-                orders.clear();
-                if (res.optBoolean("success", false) && arr != null) {
-                    for (int i = 0; i < arr.length(); i++) {
-                        JSONObject o = arr.optJSONObject(i);
-                        if (o != null) orders.add(o);
+                String endpoint =
+                        BASE_URL
+                                + "server/get_user_orders.php?user_id="
+                                + Uri.encode(
+                                String.valueOf(userId)
+                        )
+                                + "&username="
+                                + Uri.encode(username)
+                                + "&_="
+                                + System.currentTimeMillis();
+
+                JSONObject response =
+                        getJson(endpoint);
+
+                JSONArray array =
+                        response.optJSONArray("orders");
+
+                List<JSONObject> fresh =
+                        new ArrayList<>();
+
+                if (
+                        response.optBoolean(
+                                "success",
+                                false
+                        )
+                                && array != null
+                ) {
+                    for (
+                            int i = 0;
+                            i < array.length();
+                            i++
+                    ) {
+                        JSONObject order =
+                                array.optJSONObject(i);
+
+                        if (order != null) {
+                            fresh.add(order);
+                        }
                     }
                 }
-                mainHandler.post(() -> { setLoading(false); renderPage(); });
-            } catch (Exception e) {
-                mainHandler.post(() -> { setLoading(false); if (listBox != null) { listBox.removeAllViews(); addStatusTo(listBox, "Gagal memuat riwayat customer."); } showInfo("Gagal", "Koneksi gagal memuat riwayat."); });
+
+                mainHandler.post(() -> {
+                    allOrders.clear();
+                    allOrders.addAll(fresh);
+
+                    loading = false;
+                    progressBar.setVisibility(View.GONE);
+
+                    renderOrders();
+                });
+
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    loading = false;
+                    progressBar.setVisibility(View.GONE);
+
+                    renderOrders();
+
+                    toast(
+                            "Gagal memuat aktivitas. Periksa koneksi."
+                    );
+                });
             }
         }).start();
     }
 
-    private String serviceName(JSONObject o) {
-        String type = norm(firstNonEmpty(o.optString("order_type"), o.optString("service_type"), o.optString("service"), o.optString("service_name")));
-        if (type.contains("food")) return "TransFood";
-        if (type.contains("wisata") || type.contains("tour")) return "TransTour";
-        if (type.contains("laundry")) return "TransLaundry";
-        if (type.contains("car") || type.contains("mobil") || type.contains("transcar")) return "TransCar";
-        if (type.contains("ride") || type.contains("bike") || type.contains("kurir") || type.contains("transbike")) return "TransRide";
-        return firstNonEmpty(o.optString("service_name"), o.optString("order_type"), "Transiva");
-    }
+    private JSONObject getJson(
+            String endpoint
+    ) throws Exception {
+        HttpURLConnection connection = null;
 
-    private String serviceIcon(JSONObject o) {
-        String s = serviceName(o).toLowerCase(Locale.US);
-        if (s.contains("food")) return "🍔";
-        if (s.contains("tour")) return "🏝️";
-        if (s.contains("laundry")) return "🧺";
-        if (s.contains("car")) return "🚗";
-        if (s.contains("ride")) return "🏍️";
-        return "📦";
-    }
-
-    private double orderPrice(JSONObject o) {
-        return o.optDouble("total_price", o.optDouble("total", o.optDouble("food_total", o.optDouble("price", o.optDouble("amount", 0)))));
-    }
-
-    private boolean isFinished(String status) {
-        status = norm(status);
-        return status.equals("finished") || status.equals("finish") || status.equals("completed") || status.equals("complete") || status.equals("done") || status.equals("selesai") || status.equals("claimed");
-    }
-
-    private boolean isCanceled(String status) {
-        status = norm(status);
-        return status.equals("canceled") || status.equals("cancelled") || status.equals("batal") || status.equals("merchant_rejected") || status.equals("rejected");
-    }
-
-    private String statusLabel(String status) {
-        String s = norm(status);
-        if (s.equals("pending")) return "Menunggu";
-        if (s.equals("merchant_accepted")) return "Diterima";
-        if (s.equals("taken")) return "Diambil";
-        if (s.equals("arrived_pickup")) return "Tiba Pickup";
-        if (s.equals("on_delivery")) return "Diantar";
-        if (s.equals("arrived_delivery")) return "Tiba Tujuan";
-        if (isFinished(s)) return "Selesai";
-        if (isCanceled(s)) return "Batal";
-        return firstNonEmpty(status, "Status");
-    }
-
-    private String statusColor(String status) {
-        String s = norm(status);
-        if (isFinished(s)) return "#16A34A";
-        if (isCanceled(s)) return "#EF4444";
-        if (s.equals("pending")) return "#F59E0B";
-        return "#0B7CFF";
-    }
-
-    private String statusBg(String status) {
-        String s = norm(status);
-        if (isFinished(s)) return "#ECFDF5";
-        if (isCanceled(s)) return "#FFF1F2";
-        if (s.equals("pending")) return "#FFFBEB";
-        return "#EAF4FF";
-    }
-
-    private String statusStroke(String status) {
-        String s = norm(status);
-        if (isFinished(s)) return "#BBF7D0";
-        if (isCanceled(s)) return "#FECACA";
-        if (s.equals("pending")) return "#FDE68A";
-        return "#B9DBFF";
-    }
-
-    private JSONObject getJson(String urlText) throws Exception {
-        HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(urlText).openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(TIMEOUT_MS);
-            conn.setReadTimeout(TIMEOUT_MS);
-            conn.setRequestProperty("Accept", "application/json");
-            int code = conn.getResponseCode();
-            InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
-            String body = readStream(is).trim();
-            if (body.length() == 0) return new JSONObject();
-            return new JSONObject(body);
+            connection =
+                    (HttpURLConnection)
+                            new URL(endpoint)
+                                    .openConnection();
+
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(
+                    TIMEOUT_MS
+            );
+
+            connection.setReadTimeout(
+                    TIMEOUT_MS
+            );
+
+            connection.setUseCaches(false);
+
+            connection.setRequestProperty(
+                    "Accept",
+                    "application/json"
+            );
+
+            connection.setRequestProperty(
+                    "Cache-Control",
+                    "no-cache"
+            );
+
+            int status =
+                    connection.getResponseCode();
+
+            InputStream stream =
+                    status >= 200 && status < 400
+                            ? connection.getInputStream()
+                            : connection.getErrorStream();
+
+            if (stream == null) {
+                throw new IllegalStateException(
+                        "Respons server kosong"
+                );
+            }
+
+            BufferedReader reader =
+                    new BufferedReader(
+                            new InputStreamReader(
+                                    stream,
+                                    "UTF-8"
+                            )
+                    );
+
+            StringBuilder body =
+                    new StringBuilder();
+
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                body.append(line);
+            }
+
+            reader.close();
+
+            if (status < 200 || status >= 400) {
+                throw new IllegalStateException(
+                        "HTTP " + status
+                );
+            }
+
+            return new JSONObject(
+                    body.toString()
+            );
+
         } finally {
-            if (conn != null) conn.disconnect();
+            if (connection != null) {
+                connection.disconnect();
+            }
         }
     }
 
-    private String readStream(InputStream stream) throws Exception {
-        if (stream == null) return "";
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) sb.append(line);
-        reader.close();
-        return sb.toString();
+    private void showOrderDetail(
+            JSONObject order
+    ) {
+        String detail =
+                "Order ID: "
+                        + first(
+                        order.optString(
+                                "order_id"
+                        ),
+                        order.optString("id"),
+                        "-"
+                )
+                        + "\nLayanan: "
+                        + serviceName(order)
+                        + "\nStatus: "
+                        + statusLabel(
+                        normalizedStatus(
+                                order.optString(
+                                        "status"
+                                )
+                        )
+                )
+                        + "\nPickup: "
+                        + first(
+                        order.optString(
+                                "pickup_address"
+                        ),
+                        order.optString(
+                                "from_address"
+                        ),
+                        order.optString(
+                                "restaurant_name"
+                        ),
+                        "-"
+                )
+                        + "\nTujuan: "
+                        + first(
+                        order.optString(
+                                "delivery_address"
+                        ),
+                        order.optString(
+                                "to_address"
+                        ),
+                        order.optString(
+                                "destination"
+                        ),
+                        "-"
+                )
+                        + "\nDriver: "
+                        + first(
+                        order.optString("driver"),
+                        order.optString(
+                                "driver_username"
+                        ),
+                        "Belum ada"
+                )
+                        + "\nTanggal: "
+                        + displayDate(order)
+                        + "\nTotal: "
+                        + rupiah(orderPrice(order));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Detail Aktivitas")
+                .setMessage(detail)
+                .setPositiveButton(
+                        "Tutup",
+                        null
+                )
+                .show();
     }
 
-    private void buildTopSpacer() {}
+    private void openActiveOrder(
+            JSONObject order
+    ) {
+        String type = serviceType(order);
 
-    private LinearLayout card() {
-        LinearLayout v = new LinearLayout(this);
-        v.setOrientation(LinearLayout.VERTICAL);
-        v.setBackground(roundStroke("#FFFFFF", "#E2ECF8", dp(22), 1));
-        v.setElevation(dp(2));
-        return v;
+        try {
+            if (type.contains("food")) {
+                startActivity(
+                        new Intent(
+                                this,
+                                TransFoodActivity.class
+                        )
+                );
+                return;
+            }
+
+            if (
+                    type.contains("tour")
+                            || type.contains("wisata")
+            ) {
+                startActivity(
+                        new Intent(
+                                this,
+                                TranstourActivity.class
+                        )
+                );
+                return;
+            }
+
+            if (type.contains("laundry")) {
+                startActivity(
+                        new Intent(
+                                this,
+                                TransLaundryActivity.class
+                        )
+                );
+                return;
+            }
+
+            if (type.contains("pickup")) {
+                startActivity(
+                        new Intent(
+                                this,
+                                TransPickupActivity.class
+                        )
+                );
+                return;
+            }
+
+            if (
+                    type.contains("car")
+                            || type.contains("mobil")
+            ) {
+                startActivity(
+                        new Intent(
+                                this,
+                                PassengerCarActivity.class
+                        )
+                );
+                return;
+            }
+
+            Intent trip = new Intent(
+                    this,
+                    CustomerTripActivity.class
+            );
+
+            trip.putExtra(
+                    "order_id",
+                    first(
+                            order.optString(
+                                    "order_id"
+                            ),
+                            order.optString("id"),
+                            ""
+                    )
+            );
+
+            startActivity(trip);
+
+        } catch (Exception ignored) {
+            toast(
+                    "Halaman pelacakan belum tersedia untuk layanan ini."
+            );
+        }
     }
 
-    private TextView text(String s, int sp, String color, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(sp);
-        t.setTextColor(Color.parseColor(color));
-        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        return t;
+    private void openRepeat(
+            JSONObject order
+    ) {
+        String type = serviceType(order);
+
+        try {
+            if (type.contains("food")) {
+                startActivity(
+                        new Intent(
+                                this,
+                                TransFoodActivity.class
+                        )
+                );
+                return;
+            }
+
+            if (
+                    type.contains("tour")
+                            || type.contains("wisata")
+            ) {
+                startActivity(
+                        new Intent(
+                                this,
+                                TranstourActivity.class
+                        )
+                );
+                return;
+            }
+
+            if (type.contains("laundry")) {
+                startActivity(
+                        new Intent(
+                                this,
+                                TransLaundryActivity.class
+                        )
+                );
+                return;
+            }
+
+            if (type.contains("pickup")) {
+                startActivity(
+                        new Intent(
+                                this,
+                                TransPickupActivity.class
+                        )
+                );
+                return;
+            }
+
+            if (
+                    type.contains("car")
+                            || type.contains("mobil")
+            ) {
+                startActivity(
+                        new Intent(
+                                this,
+                                PassengerCarActivity.class
+                        )
+                );
+                return;
+            }
+
+            startActivity(
+                    new Intent(
+                            this,
+                            TransRideActivity.class
+                    )
+            );
+
+        } catch (Exception ignored) {
+            toast(
+                    "Layanan belum tersedia."
+            );
+        }
     }
 
-    private Button primaryButton(String s) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextSize(13);
-        b.setTextColor(Color.WHITE);
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        b.setBackground(roundGradient("#086BFF", "#2EA2FF", dp(18)));
-        return b;
+    private View buildBottomNavigation() {
+        LinearLayout nav =
+                new LinearLayout(this);
+
+        nav.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        nav.setGravity(Gravity.CENTER);
+
+        nav.setPadding(
+                dp(5),
+                dp(4),
+                dp(5),
+                dp(4)
+        );
+
+        nav.setBackgroundColor(Color.WHITE);
+        nav.setElevation(dp(8));
+
+        nav.addView(
+                navItem(
+                        "Beranda",
+                        "ic_nav_home",
+                        CustomerDashboardActivity.class,
+                        false
+                ),
+                navLp()
+        );
+
+        nav.addView(
+                navItem(
+                        "Aktivitas",
+                        "ic_nav_activity",
+                        null,
+                        true
+                ),
+                navLp()
+        );
+
+        nav.addView(
+                navItem(
+                        "Pesan",
+                        "ic_nav_chat",
+                        CustomerChatActivity.class,
+                        false
+                ),
+                navLp()
+        );
+
+        nav.addView(
+                navAction(
+                        "Transaksi",
+                        "ic_nav_wallet",
+                        this::openTransactions,
+                        false
+                ),
+                navLp()
+        );
+
+        nav.addView(
+                navItem(
+                        "Akun",
+                        "ic_nav_profile",
+                        ProfileActivity.class,
+                        false
+                ),
+                navLp()
+        );
+
+        return nav;
     }
 
-    private Button outlineButton(String s) {
-        Button b = primaryButton(s);
-        b.setTextColor(Color.parseColor("#0B7CFF"));
-        b.setBackground(roundStroke("#FFFFFF", "#B9DBFF", dp(18), 1));
-        return b;
+    private LinearLayout.LayoutParams navLp() {
+        return new LinearLayout.LayoutParams(
+                0,
+                -1,
+                1
+        );
     }
 
-    private Button smallButton(String s, String bg, String fg) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextSize(18);
-        b.setTextColor(Color.parseColor(fg));
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        b.setBackground(roundStroke(bg, "#D7E6F8", dp(18), 1));
-        return b;
+    private View navItem(
+            String label,
+            String iconName,
+            Class<?> target,
+            boolean active
+    ) {
+        return navAction(
+                label,
+                iconName,
+                target == null
+                        ? null
+                        : () -> {
+                    Intent intent = new Intent(
+                            this,
+                            target
+                    );
+
+                    intent.addFlags(
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                    );
+
+                    startActivity(intent);
+                },
+                active
+        );
     }
 
-    private Button filterButton(String s, boolean active) {
-        Button b = new Button(this);
-        b.setText(s);
-        b.setAllCaps(false);
-        b.setTextSize(12);
-        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        b.setTextColor(Color.parseColor(active ? "#FFFFFF" : "#0B3A78"));
-        b.setBackground(roundStroke(active ? "#0B7CFF" : "#FFFFFF", active ? "#0B7CFF" : "#D7E6F8", dp(16), 1));
-        return b;
+    private View navAction(
+            String label,
+            String iconName,
+            Runnable action,
+            boolean active
+    ) {
+        LinearLayout item =
+                new LinearLayout(this);
+
+        item.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        item.setGravity(Gravity.CENTER);
+
+        ImageView icon = new ImageView(this);
+
+        int resource =
+                drawable(iconName);
+
+        if (resource != 0) {
+            icon.setImageResource(resource);
+        }
+
+        icon.setAlpha(active ? 1f : 0.62f);
+
+        item.addView(
+                icon,
+                new LinearLayout.LayoutParams(
+                        dp(23),
+                        dp(23)
+                )
+        );
+
+        TextView title = text(
+                label,
+                9,
+                active
+                        ? "#0B7CFF"
+                        : "#64748B",
+                active
+        );
+
+        title.setGravity(Gravity.CENTER);
+
+        LinearLayout.LayoutParams titleLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
+        titleLp.setMargins(
+                0,
+                dp(2),
+                0,
+                0
+        );
+
+        item.addView(title, titleLp);
+
+        if (action != null) {
+            item.setOnClickListener(
+                    view -> action.run()
+            );
+        }
+
+        return item;
     }
 
-    private GradientDrawable round(String color, int radius) { GradientDrawable g = new GradientDrawable(); g.setColor(Color.parseColor(color)); g.setCornerRadius(radius); return g; }
-    private GradientDrawable roundStroke(String color, String stroke, int radius, int sw) { GradientDrawable g = round(color, radius); g.setStroke(dp(sw), Color.parseColor(stroke)); return g; }
-    private GradientDrawable roundGradient(String c1, String c2, int radius) { GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, new int[]{Color.parseColor(c1), Color.parseColor(c2)}); g.setCornerRadius(radius); return g; }
+    private void openTransactions() {
+        String[] candidates = {
+                "com.transiva.app.CustomerBalanceHistoryActivity",
+                "com.transiva.app.BalanceTransactionHistoryActivity",
+                "com.transiva.app.CustomerTransactionHistoryActivity",
+                "com.transiva.app.CustomerTopUpActivity"
+        };
 
-    private void addWithMargin(View v, int l, int t, int r, int b) { LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(l,t,r,b); root.addView(v, lp); }
-    private void addWithMarginTo(LinearLayout parent, View v, int l, int t, int r, int b) { LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(l,t,r,b); parent.addView(v, lp); }
-    private void addStatusTo(LinearLayout parent, String msg) { if (parent == null) return; TextView t = text(msg, 14, "#64748B", false); t.setGravity(Gravity.CENTER); t.setPadding(dp(16), dp(22), dp(16), dp(22)); t.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(20), 1)); addWithMarginTo(parent, t, 0, 0, 0, dp(12)); }
-    private void addGap(LinearLayout row) { View gap = new View(this); row.addView(gap, new LinearLayout.LayoutParams(dp(7), 1)); }
-    private void setLoading(boolean b) { if (progressBar != null) progressBar.setVisibility(b ? View.VISIBLE : View.GONE); }
-    private void showInfo(String title, String msg) { try { new AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show(); } catch (Exception ignored) {} }
-    private int dp(int v) { return (int) (v * getResources().getDisplayMetrics().density + 0.5f); }
-    private String rupiah(double v) { return "Rp " + NumberFormat.getNumberInstance(new Locale("id", "ID")).format((long) v); }
-    private String norm(String s) { return firstNonEmpty(s, "").toLowerCase(Locale.US).trim(); }
-    private String firstNonEmpty(String... values) { if (values == null) return ""; for (String s : values) if (s != null && s.trim().length() > 0 && !"null".equalsIgnoreCase(s.trim())) return s.trim(); return ""; }
+        for (String className : candidates) {
+            try {
+                startActivity(
+                        new Intent(
+                                this,
+                                Class.forName(className)
+                        )
+                );
+                return;
+
+            } catch (Exception ignored) {
+            }
+        }
+
+        toast(
+                "Halaman transaksi sedang disiapkan."
+        );
+    }
+
+    private String serviceType(
+            JSONObject order
+    ) {
+        return normalized(
+                first(
+                        order.optString(
+                                "order_type"
+                        ),
+                        order.optString(
+                                "service_type"
+                        ),
+                        order.optString("service"),
+                        order.optString(
+                                "service_name"
+                        ),
+                        "ride"
+                )
+        );
+    }
+
+    private String serviceName(
+            JSONObject order
+    ) {
+        String type = serviceType(order);
+
+        if (type.contains("food")) {
+            return "TransFood";
+        }
+
+        if (
+                type.contains("tour")
+                        || type.contains("wisata")
+        ) {
+            return "TransTour";
+        }
+
+        if (type.contains("laundry")) {
+            return "Laundry";
+        }
+
+        if (type.contains("pickup")) {
+            return "Pickup";
+        }
+
+        if (type.contains("mart")) {
+            return "TransMart";
+        }
+
+        if (
+                type.contains("car")
+                        || type.contains("mobil")
+        ) {
+            return "TransCar";
+        }
+
+        return "TransRide";
+    }
+
+    private int serviceDrawable(
+            JSONObject order
+    ) {
+        String type = serviceType(order);
+
+        if (type.contains("food")) {
+            return drawable("ic_service_food");
+        }
+
+        if (
+                type.contains("tour")
+                        || type.contains("wisata")
+        ) {
+            return drawable("ic_service_tour");
+        }
+
+        if (type.contains("laundry")) {
+            return drawable(
+                    "ic_service_laundry"
+            );
+        }
+
+        if (type.contains("pickup")) {
+            return drawable(
+                    "ic_service_pickup"
+            );
+        }
+
+        if (type.contains("mart")) {
+            return drawable("ic_service_mart");
+        }
+
+        if (
+                type.contains("car")
+                        || type.contains("mobil")
+        ) {
+            return drawable("ic_service_car");
+        }
+
+        return drawable("ic_service_ride");
+    }
+
+    private String serviceSoftColor(
+            JSONObject order
+    ) {
+        String type = serviceType(order);
+
+        if (type.contains("food")) {
+            return "#FFF4E8";
+        }
+
+        if (
+                type.contains("tour")
+                        || type.contains("wisata")
+        ) {
+            return "#F2EDFF";
+        }
+
+        if (type.contains("laundry")) {
+            return "#ECFDF5";
+        }
+
+        if (type.contains("pickup")) {
+            return "#EEF6FF";
+        }
+
+        if (type.contains("mart")) {
+            return "#FFF9E8";
+        }
+
+        return "#EAF4FF";
+    }
+
+    private String normalizedStatus(
+            String status
+    ) {
+        return normalized(status);
+    }
+
+    private boolean isActiveStatus(
+            String status
+    ) {
+        return !isCompletedStatus(status)
+                && !isCanceledStatus(status);
+    }
+
+    private boolean isCompletedStatus(
+            String status
+    ) {
+        return status.contains("completed")
+                || status.contains("complete")
+                || status.contains("selesai")
+                || status.contains("delivered")
+                || status.contains("done")
+                || status.contains("success");
+    }
+
+    private boolean isCanceledStatus(
+            String status
+    ) {
+        return status.contains("cancel")
+                || status.contains("batal")
+                || status.contains("reject")
+                || status.contains("failed")
+                || status.contains("expired");
+    }
+
+    private String statusLabel(
+            String status
+    ) {
+        if (isCompletedStatus(status)) {
+            return "Selesai";
+        }
+
+        if (isCanceledStatus(status)) {
+            return "Dibatalkan";
+        }
+
+        if (
+                status.contains("search")
+                        || status.contains("finding")
+                        || status.contains("pending")
+        ) {
+            return "Mencari";
+        }
+
+        if (
+                status.contains("accepted")
+                        || status.contains("driver_assigned")
+        ) {
+            return "Diterima";
+        }
+
+        if (
+                status.contains("pickup")
+                        || status.contains("arriving")
+                        || status.contains("menuju")
+        ) {
+            return "Menuju Lokasi";
+        }
+
+        if (
+                status.contains("process")
+                        || status.contains("preparing")
+                        || status.contains("cooking")
+        ) {
+            return "Diproses";
+        }
+
+        if (
+                status.contains("ongoing")
+                        || status.contains("trip")
+                        || status.contains("delivery")
+        ) {
+            return "Berlangsung";
+        }
+
+        return "Aktif";
+    }
+
+    private String statusTextColor(
+            String status
+    ) {
+        if (isCompletedStatus(status)) {
+            return "#07864B";
+        }
+
+        if (isCanceledStatus(status)) {
+            return "#C23636";
+        }
+
+        if (
+                status.contains("pending")
+                        || status.contains("search")
+        ) {
+            return "#B66A00";
+        }
+
+        return "#0B7CFF";
+    }
+
+    private String statusBackground(
+            String status
+    ) {
+        if (isCompletedStatus(status)) {
+            return "#EAFBF2";
+        }
+
+        if (isCanceledStatus(status)) {
+            return "#FFF0F0";
+        }
+
+        if (
+                status.contains("pending")
+                        || status.contains("search")
+        ) {
+            return "#FFF7E5";
+        }
+
+        return "#EAF4FF";
+    }
+
+    private String statusDotColor(
+            String status
+    ) {
+        if (isCompletedStatus(status)) {
+            return "#14A867";
+        }
+
+        if (isCanceledStatus(status)) {
+            return "#E35353";
+        }
+
+        if (
+                status.contains("pending")
+                        || status.contains("search")
+        ) {
+            return "#F0A51A";
+        }
+
+        return "#0B7CFF";
+    }
+
+    private String progressDescription(
+            JSONObject order
+    ) {
+        String status =
+                normalizedStatus(
+                        order.optString("status")
+                );
+
+        String driver = first(
+                order.optString("driver"),
+                order.optString(
+                        "driver_username"
+                ),
+                ""
+        );
+
+        if (isCompletedStatus(status)) {
+            return "Pesanan telah selesai";
+        }
+
+        if (isCanceledStatus(status)) {
+            return "Pesanan tidak dilanjutkan";
+        }
+
+        if (
+                status.contains("search")
+                        || status.contains("pending")
+        ) {
+            return "Sedang mencari mitra terbaik";
+        }
+
+        if (
+                status.contains("preparing")
+                        || status.contains("cooking")
+        ) {
+            return "Merchant sedang menyiapkan pesanan";
+        }
+
+        if (
+                status.contains("accepted")
+                        || status.contains(
+                        "driver_assigned"
+                )
+        ) {
+            return driver.isEmpty()
+                    ? "Mitra telah menerima pesanan"
+                    : driver
+                    + " telah menerima pesanan";
+        }
+
+        if (
+                status.contains("pickup")
+                        || status.contains("arriving")
+        ) {
+            return driver.isEmpty()
+                    ? "Mitra sedang menuju lokasi"
+                    : driver
+                    + " sedang menuju lokasi";
+        }
+
+        return driver.isEmpty()
+                ? "Pesanan sedang berlangsung"
+                : "Ditangani oleh " + driver;
+    }
+
+    private String orderMainLine(
+            JSONObject order
+    ) {
+        String restaurant = first(
+                order.optString(
+                        "restaurant_name"
+                ),
+                order.optString(
+                        "merchant_name"
+                ),
+                ""
+        );
+
+        if (!restaurant.isEmpty()) {
+            return restaurant;
+        }
+
+        String wisata = first(
+                order.optString("wisata_name"),
+                order.optString("tour_name"),
+                ""
+        );
+
+        if (!wisata.isEmpty()) {
+            return wisata;
+        }
+
+        String from = first(
+                order.optString(
+                        "pickup_address"
+                ),
+                order.optString(
+                        "from_address"
+                ),
+                ""
+        );
+
+        String to = first(
+                order.optString(
+                        "delivery_address"
+                ),
+                order.optString(
+                        "to_address"
+                ),
+                order.optString(
+                        "destination"
+                ),
+                ""
+        );
+
+        if (!from.isEmpty() && !to.isEmpty()) {
+            return shortText(from)
+                    + " → "
+                    + shortText(to);
+        }
+
+        return first(
+                from,
+                to,
+                order.optString("description"),
+                ""
+        );
+    }
+
+    private String shortText(String value) {
+        value = first(value, "");
+
+        if (value.length() <= 30) {
+            return value;
+        }
+
+        return value.substring(0, 27) + "...";
+    }
+
+    private String displayDate(
+            JSONObject order
+    ) {
+        String value = first(
+                order.optString("created_at"),
+                order.optString("order_date"),
+                order.optString("date"),
+                order.optString("updated_at"),
+                ""
+        );
+
+        if (value.isEmpty()) {
+            return "Waktu tidak tersedia";
+        }
+
+        String[] formats = {
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd"
+        };
+
+        for (String format : formats) {
+            try {
+                Date date =
+                        new SimpleDateFormat(
+                                format,
+                                Locale.US
+                        ).parse(value);
+
+                if (date != null) {
+                    return new SimpleDateFormat(
+                            "dd MMM yyyy • HH:mm",
+                            new Locale("id", "ID")
+                    ).format(date);
+                }
+
+            } catch (Exception ignored) {
+            }
+        }
+
+        return value;
+    }
+
+    private String trackButtonLabel(
+            JSONObject order
+    ) {
+        String type = serviceType(order);
+
+        if (type.contains("food")) {
+            return "Lihat Pesanan";
+        }
+
+        if (
+                type.contains("laundry")
+                        || type.contains("pickup")
+        ) {
+            return "Lihat Proses";
+        }
+
+        return "Lacak";
+    }
+
+    private double orderPrice(
+            JSONObject order
+    ) {
+        String[] keys = {
+                "total_amount",
+                "total_price",
+                "price",
+                "fare",
+                "amount",
+                "total"
+        };
+
+        for (String key : keys) {
+            Object value = order.opt(key);
+
+            if (value == null) {
+                continue;
+            }
+
+            try {
+                if (value instanceof Number) {
+                    return ((Number) value)
+                            .doubleValue();
+                }
+
+                String cleaned =
+                        String.valueOf(value)
+                                .replaceAll(
+                                        "[^0-9.,-]",
+                                        ""
+                                )
+                                .replace(".", "")
+                                .replace(",", ".");
+
+                if (!cleaned.isEmpty()) {
+                    return Double.parseDouble(
+                            cleaned
+                    );
+                }
+
+            } catch (Exception ignored) {
+            }
+        }
+
+        return 0;
+    }
+
+    private String compactRupiah(
+            double amount
+    ) {
+        if (amount >= 1_000_000) {
+            return String.format(
+                    new Locale("id", "ID"),
+                    "Rp%.1f jt",
+                    amount / 1_000_000d
+            );
+        }
+
+        if (amount >= 1_000) {
+            return String.format(
+                    new Locale("id", "ID"),
+                    "Rp%.0f rb",
+                    amount / 1_000d
+            );
+        }
+
+        return "Rp" + Math.round(amount);
+    }
+
+    private String rupiah(double amount) {
+        return NumberFormat
+                .getCurrencyInstance(
+                        new Locale("id", "ID")
+                )
+                .format(amount);
+    }
+
+    private Button primaryButton(
+            String label
+    ) {
+        Button button = new Button(this);
+
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextSize(10);
+        button.setTextColor(Color.WHITE);
+
+        button.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        button.setBackground(
+                gradient(
+                        "#086BFF",
+                        "#2EA2FF",
+                        12
+                )
+        );
+
+        return button;
+    }
+
+    private Button outlineButton(
+            String label
+    ) {
+        Button button = new Button(this);
+
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextSize(10);
+
+        button.setTextColor(
+                Color.parseColor("#0B7CFF")
+        );
+
+        button.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        button.setBackground(
+                roundStroke(
+                        "#FFFFFF",
+                        "#B9DBFF",
+                        12,
+                        1
+                )
+        );
+
+        return button;
+    }
+
+    private TextView text(
+            String value,
+            int sizeSp,
+            String color,
+            boolean bold
+    ) {
+        TextView view = new TextView(this);
+
+        view.setText(
+                value == null ? "" : value
+        );
+
+        view.setTextSize(sizeSp);
+
+        view.setTextColor(
+                Color.parseColor(color)
+        );
+
+        view.setIncludeFontPadding(false);
+
+        if (bold) {
+            view.setTypeface(
+                    Typeface.DEFAULT,
+                    Typeface.BOLD
+            );
+        }
+
+        return view;
+    }
+
+    private GradientDrawable round(
+            String color,
+            int radiusDp
+    ) {
+        GradientDrawable drawable =
+                new GradientDrawable();
+
+        drawable.setColor(
+                Color.parseColor(color)
+        );
+
+        drawable.setCornerRadius(
+                dp(radiusDp)
+        );
+
+        return drawable;
+    }
+
+    private GradientDrawable roundStroke(
+            String fill,
+            String stroke,
+            int radiusDp,
+            int strokeDp
+    ) {
+        GradientDrawable drawable =
+                round(fill, radiusDp);
+
+        drawable.setStroke(
+                dp(strokeDp),
+                Color.parseColor(stroke)
+        );
+
+        return drawable;
+    }
+
+    private GradientDrawable gradient(
+            String start,
+            String end,
+            int radiusDp
+    ) {
+        GradientDrawable drawable =
+                new GradientDrawable(
+                        GradientDrawable
+                                .Orientation.LEFT_RIGHT,
+                        new int[]{
+                                Color.parseColor(start),
+                                Color.parseColor(end)
+                        }
+                );
+
+        drawable.setCornerRadius(
+                dp(radiusDp)
+        );
+
+        return drawable;
+    }
+
+    private int drawable(String name) {
+        return getResources().getIdentifier(
+                name,
+                "drawable",
+                getPackageName()
+        );
+    }
+
+    private int dp(int value) {
+        return Math.round(
+                value
+                        * getResources()
+                        .getDisplayMetrics()
+                        .density
+        );
+    }
+
+    private String normalized(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        return value
+                .trim()
+                .toLowerCase(Locale.ROOT)
+                .replace('-', '_')
+                .replace(' ', '_');
+    }
+
+    private String first(String... values) {
+        if (values == null) {
+            return "";
+        }
+
+        for (String value : values) {
+            if (
+                    value != null
+                            && !value.trim().isEmpty()
+                            && !"null".equalsIgnoreCase(
+                                    value.trim()
+                            )
+                            && !"undefined".equalsIgnoreCase(
+                                    value.trim()
+                            )
+            ) {
+                return value.trim();
+            }
+        }
+
+        return "";
+    }
+
+    private void toast(String message) {
+        Toast.makeText(
+                this,
+                message,
+                Toast.LENGTH_SHORT
+        ).show();
+    }
 }
