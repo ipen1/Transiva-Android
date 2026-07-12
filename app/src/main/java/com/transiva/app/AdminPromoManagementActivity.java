@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -46,7 +47,7 @@ public class AdminPromoManagementActivity extends Activity {
     private EditText titleInput;
     private EditText descriptionInput;
     private EditText codeInput;
-    private EditText imageUrlInput;
+    private PromoImagePickerHelper promoImagePicker;
     private EditText startInput;
     private EditText endInput;
     private EditText sortInput;
@@ -135,10 +136,8 @@ public class AdminPromoManagementActivity extends Activity {
         titleInput = input("Judul promo *", false);
         descriptionInput = input("Deskripsi promo *", true);
         codeInput = input("Kode promo, contoh JALAN20", false);
-        imageUrlInput = input(
-                "URL gambar banner, contoh https://.../promo.jpg",
-                false
-        );
+        promoImagePicker =
+                new PromoImagePickerHelper(this);
         startInput = input("Mulai: YYYY-MM-DD HH:mm:ss", false);
         endInput = input("Berakhir: YYYY-MM-DD HH:mm:ss", false);
         sortInput = input("Urutan banner, contoh 1", false);
@@ -150,8 +149,17 @@ public class AdminPromoManagementActivity extends Activity {
         addGap(card, 7);
         card.addView(codeInput);
         addGap(card, 7);
-        card.addView(imageUrlInput);
-        addGap(card, 7);
+        card.addView(
+                text(
+                        "Foto Banner",
+                        12,
+                        "#52647A",
+                        true
+                )
+        );
+        addGap(card, 6);
+        card.addView(promoImagePicker.buildView());
+        addGap(card, 9);
 
         LinearLayout dates = new LinearLayout(this);
         dates.setOrientation(LinearLayout.HORIZONTAL);
@@ -251,6 +259,36 @@ public class AdminPromoManagementActivity extends Activity {
                 )
         );
         return edit;
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data
+    ) {
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
+
+        if (promoImagePicker != null) {
+            promoImagePicker.handleActivityResult(
+                    requestCode,
+                    resultCode,
+                    data
+            );
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (promoImagePicker != null) {
+            promoImagePicker.destroy();
+        }
+
+        super.onDestroy();
     }
 
     private void loadPromos() {
@@ -418,7 +456,9 @@ public class AdminPromoManagementActivity extends Activity {
         titleInput.setText(promo.optString("title", ""));
         descriptionInput.setText(promo.optString("description", ""));
         codeInput.setText(promo.optString("promo_code", ""));
-        imageUrlInput.setText(promo.optString("image_url", ""));
+        promoImagePicker.setExistingUrl(
+                promo.optString("image_url", "")
+        );
         startInput.setText(promo.optString("starts_at", ""));
         endInput.setText(promo.optString("ends_at", ""));
         sortInput.setText(String.valueOf(promo.optInt("sort_order", 0)));
@@ -442,7 +482,7 @@ public class AdminPromoManagementActivity extends Activity {
         titleInput.setText("");
         descriptionInput.setText("");
         codeInput.setText("");
-        imageUrlInput.setText("");
+        promoImagePicker.clear(false);
         startInput.setText("");
         endInput.setText("");
         sortInput.setText("0");
@@ -480,7 +520,7 @@ public class AdminPromoManagementActivity extends Activity {
                 );
                 payload.put(
                         "image_url",
-                        imageUrlInput.getText().toString().trim()
+                        promoImagePicker.getImageUrl()
                 );
                 payload.put(
                         "starts_at",

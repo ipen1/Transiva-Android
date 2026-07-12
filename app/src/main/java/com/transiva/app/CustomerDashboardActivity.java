@@ -975,12 +975,11 @@ public class CustomerDashboardActivity extends Activity
         card.setElevation(dp(2));
 
         ImageView image = new ImageView(this);
-        image.setImageResource(
-                drawable("img_promo_vehicle")
-        );
 
-        image.setScaleType(
-                ImageView.ScaleType.CENTER_INSIDE
+        RemoteImageLoader.loadCenterCrop(
+                image,
+                promo.imageUrl,
+                drawable("img_promo_vehicle")
         );
 
         FrameLayout.LayoutParams imageLp =
