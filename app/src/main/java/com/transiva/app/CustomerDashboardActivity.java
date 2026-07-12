@@ -3,6 +3,7 @@ package com.transiva.app;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -12,6 +13,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
@@ -41,10 +43,23 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
 
     private CustomerDashboardPresenter presenter;
     private LinearLayout content;
-    private TextView locationText;
+    private TextView verificationStatusText;
     private TextView balanceText;
     private TextView orderText;
     private LinearLayout promoTrack;
+    private HorizontalScrollView promoScroll;
+    private LinearLayout promoDots;
+    private final Handler promoHandler = new Handler(Looper.getMainLooper());
+    private int activePromoIndex = 0;
+    private int promoCount = 0;
+    private final Runnable promoAutoSlide = new Runnable() {
+        @Override public void run() {
+            if (promoCount < 2 || promoScroll == null) return;
+            activePromoIndex = (activePromoIndex + 1) % promoCount;
+            scrollToPromo(activePromoIndex, true);
+            promoHandler.postDelayed(this, 4500);
+        }
+    };
     private ProgressBar loading;
 
     private String username = "User";
@@ -59,17 +74,24 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         presenter = new CustomerDashboardPresenter(new CustomerDashboardRepositoryImpl(), this);
         setContentView(buildScreen());
         presenter.load(username, userId);
-        loadLocation();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         if (presenter != null) presenter.refresh(username, userId);
+        startPromoAutoSlide();
+    }
+
+    @Override
+    protected void onPause() {
+        promoHandler.removeCallbacks(promoAutoSlide);
+        super.onPause();
     }
 
     @Override
     protected void onDestroy() {
+        promoHandler.removeCallbacksAndMessages(null);
         if (presenter != null) presenter.destroy();
         super.onDestroy();
     }
@@ -137,37 +159,62 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
 
         TextView name = text(username.toLowerCase(Locale.getDefault()), 23, "#0B3A78", true);
         LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(-1, -2);
-        nameLp.setMargins(0, dp(1), 0, dp(5));
+        nameLp.setMargins(0, dp(1), 0, 0);
         left.addView(name, nameLp);
 
-        TextView city = text("Toboli, Palu  ›", 12, "#24476E", false);
-        city.setCompoundDrawablesWithIntrinsicBounds(drawable("ic_location_pin"), 0, 0, 0);
-        city.setCompoundDrawablePadding(dp(5));
-        left.addView(city);
+        boolean verified = isUserVerified();
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(11), dp(9), dp(11), dp(9));
-        card.setBackground(Shape.roundStroke("#FFFFFF", "#E2EBF6", dp(18), 1));
-        card.setElevation(dp(1));
-        card.setOnClickListener(v -> loadLocation());
+        card.setPadding(dp(10), dp(8), dp(11), dp(8));
+        card.setBackground(Shape.roundStroke(
+                verified ? "#FFFBEB" : "#FFF7ED",
+                verified ? "#F6C344" : "#FDBA74",
+                dp(18), 1));
+        card.setElevation(dp(2));
 
-        ImageView pin = new ImageView(this);
-        pin.setImageResource(drawable("ic_location_pin"));
-        pin.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        card.addView(pin, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        TextView shield = text(verified ? "✓" : "!", 22, "#FFFFFF", true);
+        shield.setGravity(Gravity.CENTER);
+        shield.setBackground(Shape.gradient(
+                verified ? "#F5B923" : "#F97316",
+                verified ? "#FFD86A" : "#FB923C",
+                dp(18)));
+        card.addView(shield, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
-        copy.setPadding(dp(10), 0, 0, 0);
-        copy.addView(text("Lokasi saya", 9, "#718096", false));
-        locationText = text("Memuat...", 12, "#0B3A78", true);
-        locationText.setSingleLine(true);
-        copy.addView(locationText);
-        card.addView(copy, new LinearLayout.LayoutParams(dp(76), -2));
+        copy.setPadding(dp(8), 0, 0, 0);
+        copy.addView(text("Verifikasi Akun", 10, "#0B3A78", true));
 
-        row.addView(card, new LinearLayout.LayoutParams(dp(132), dp(68)));
+        verificationStatusText = text(
+                verified ? "Terverifikasi" : "Belum diverifikasi",
+                11,
+                verified ? "#16A34A" : "#EA580C",
+                true);
+        verificationStatusText.setSingleLine(true);
+        copy.addView(verificationStatusText);
+        card.addView(copy, new LinearLayout.LayoutParams(dp(92), -2));
+
+        row.addView(card, new LinearLayout.LayoutParams(dp(150), dp(64)));
+    }
+
+    private boolean isUserVerified() {
+        SharedPreferences sp = getSharedPreferences("transiva", MODE_PRIVATE);
+        if (sp.getBoolean("is_verified", false)
+                || sp.getBoolean("verified", false)
+                || sp.getBoolean("user_verified", false)) return true;
+
+        String value = first(
+                sp.getString("verification_status", ""),
+                sp.getString("verify_status", ""),
+                sp.getString("account_status", "")
+        ).toLowerCase(Locale.US);
+
+        return value.equals("verified")
+                || value.equals("terverifikasi")
+                || value.equals("approved")
+                || value.equals("1");
     }
 
     private void buildWalletCard() {
@@ -207,7 +254,30 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         card.addView(actions, new LinearLayout.LayoutParams(-1, -2));
         actions.addView(walletAction("＋", "Isi Saldo", () -> startActivity(new Intent(this, CustomerTopUpActivity.class))));
         actions.addView(walletAction("⇄", "Transfer", () -> Toast.makeText(this, "Fitur transfer segera tersedia", Toast.LENGTH_SHORT).show()));
-        actions.addView(walletAction("◷", "Riwayat", () -> startActivity(new Intent(this, CustomerHistoryActivity.class))));
+        actions.addView(walletAction("◷", "Riwayat Transaksi", this::openBalanceTransactionHistory));
+    }
+
+
+    private void openBalanceTransactionHistory() {
+        String[] candidates = new String[]{
+                "com.transiva.app.CustomerBalanceHistoryActivity",
+                "com.transiva.app.BalanceTransactionHistoryActivity",
+                "com.transiva.app.CustomerTransactionHistoryActivity"
+        };
+
+        for (String className : candidates) {
+            try {
+                Class<?> target = Class.forName(className);
+                startActivity(new Intent(this, target));
+                return;
+            } catch (ClassNotFoundException ignored) {}
+        }
+
+        Toast.makeText(
+                this,
+                "Halaman riwayat transaksi saldo sedang disiapkan",
+                Toast.LENGTH_SHORT
+        ).show();
     }
 
     private View walletAction(String symbol, String label, Runnable action) {
@@ -228,38 +298,90 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
     }
 
     private void buildPromoSection() {
-        content.addView(sectionHeader("Promo Hari Ini", "Lihat semua  ›"));
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
+        content.addView(sectionHeader("Promo Hari Ini", ""));
+
+        promoScroll = new HorizontalScrollView(this);
+        promoScroll.setHorizontalScrollBarEnabled(false);
+        promoScroll.setFillViewport(false);
+
         promoTrack = new LinearLayout(this);
         promoTrack.setOrientation(LinearLayout.HORIZONTAL);
-        scroll.addView(promoTrack, new HorizontalScrollView.LayoutParams(-2, -2));
+        promoScroll.addView(promoTrack, new HorizontalScrollView.LayoutParams(-2, -2));
+
         LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, dp(126));
         scrollLp.setMargins(0, dp(7), 0, dp(5));
-        content.addView(scroll, scrollLp);
+        content.addView(promoScroll, scrollLp);
 
-        LinearLayout dots = new LinearLayout(this);
-        dots.setGravity(Gravity.CENTER);
-        for (int i = 0; i < 4; i++) {
-            View dot = new View(this);
-            dot.setBackground(Shape.round(i == 0 ? "#0B7CFF" : "#CBD5E1", dp(5)));
-            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(7), dp(7));
-            dotLp.setMargins(dp(3), 0, dp(3), 0);
-            dots.addView(dot, dotLp);
-        }
+        promoDots = new LinearLayout(this);
+        promoDots.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams dotsLp = new LinearLayout.LayoutParams(-1, dp(14));
         dotsLp.setMargins(0, 0, 0, dp(13));
-        content.addView(dots, dotsLp);
+        content.addView(promoDots, dotsLp);
+
+        promoScroll.setOnScrollChangeListener((view, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            if (promoCount < 2) return;
+            int pageWidth = dp(284);
+            int index = Math.round((float) scrollX / pageWidth);
+            index = Math.max(0, Math.min(promoCount - 1, index));
+            if (index != activePromoIndex) {
+                activePromoIndex = index;
+                updatePromoDots();
+            }
+        });
     }
 
     private void renderPromos(List<Promo> promos) {
         promoTrack.removeAllViews();
+
         if (promos == null || promos.isEmpty()) {
-            promoTrack.addView(promoBanner(new Promo("DISKON 20%", "TransRide & TransCar\nHemat perjalananmu hari ini!", "JALAN20"), 0));
-            return;
+            promoTrack.addView(promoBanner(
+                    new Promo("Hemat Perjalanan", "Diskon 20% TransRide dan TransCar hari ini.", "JALAN20"), 0));
+            promoTrack.addView(promoBanner(
+                    new Promo("Gratis Antar", "Potongan ongkir TransFood untuk minimum belanja Rp50.000.", "FOODHEMAT"), 1));
+            promoCount = 2;
+        } else {
+            promoCount = Math.min(promos.size(), 2);
+            for (int i = 0; i < promoCount; i++) {
+                promoTrack.addView(promoBanner(promos.get(i), i));
+            }
         }
-        int count = Math.min(promos.size(), 4);
-        for (int i = 0; i < count; i++) promoTrack.addView(promoBanner(promos.get(i), i));
+
+        activePromoIndex = 0;
+        buildPromoDots();
+        promoScroll.post(() -> scrollToPromo(0, false));
+        startPromoAutoSlide();
+    }
+
+    private void buildPromoDots() {
+        promoDots.removeAllViews();
+        for (int i = 0; i < promoCount; i++) {
+            View dot = new View(this);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(7), dp(7));
+            lp.setMargins(dp(3), 0, dp(3), 0);
+            promoDots.addView(dot, lp);
+        }
+        updatePromoDots();
+    }
+
+    private void updatePromoDots() {
+        for (int i = 0; i < promoDots.getChildCount(); i++) {
+            promoDots.getChildAt(i).setBackground(
+                    Shape.round(i == activePromoIndex ? "#0B7CFF" : "#CBD5E1", dp(5))
+            );
+        }
+    }
+
+    private void scrollToPromo(int index, boolean smooth) {
+        if (promoScroll == null) return;
+        int x = index * dp(284);
+        if (smooth) promoScroll.smoothScrollTo(x, 0);
+        else promoScroll.scrollTo(x, 0);
+        updatePromoDots();
+    }
+
+    private void startPromoAutoSlide() {
+        promoHandler.removeCallbacks(promoAutoSlide);
+        if (promoCount > 1) promoHandler.postDelayed(promoAutoSlide, 4500);
     }
 
     private View promoBanner(Promo promo, int index) {
@@ -386,7 +508,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
     }
 
     private void buildRecommendationSection() {
-        content.addView(sectionHeader("Rekomendasi untukmu", "Lihat semua  ›"));
+        content.addView(sectionHeader("Rekomendasi untukmu", ""));
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row = new LinearLayout(this);
@@ -471,8 +593,8 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
             boolean gps = manager.isProviderEnabled(LocationManager.GPS_PROVIDER);
             boolean network = manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
             if (!gps && !network) {
-                locationText.setText("Aktifkan GPS");
-                locationText.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)));
+                verificationStatusText.setText("Aktifkan GPS");
+                verificationStatusText.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)));
                 return;
             }
             String provider = gps ? LocationManager.GPS_PROVIDER : LocationManager.NETWORK_PROVIDER;
@@ -485,7 +607,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
                 @Override public void onProviderDisabled(String provider) {}
             }, Looper.getMainLooper());
         } catch (Exception error) {
-            locationText.setText("Lokasi gagal");
+            verificationStatusText.setText("Lokasi gagal");
         }
     }
 
@@ -501,7 +623,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
                 new SessionManager(this).saveLastLocation(String.valueOf(location.getLatitude()), String.valueOf(location.getLongitude()));
             } catch (Exception ignored) {}
             String finalResult = result;
-            runOnUiThread(() -> locationText.setText(finalResult));
+            runOnUiThread(() -> verificationStatusText.setText(finalResult));
         }).start();
     }
 
@@ -534,6 +656,6 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQ_LOCATION && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) loadLocation();
-        else if (requestCode == REQ_LOCATION) locationText.setText("Izin ditolak");
+        else if (requestCode == REQ_LOCATION) verificationStatusText.setText("Izin ditolak");
     }
 }
