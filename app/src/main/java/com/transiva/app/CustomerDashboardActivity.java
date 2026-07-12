@@ -66,6 +66,7 @@ public class CustomerDashboardActivity extends Activity
     private LinearLayout promoDots;
 
     private ProgressBar loading;
+    private RecommendationSectionController recommendationController;
 
     private int promoCount;
     private int activePromoIndex;
@@ -141,6 +142,10 @@ public class CustomerDashboardActivity extends Activity
         }
 
         startPromoAutoSlide();
+
+        if (recommendationController != null) {
+            recommendationController.refresh();
+        }
     }
 
     @Override
@@ -1471,146 +1476,13 @@ public class CustomerDashboardActivity extends Activity
     }
 
     private void buildRecommendationSection() {
-        TextView header = text(
-                "Rekomendasi untukmu",
-                16,
-                "#0B3A78",
-                true
+        recommendationController =
+                new RecommendationSectionController(this);
+
+        content.addView(
+                recommendationController.buildView(),
+                new LinearLayout.LayoutParams(-1, -2)
         );
-
-        content.addView(header);
-
-        HorizontalScrollView scroll =
-                new HorizontalScrollView(this);
-
-        scroll.setHorizontalScrollBarEnabled(false);
-
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(
-                LinearLayout.HORIZONTAL
-        );
-
-        scroll.addView(
-                row,
-                new HorizontalScrollView.LayoutParams(
-                        -2,
-                        -2
-                )
-        );
-
-        row.addView(
-                recommendation(
-                        "Diskon hingga\n50%",
-                        "#E83A20",
-                        "Burger favorit"
-                )
-        );
-
-        row.addView(
-                recommendation(
-                        "Wisata Populer\nPalu",
-                        "#2196F3",
-                        "Jelajahi sekarang"
-                )
-        );
-
-        row.addView(
-                recommendation(
-                        "Cashback\nRp15.000",
-                        "#6D42D8",
-                        "TransFood"
-                )
-        );
-
-        LinearLayout.LayoutParams scrollLp =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        dp(92)
-                );
-
-        scrollLp.setMargins(
-                0,
-                dp(7),
-                0,
-                0
-        );
-
-        content.addView(scroll, scrollLp);
-    }
-
-    private View recommendation(
-            String title,
-            String color,
-            String subtitle
-    ) {
-        LinearLayout card =
-                new LinearLayout(this);
-
-        card.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        card.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        card.setPadding(
-                dp(11),
-                dp(9),
-                dp(11),
-                dp(9)
-        );
-
-        card.setBackground(
-                Shape.round(
-                        color,
-                        dp(15)
-                )
-        );
-
-        card.addView(
-                text(
-                        title,
-                        14,
-                        "#FFFFFF",
-                        true
-                )
-        );
-
-        TextView sub = text(
-                subtitle,
-                9,
-                "#FFFFFF",
-                false
-        );
-
-        LinearLayout.LayoutParams subLp =
-                new LinearLayout.LayoutParams(-1, -2);
-
-        subLp.setMargins(
-                0,
-                dp(5),
-                0,
-                0
-        );
-
-        card.addView(sub, subLp);
-
-        LinearLayout.LayoutParams cardLp =
-                new LinearLayout.LayoutParams(
-                        dp(145),
-                        dp(84)
-                );
-
-        cardLp.setMargins(
-                0,
-                0,
-                dp(8),
-                0
-        );
-
-        card.setLayoutParams(cardLp);
-        return card;
     }
 
     private View buildBottomNavigation() {

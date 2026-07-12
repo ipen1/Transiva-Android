@@ -113,7 +113,8 @@ public class AdminDashboardActivity extends Activity {
                 {"🏦", "Money"},
                 {"💸", "WD Driver"},
                 {"✅", "Verifikasi"},
-                {"🎁", "Promo"}
+                {"🎁", "Promo"},
+                {"⭐", "Rekomendasi"}
         };
 
         for (String[] itemData : menu) {
@@ -175,6 +176,9 @@ public class AdminDashboardActivity extends Activity {
                 break;
             case "Promo":
                 intent = new Intent(this, AdminPromoManagementActivity.class);
+                break;
+            case "Rekomendasi":
+                intent = new Intent(this, AdminRecommendationManagementActivity.class);
                 break;
         }
 
