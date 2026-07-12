@@ -104,7 +104,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
 
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(20), dp(20), dp(20), dp(32));
+        content.setPadding(dp(14), dp(12), dp(14), dp(20));
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
 
         buildHeader();
@@ -114,11 +114,11 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         buildOrderSection();
         buildRecommendationSection();
 
-        shell.addView(buildBottomNavigation(), new LinearLayout.LayoutParams(-1, dp(76)));
+        shell.addView(buildBottomNavigation(), new LinearLayout.LayoutParams(-1, dp(64)));
 
         loading = new ProgressBar(this);
         loading.setVisibility(View.GONE);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(48), dp(48));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(dp(42), dp(42));
         lp.gravity = Gravity.CENTER;
         page.addView(loading, lp);
         return page;
@@ -133,14 +133,14 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout left = new LinearLayout(this);
         left.setOrientation(LinearLayout.VERTICAL);
         row.addView(left, new LinearLayout.LayoutParams(0, -2, 1));
-        left.addView(text("Selamat datang 👋", 15, "#64748B", false));
+        left.addView(text("Selamat datang 👋", 12, "#64748B", false));
 
-        TextView name = text(username.toLowerCase(Locale.getDefault()), 28, "#0B3A78", true);
+        TextView name = text(username.toLowerCase(Locale.getDefault()), 23, "#0B3A78", true);
         LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(-1, -2);
-        nameLp.setMargins(0, dp(2), 0, dp(8));
+        nameLp.setMargins(0, dp(1), 0, dp(5));
         left.addView(name, nameLp);
 
-        TextView city = text("Toboli, Palu  ›", 14, "#24476E", false);
+        TextView city = text("Toboli, Palu  ›", 12, "#24476E", false);
         city.setCompoundDrawablesWithIntrinsicBounds(drawable("ic_location_pin"), 0, 0, 0);
         city.setCompoundDrawablePadding(dp(5));
         left.addView(city);
@@ -148,58 +148,58 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        card.setBackground(Shape.roundStroke("#FFFFFF", "#E2EBF6", dp(24), 1));
-        card.setElevation(dp(4));
+        card.setPadding(dp(11), dp(9), dp(11), dp(9));
+        card.setBackground(Shape.roundStroke("#FFFFFF", "#E2EBF6", dp(18), 1));
+        card.setElevation(dp(1));
         card.setOnClickListener(v -> loadLocation());
 
         ImageView pin = new ImageView(this);
         pin.setImageResource(drawable("ic_location_pin"));
         pin.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        card.addView(pin, new LinearLayout.LayoutParams(dp(58), dp(58)));
+        card.addView(pin, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
         copy.setPadding(dp(10), 0, 0, 0);
-        copy.addView(text("Lokasi saya", 12, "#718096", false));
-        locationText = text("Memuat...", 16, "#0B3A78", true);
+        copy.addView(text("Lokasi saya", 9, "#718096", false));
+        locationText = text("Memuat...", 12, "#0B3A78", true);
         locationText.setSingleLine(true);
         copy.addView(locationText);
-        card.addView(copy, new LinearLayout.LayoutParams(dp(112), -2));
+        card.addView(copy, new LinearLayout.LayoutParams(dp(76), -2));
 
-        row.addView(card, new LinearLayout.LayoutParams(dp(184), dp(96)));
+        row.addView(card, new LinearLayout.LayoutParams(dp(132), dp(68)));
     }
 
     private void buildWalletCard() {
         FrameLayout frame = new FrameLayout(this);
-        frame.setBackground(Shape.gradient("#075EF4", "#22A4FF", dp(28)));
+        frame.setBackground(Shape.gradient("#075EF4", "#22A4FF", dp(17)));
         frame.setElevation(dp(5));
-        LinearLayout.LayoutParams frameLp = new LinearLayout.LayoutParams(-1, dp(236));
-        frameLp.setMargins(0, dp(22), 0, dp(24));
+        LinearLayout.LayoutParams frameLp = new LinearLayout.LayoutParams(-1, dp(170));
+        frameLp.setMargins(0, dp(14), 0, dp(16));
         content.addView(frame, frameLp);
 
         ImageView art = new ImageView(this);
         art.setImageResource(drawable("img_wallet_transiva"));
         art.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        FrameLayout.LayoutParams artLp = new FrameLayout.LayoutParams(dp(190), dp(190));
+        FrameLayout.LayoutParams artLp = new FrameLayout.LayoutParams(dp(125), dp(125));
         artLp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
         frame.addView(art, artLp);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(20), dp(18), dp(20), dp(16));
+        card.setPadding(dp(16), dp(13), dp(16), dp(10));
         frame.addView(card, new FrameLayout.LayoutParams(-1, -1));
 
-        card.addView(text("Transiva Pay", 18, "#FFFFFF", true));
-        TextView sub = text("Saldo Anda", 14, "#EAF4FF", false);
+        card.addView(text("Transiva Pay", 15, "#FFFFFF", true));
+        TextView sub = text("Saldo Anda", 11, "#EAF4FF", false);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
-        subLp.setMargins(0, dp(8), 0, 0);
+        subLp.setMargins(0, dp(5), 0, 0);
         card.addView(sub, subLp);
 
-        balanceText = text("Memuat saldo...", 31, "#FFFFFF", true);
+        balanceText = text("Memuat saldo...", 25, "#FFFFFF", true);
         balanceText.setSingleLine(true);
         LinearLayout.LayoutParams balLp = new LinearLayout.LayoutParams(-1, -2);
-        balLp.setMargins(0, dp(2), 0, dp(12));
+        balLp.setMargins(0, dp(1), 0, dp(8));
         card.addView(balanceText, balLp);
 
         LinearLayout actions = new LinearLayout(this);
@@ -214,14 +214,14 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout item = new LinearLayout(this);
         item.setOrientation(LinearLayout.VERTICAL);
         item.setGravity(Gravity.CENTER);
-        item.setPadding(0, 0, dp(24), 0);
-        TextView button = text(symbol, 28, "#0B7CFF", false);
+        item.setPadding(0, 0, dp(13), 0);
+        TextView button = text(symbol, 21, "#0B7CFF", false);
         button.setGravity(Gravity.CENTER);
-        button.setBackground(Shape.round("#FFFFFF", dp(17)));
-        item.addView(button, new LinearLayout.LayoutParams(dp(58), dp(58)));
-        TextView caption = text(label, 12, "#FFFFFF", true);
+        button.setBackground(Shape.round("#FFFFFF", dp(13)));
+        item.addView(button, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        TextView caption = text(label, 10, "#FFFFFF", true);
         LinearLayout.LayoutParams capLp = new LinearLayout.LayoutParams(-2, -2);
-        capLp.setMargins(0, dp(6), 0, 0);
+        capLp.setMargins(0, dp(4), 0, 0);
         item.addView(caption, capLp);
         item.setOnClickListener(v -> action.run());
         return item;
@@ -234,8 +234,8 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         promoTrack = new LinearLayout(this);
         promoTrack.setOrientation(LinearLayout.HORIZONTAL);
         scroll.addView(promoTrack, new HorizontalScrollView.LayoutParams(-2, -2));
-        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, dp(176));
-        scrollLp.setMargins(0, dp(10), 0, dp(8));
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, dp(126));
+        scrollLp.setMargins(0, dp(7), 0, dp(5));
         content.addView(scroll, scrollLp);
 
         LinearLayout dots = new LinearLayout(this);
@@ -243,12 +243,12 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         for (int i = 0; i < 4; i++) {
             View dot = new View(this);
             dot.setBackground(Shape.round(i == 0 ? "#0B7CFF" : "#CBD5E1", dp(5)));
-            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(9), dp(9));
-            dotLp.setMargins(dp(4), 0, dp(4), 0);
+            LinearLayout.LayoutParams dotLp = new LinearLayout.LayoutParams(dp(7), dp(7));
+            dotLp.setMargins(dp(3), 0, dp(3), 0);
             dots.addView(dot, dotLp);
         }
-        LinearLayout.LayoutParams dotsLp = new LinearLayout.LayoutParams(-1, dp(18));
-        dotsLp.setMargins(0, 0, 0, dp(20));
+        LinearLayout.LayoutParams dotsLp = new LinearLayout.LayoutParams(-1, dp(14));
+        dotsLp.setMargins(0, 0, 0, dp(13));
         content.addView(dots, dotsLp);
     }
 
@@ -264,32 +264,32 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
 
     private View promoBanner(Promo promo, int index) {
         FrameLayout card = new FrameLayout(this);
-        card.setBackground(Shape.gradient(index % 2 == 0 ? "#0759E8" : "#006EDC", index % 2 == 0 ? "#099FE8" : "#18B5FF", dp(22)));
+        card.setBackground(Shape.gradient(index % 2 == 0 ? "#0759E8" : "#006EDC", index % 2 == 0 ? "#099FE8" : "#18B5FF", dp(17)));
         card.setElevation(dp(3));
 
         ImageView image = new ImageView(this);
         image.setImageResource(drawable("img_promo_vehicle"));
         image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        FrameLayout.LayoutParams imgLp = new FrameLayout.LayoutParams(dp(200), -1);
+        FrameLayout.LayoutParams imgLp = new FrameLayout.LayoutParams(dp(132), -1);
         imgLp.gravity = Gravity.END;
         card.addView(image, imgLp);
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(18), dp(16), dp(12), dp(14));
+        box.setPadding(dp(13), dp(10), dp(8), dp(8));
         card.addView(box, new FrameLayout.LayoutParams(-1, -1));
-        box.addView(text(promo.title, 27, "#FFFFFF", true));
-        TextView desc = text(promo.description, 15, "#FFFFFF", false);
-        LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(dp(220), -2);
-        descLp.setMargins(0, dp(4), 0, dp(10));
+        box.addView(text(promo.title, 20, "#FFFFFF", true));
+        TextView desc = text(promo.description, 11, "#FFFFFF", false);
+        LinearLayout.LayoutParams descLp = new LinearLayout.LayoutParams(dp(165), -2);
+        descLp.setMargins(0, dp(2), 0, dp(6));
         box.addView(desc, descLp);
-        TextView code = text("Kode: " + promo.code, 13, "#FFFFFF", true);
-        code.setPadding(dp(10), dp(6), dp(10), dp(6));
-        code.setBackground(Shape.roundStroke("#0A6FEA", "#FFFFFF", dp(10), 1));
+        TextView code = text("Kode: " + promo.code, 10, "#FFFFFF", true);
+        code.setPadding(dp(7), dp(4), dp(7), dp(4));
+        code.setBackground(Shape.roundStroke("#0A6FEA", "#FFFFFF", dp(8), 1));
         box.addView(code, new LinearLayout.LayoutParams(-2, -2));
 
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(342), dp(166));
-        lp.setMargins(0, 0, dp(12), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(275), dp(118));
+        lp.setMargins(0, 0, dp(9), 0);
         card.setLayoutParams(lp);
         return card;
     }
@@ -299,7 +299,7 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams gridLp = new LinearLayout.LayoutParams(-1, -2);
-        gridLp.setMargins(0, dp(10), 0, dp(22));
+        gridLp.setMargins(0, dp(7), 0, dp(14));
         content.addView(grid, gridLp);
 
         grid.addView(serviceRow(
@@ -320,12 +320,12 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < items.length; i++) {
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(112), 1);
-            if (i > 0) lp.setMargins(dp(8), 0, 0, 0);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(84), 1);
+            if (i > 0) lp.setMargins(dp(6), 0, 0, 0);
             row.addView(items[i], lp);
         }
         LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
-        rowLp.setMargins(0, 0, 0, dp(9));
+        rowLp.setMargins(0, 0, 0, dp(6));
         row.setLayoutParams(rowLp);
         return row;
     }
@@ -338,18 +338,18 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER);
-        card.setPadding(dp(6), dp(8), dp(6), dp(8));
-        card.setBackground(Shape.roundStroke("#FFFFFF", "#EDF2F7", dp(20), 1));
-        card.setElevation(dp(2));
+        card.setPadding(dp(4), dp(5), dp(4), dp(5));
+        card.setBackground(Shape.roundStroke("#FFFFFF", "#EDF2F7", dp(15), 1));
+        card.setElevation(dp(1));
         ImageView image = new ImageView(this);
         image.setImageResource(drawable(icon));
         image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        card.addView(image, new LinearLayout.LayoutParams(dp(53), dp(53)));
-        TextView label = text(title, 11, "#0B3A78", true);
+        card.addView(image, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        TextView label = text(title, 9, "#0B3A78", true);
         label.setGravity(Gravity.CENTER);
         label.setSingleLine(true);
         LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(-1, -2);
-        labelLp.setMargins(0, dp(7), 0, 0);
+        labelLp.setMargins(0, dp(4), 0, 0);
         card.addView(label, labelLp);
         card.setOnClickListener(v -> action.run());
         return card;
@@ -357,31 +357,31 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
 
     private void buildOrderSection() {
         FrameLayout card = new FrameLayout(this);
-        card.setBackground(Shape.roundStroke("#FFFFFF", "#EDF2F7", dp(22), 1));
-        card.setElevation(dp(2));
-        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, dp(124));
-        cardLp.setMargins(0, 0, 0, dp(24));
+        card.setBackground(Shape.roundStroke("#FFFFFF", "#EDF2F7", dp(17), 1));
+        card.setElevation(dp(1));
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, dp(92));
+        cardLp.setMargins(0, 0, 0, dp(15));
         content.addView(card, cardLp);
 
         ImageView illustration = new ImageView(this);
         illustration.setImageResource(drawable("img_order_empty"));
         illustration.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        FrameLayout.LayoutParams artLp = new FrameLayout.LayoutParams(dp(150), -1);
+        FrameLayout.LayoutParams artLp = new FrameLayout.LayoutParams(dp(105), -1);
         artLp.gravity = Gravity.END;
         card.addView(illustration, artLp);
 
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(18), dp(16), dp(160), dp(14));
+        box.setPadding(dp(14), dp(12), dp(110), dp(10));
         card.addView(box, new FrameLayout.LayoutParams(-1, -1));
-        box.addView(text("Status Pesanan", 18, "#0B3A78", true));
-        orderText = text("Belum ada pesanan aktif", 14, "#718096", false);
+        box.addView(text("Status Pesanan", 15, "#0B3A78", true));
+        orderText = text("Belum ada pesanan aktif", 11, "#718096", false);
         LinearLayout.LayoutParams orderLp = new LinearLayout.LayoutParams(-1, -2);
-        orderLp.setMargins(0, dp(8), 0, 0);
+        orderLp.setMargins(0, dp(5), 0, 0);
         box.addView(orderText, orderLp);
-        TextView hint = text("Yuk, pesan layanan Transiva sekarang!", 12, "#8AA0B8", false);
+        TextView hint = text("Yuk, pesan layanan Transiva sekarang!", 9, "#8AA0B8", false);
         LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(-1, -2);
-        hintLp.setMargins(0, dp(4), 0, 0);
+        hintLp.setMargins(0, dp(2), 0, 0);
         box.addView(hint, hintLp);
     }
 
@@ -395,8 +395,8 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         row.addView(recommendation("Diskon hingga\n50%", "#E83A20", "Burger favorit"));
         row.addView(recommendation("Wisata Populer\nPalu", "#2196F3", "Jelajahi sekarang"));
         row.addView(recommendation("Cashback\nRp15.000", "#6D42D8", "TransFood"));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(130));
-        lp.setMargins(0, dp(10), 0, 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(92));
+        lp.setMargins(0, dp(7), 0, 0);
         content.addView(scroll, lp);
     }
 
@@ -404,15 +404,15 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        card.setBackground(Shape.round(color, dp(20)));
-        card.addView(text(title, 18, "#FFFFFF", true));
-        TextView sub = text(subtitle, 12, "#FFFFFF", false);
+        card.setPadding(dp(11), dp(9), dp(11), dp(9));
+        card.setBackground(Shape.round(color, dp(15)));
+        card.addView(text(title, 14, "#FFFFFF", true));
+        TextView sub = text(subtitle, 9, "#FFFFFF", false);
         LinearLayout.LayoutParams subLp = new LinearLayout.LayoutParams(-1, -2);
-        subLp.setMargins(0, dp(8), 0, 0);
+        subLp.setMargins(0, dp(5), 0, 0);
         card.addView(sub, subLp);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(190), dp(118));
-        lp.setMargins(0, 0, dp(12), 0);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(145), dp(84));
+        lp.setMargins(0, 0, dp(9), 0);
         card.setLayoutParams(lp);
         return card;
     }
@@ -420,8 +420,8 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
     private LinearLayout sectionHeader(String title, String action) {
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(text(title, 20, "#0B3A78", true), new LinearLayout.LayoutParams(0, -2, 1));
-        if (action != null && !action.isEmpty()) header.addView(text(action, 13, "#0B7CFF", true));
+        header.addView(text(title, 16, "#0B3A78", true), new LinearLayout.LayoutParams(0, -2, 1));
+        if (action != null && !action.isEmpty()) header.addView(text(action, 10, "#0B7CFF", true));
         return header;
     }
 
@@ -429,9 +429,9 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         LinearLayout nav = new LinearLayout(this);
         nav.setOrientation(LinearLayout.HORIZONTAL);
         nav.setGravity(Gravity.CENTER);
-        nav.setPadding(dp(6), dp(5), dp(6), dp(5));
+        nav.setPadding(dp(5), dp(4), dp(5), dp(4));
         nav.setBackgroundColor(Color.WHITE);
-        nav.setElevation(dp(10));
+        nav.setElevation(dp(8));
         nav.addView(navItem("Beranda", "ic_nav_home", null, true), navLp());
         nav.addView(navItem("Aktivitas", "ic_nav_activity", CustomerHistoryActivity.class, false), navLp());
         nav.addView(navItem("Pesan", "ic_nav_chat", CustomerChatActivity.class, false), navLp());
@@ -449,11 +449,11 @@ public class CustomerDashboardActivity extends Activity implements CustomerDashb
         ImageView image = new ImageView(this);
         image.setImageResource(drawable(icon));
         image.setAlpha(active ? 1f : .62f);
-        item.addView(image, new LinearLayout.LayoutParams(dp(27), dp(27)));
-        TextView title = text(label, 10, active ? "#0B7CFF" : "#64748B", active);
+        item.addView(image, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        TextView title = text(label, 9, active ? "#0B7CFF" : "#64748B", active);
         title.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(-1, -2);
-        titleLp.setMargins(0, dp(4), 0, 0);
+        titleLp.setMargins(0, dp(2), 0, 0);
         item.addView(title, titleLp);
         if (target != null) item.setOnClickListener(v -> startActivity(new Intent(this, target)));
         return item;
