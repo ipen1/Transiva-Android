@@ -72,7 +72,14 @@ public class AdminVerifyUserActivity extends Activity {
 
         sessionManager = new SessionManager(this);
         adminUsername = safe(sessionManager.getUsername());
-        adminToken = safe(sessionManager.getToken());
+        adminToken = firstNonEmpty(
+                sessionManager.getToken(),
+                sessionManager.getFcmToken(),
+                getSharedPreferences("transiva_fcm", MODE_PRIVATE)
+                        .getString("fcm_token", ""),
+                getSharedPreferences("transiva", MODE_PRIVATE)
+                        .getString("fcm_token", "")
+        );
 
         buildUi();
 
