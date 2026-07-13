@@ -1,9 +1,11 @@
 package com.transiva.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -30,6 +32,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 
 import org.json.JSONArray;
@@ -63,6 +67,7 @@ public class CustomerChatRoomActivity extends Activity {
 
     private static final int REQUEST_GALLERY = 4101;
     private static final int REQUEST_CAMERA = 4102;
+    private static final int REQUEST_CAMERA_PERMISSION = 4103;
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
 
@@ -562,6 +567,28 @@ public class CustomerChatRoomActivity extends Activity {
     }
 
     private void openCamera() {
+        if (
+                ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.CAMERA
+                )
+                        != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{
+                            Manifest.permission.CAMERA
+                    },
+                    REQUEST_CAMERA_PERMISSION
+            );
+
+            return;
+        }
+
+        launchCameraInternal();
+    }
+
+    private void launchCameraInternal() {
         try {
             /*
              * Gunakan cache internal aplikasi.
@@ -665,6 +692,37 @@ public class CustomerChatRoomActivity extends Activity {
         }
     }
 
+    @Override
+    public void onRequestPermissionsResult(
+            int requestCode,
+            String[] permissions,
+            int[] grantResults
+    ) {
+        super.onRequestPermissionsResult(
+                requestCode,
+                permissions,
+                grantResults
+        );
+
+        if (
+                requestCode
+                        == REQUEST_CAMERA_PERMISSION
+        ) {
+            if (
+                    grantResults.length > 0
+                            &&
+                    grantResults[0]
+                            == PackageManager.PERMISSION_GRANTED
+            ) {
+                launchCameraInternal();
+            } else {
+                toast(
+                        "Izin kamera diperlukan untuk mengambil foto."
+                );
+            }
+        }
+    }
+
     private void openGallery() {
         try {
             Intent intent = new Intent(
@@ -699,17 +757,6 @@ public class CustomerChatRoomActivity extends Activity {
                 data
         );
 
-        if (requestCode == REQUEST_CAMERA) {
-            try {
-                revokeUriPermission(
-                        cameraPhotoUri,
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                                | Intent.FLAG_GRANT_READ_URI_PERMISSION
-                );
-            } catch (Exception ignored) {
-            }
-        }
-
         if (resultCode != RESULT_OK) {
             cleanupCameraFile();
             return;
@@ -738,6 +785,17 @@ public class CustomerChatRoomActivity extends Activity {
                             getContentResolver(),
                             sourceUri
                     );
+
+            if (requestCode == REQUEST_CAMERA) {
+                try {
+                    revokeUriPermission(
+                            cameraPhotoUri,
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                    | Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    );
+                } catch (Exception ignored) {
+                }
+            }
 
             uploadPhoto(payload);
 
