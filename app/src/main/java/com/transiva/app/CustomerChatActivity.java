@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -39,6 +40,12 @@ public class CustomerChatActivity extends Activity {
             BASE_URL
                     + "server/get_customer_conversations.php";
 
+    private static final String IMAGE_PREFIX =
+            "[[IMAGE]]";
+
+    private static final String IMAGE_V2_PREFIX =
+            "[[IMAGE2]]";
+
     private final Handler mainHandler =
             new Handler(Looper.getMainLooper());
 
@@ -55,7 +62,9 @@ public class CustomerChatActivity extends Activity {
     private boolean loading;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(
+            Bundle savedInstanceState
+    ) {
         super.onCreate(savedInstanceState);
 
         getWindow().setStatusBarColor(
@@ -69,9 +78,8 @@ public class CustomerChatActivity extends Activity {
         loadSession();
         setContentView(buildScreen());
 
-        CustomerChatNotificationPoller.requestPermission(
-                this
-        );
+        CustomerChatNotificationPoller
+                .requestPermission(this);
 
         CustomerChatNotificationPoller.start(
                 this,
@@ -102,37 +110,57 @@ public class CustomerChatActivity extends Activity {
                             "0"
                     )
             );
+
         } catch (Exception ignored) {
             userId = 0;
         }
     }
 
     private View buildScreen() {
-        FrameLayout page = new FrameLayout(this);
+        FrameLayout page =
+                new FrameLayout(this);
 
         page.setBackgroundColor(
                 Color.parseColor("#F6F9FE")
         );
 
-        LinearLayout shell = new LinearLayout(this);
-        shell.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout shell =
+                new LinearLayout(this);
+
+        shell.setOrientation(
+                LinearLayout.VERTICAL
+        );
 
         page.addView(
                 shell,
-                new FrameLayout.LayoutParams(-1, -1)
+                new FrameLayout.LayoutParams(
+                        -1,
+                        -1
+                )
         );
 
-        ScrollView scroll = new ScrollView(this);
+        ScrollView scroll =
+                new ScrollView(this);
+
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
 
         shell.addView(
                 scroll,
-                new LinearLayout.LayoutParams(-1, 0, 1)
+                new LinearLayout.LayoutParams(
+                        -1,
+                        0,
+                        1
+                )
         );
 
-        content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
+        content =
+                new LinearLayout(this);
+
+        content.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
         content.setPadding(
                 dp(14),
                 dp(14),
@@ -142,29 +170,55 @@ public class CustomerChatActivity extends Activity {
 
         scroll.addView(
                 content,
-                new ScrollView.LayoutParams(-1, -2)
+                new ScrollView.LayoutParams(
+                        -1,
+                        -2
+                )
         );
 
         buildHeader();
         buildInfoCard();
         buildTabs();
 
-        listBox = new LinearLayout(this);
-        listBox.setOrientation(LinearLayout.VERTICAL);
+        listBox =
+                new LinearLayout(this);
+
+        listBox.setOrientation(
+                LinearLayout.VERTICAL
+        );
 
         LinearLayout.LayoutParams listLp =
-                new LinearLayout.LayoutParams(-1, -2);
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
 
-        listLp.setMargins(0, dp(12), 0, 0);
-        content.addView(listBox, listLp);
+        listLp.setMargins(
+                0,
+                dp(12),
+                0,
+                0
+        );
+
+        content.addView(
+                listBox,
+                listLp
+        );
 
         shell.addView(
                 buildBottomNavigation(),
-                new LinearLayout.LayoutParams(-1, dp(66))
+                new LinearLayout.LayoutParams(
+                        -1,
+                        dp(66)
+                )
         );
 
-        progress = new ProgressBar(this);
-        progress.setVisibility(View.GONE);
+        progress =
+                new ProgressBar(this);
+
+        progress.setVisibility(
+                View.GONE
+        );
 
         FrameLayout.LayoutParams progressLp =
                 new FrameLayout.LayoutParams(
@@ -172,8 +226,13 @@ public class CustomerChatActivity extends Activity {
                         dp(44)
                 );
 
-        progressLp.gravity = Gravity.CENTER;
-        page.addView(progress, progressLp);
+        progressLp.gravity =
+                Gravity.CENTER;
+
+        page.addView(
+                progress,
+                progressLp
+        );
 
         render();
 
@@ -181,8 +240,12 @@ public class CustomerChatActivity extends Activity {
     }
 
     private void buildHeader() {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout row =
+                new LinearLayout(this);
+
+        row.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
 
         LinearLayout titleBox =
                 new LinearLayout(this);
@@ -211,7 +274,11 @@ public class CustomerChatActivity extends Activity {
 
         row.addView(
                 titleBox,
-                new LinearLayout.LayoutParams(0, -2, 1)
+                new LinearLayout.LayoutParams(
+                        0,
+                        -2,
+                        1
+                )
         );
 
         TextView refresh = text(
@@ -221,7 +288,9 @@ public class CustomerChatActivity extends Activity {
                 true
         );
 
-        refresh.setGravity(Gravity.CENTER);
+        refresh.setGravity(
+                Gravity.CENTER
+        );
 
         refresh.setBackground(
                 roundStroke(
@@ -255,7 +324,9 @@ public class CustomerChatActivity extends Activity {
                 LinearLayout.HORIZONTAL
         );
 
-        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
 
         card.setPadding(
                 dp(13),
@@ -274,13 +345,16 @@ public class CustomerChatActivity extends Activity {
 
         card.setElevation(dp(2));
 
-        ImageView icon = new ImageView(this);
+        ImageView icon =
+                new ImageView(this);
 
         int resource =
                 drawable("ic_nav_chat");
 
         if (resource != 0) {
-            icon.setImageResource(resource);
+            icon.setImageResource(
+                    resource
+            );
         }
 
         card.addView(
@@ -291,9 +365,19 @@ public class CustomerChatActivity extends Activity {
                 )
         );
 
-        LinearLayout info = new LinearLayout(this);
-        info.setOrientation(LinearLayout.VERTICAL);
-        info.setPadding(dp(11), 0, 0, 0);
+        LinearLayout info =
+                new LinearLayout(this);
+
+        info.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        info.setPadding(
+                dp(11),
+                0,
+                0,
+                0
+        );
 
         info.addView(
                 text(
@@ -315,11 +399,18 @@ public class CustomerChatActivity extends Activity {
 
         card.addView(
                 info,
-                new LinearLayout.LayoutParams(0, -2, 1)
+                new LinearLayout.LayoutParams(
+                        0,
+                        -2,
+                        1
+                )
         );
 
         LinearLayout.LayoutParams cardLp =
-                new LinearLayout.LayoutParams(-1, -2);
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
 
         cardLp.setMargins(
                 0,
@@ -328,11 +419,16 @@ public class CustomerChatActivity extends Activity {
                 dp(14)
         );
 
-        content.addView(card, cardLp);
+        content.addView(
+                card,
+                cardLp
+        );
     }
 
     private void buildTabs() {
-        tabRow = new LinearLayout(this);
+        tabRow =
+                new LinearLayout(this);
+
         tabRow.setOrientation(
                 LinearLayout.HORIZONTAL
         );
@@ -362,27 +458,33 @@ public class CustomerChatActivity extends Activity {
     private void rebuildTabs() {
         tabRow.removeAllViews();
 
-        Button active = tabButton(
-                "Aktif",
-                selectedTab.equals("active")
+        Button active =
+                tabButton(
+                        "Aktif",
+                        selectedTab.equals("active")
+                );
+
+        Button history =
+                tabButton(
+                        "Riwayat",
+                        selectedTab.equals("history")
+                );
+
+        active.setOnClickListener(
+                view -> {
+                    selectedTab = "active";
+                    rebuildTabs();
+                    render();
+                }
         );
 
-        Button history = tabButton(
-                "Riwayat",
-                selectedTab.equals("history")
+        history.setOnClickListener(
+                view -> {
+                    selectedTab = "history";
+                    rebuildTabs();
+                    render();
+                }
         );
-
-        active.setOnClickListener(view -> {
-            selectedTab = "active";
-            rebuildTabs();
-            render();
-        });
-
-        history.setOnClickListener(view -> {
-            selectedTab = "history";
-            rebuildTabs();
-            render();
-        });
 
         tabRow.addView(
                 active,
@@ -400,15 +502,25 @@ public class CustomerChatActivity extends Activity {
                         1
                 );
 
-        historyLp.setMargins(dp(4), 0, 0, 0);
-        tabRow.addView(history, historyLp);
+        historyLp.setMargins(
+                dp(4),
+                0,
+                0,
+                0
+        );
+
+        tabRow.addView(
+                history,
+                historyLp
+        );
     }
 
     private Button tabButton(
             String label,
             boolean selected
     ) {
-        Button button = new Button(this);
+        Button button =
+                new Button(this);
 
         button.setText(label);
         button.setAllCaps(false);
@@ -448,12 +560,18 @@ public class CustomerChatActivity extends Activity {
         }
 
         if (userId <= 0) {
-            toast("Sesi pengguna tidak ditemukan");
+            toast(
+                    "Sesi pengguna tidak ditemukan"
+            );
+
             return;
         }
 
         loading = true;
-        progress.setVisibility(View.VISIBLE);
+        progress.setVisibility(
+                View.VISIBLE
+        );
+
         render();
 
         new Thread(() -> {
@@ -462,14 +580,20 @@ public class CustomerChatActivity extends Activity {
                         CONVERSATIONS_URL
                                 + "?user_id="
                                 + URLEncoder.encode(
-                                String.valueOf(userId),
-                                StandardCharsets.UTF_8.name()
-                        )
+                                        String.valueOf(
+                                                userId
+                                        ),
+                                        StandardCharsets
+                                                .UTF_8
+                                                .name()
+                                )
                                 + "&_="
                                 + System.currentTimeMillis();
 
                 JSONObject response =
-                        CustomerMessageApi.get(endpoint);
+                        CustomerMessageApi.get(
+                                endpoint
+                        );
 
                 JSONArray array =
                         response.optJSONArray(
@@ -502,17 +626,27 @@ public class CustomerChatActivity extends Activity {
 
                 mainHandler.post(() -> {
                     conversations.clear();
-                    conversations.addAll(fresh);
+                    conversations.addAll(
+                            fresh
+                    );
 
                     loading = false;
-                    progress.setVisibility(View.GONE);
+
+                    progress.setVisibility(
+                            View.GONE
+                    );
+
                     render();
                 });
 
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     loading = false;
-                    progress.setVisibility(View.GONE);
+
+                    progress.setVisibility(
+                            View.GONE
+                    );
+
                     render();
 
                     toast(
@@ -535,6 +669,7 @@ public class CustomerChatActivity extends Activity {
                     "Memuat percakapan...",
                     "Daftar pesan sedang diperbarui."
             );
+
             return;
         }
 
@@ -547,12 +682,13 @@ public class CustomerChatActivity extends Activity {
                             "is_history",
                             false
                     )
-                            || CustomerMessageStatus.isEnded(
-                            item.optString(
-                                    "status",
-                                    ""
-                            )
-                    );
+                            || CustomerMessageStatus
+                            .isEnded(
+                                    item.optString(
+                                            "status",
+                                            ""
+                                    )
+                            );
 
             if (
                     selectedTab.equals("history")
@@ -563,11 +699,16 @@ public class CustomerChatActivity extends Activity {
         }
 
         if (filtered.isEmpty()) {
-            if (selectedTab.equals("active")) {
+            if (
+                    selectedTab.equals(
+                            "active"
+                    )
+            ) {
                 addState(
                         "Belum ada pesan aktif",
                         "Percakapan akan tersedia setelah order diterima merchant atau driver."
                 );
+
             } else {
                 addState(
                         "Riwayat pesan masih kosong",
@@ -578,20 +719,35 @@ public class CustomerChatActivity extends Activity {
             return;
         }
 
-        TextView title = text(
-                selectedTab.equals("active")
-                        ? "Percakapan aktif"
-                        : "Riwayat percakapan",
-                15,
-                "#0B3A78",
-                true
-        );
+        TextView title =
+                text(
+                        selectedTab.equals(
+                                "active"
+                        )
+                                ? "Percakapan aktif"
+                                : "Riwayat percakapan",
+                        15,
+                        "#0B3A78",
+                        true
+                );
 
         LinearLayout.LayoutParams titleLp =
-                new LinearLayout.LayoutParams(-1, -2);
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
 
-        titleLp.setMargins(0, 0, 0, dp(9));
-        listBox.addView(title, titleLp);
+        titleLp.setMargins(
+                0,
+                0,
+                0,
+                dp(9)
+        );
+
+        listBox.addView(
+                title,
+                titleLp
+        );
 
         for (JSONObject item : filtered) {
             listBox.addView(
@@ -608,9 +764,13 @@ public class CustomerChatActivity extends Activity {
                         "is_history",
                         false
                 )
-                        || CustomerMessageStatus.isEnded(
-                        item.optString("status", "")
-                );
+                        || CustomerMessageStatus
+                        .isEnded(
+                                item.optString(
+                                        "status",
+                                        ""
+                                )
+                        );
 
         boolean canOpen =
                 history
@@ -618,9 +778,13 @@ public class CustomerChatActivity extends Activity {
                         "chat_available",
                         false
                 )
-                        || CustomerMessageStatus.canSend(
-                        item.optString("status", "")
-                );
+                        || CustomerMessageStatus
+                        .canSend(
+                                item.optString(
+                                        "status",
+                                        ""
+                                )
+                        );
 
         LinearLayout card =
                 new LinearLayout(this);
@@ -629,7 +793,9 @@ public class CustomerChatActivity extends Activity {
                 LinearLayout.HORIZONTAL
         );
 
-        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
 
         card.setPadding(
                 dp(12),
@@ -664,7 +830,9 @@ public class CustomerChatActivity extends Activity {
                 )
         );
 
-        ImageView icon = new ImageView(this);
+        ImageView icon =
+                new ImageView(this);
+
         int iconResource =
                 serviceDrawable(
                         item.optString(
@@ -674,11 +842,14 @@ public class CustomerChatActivity extends Activity {
                 );
 
         if (iconResource != 0) {
-            icon.setImageResource(iconResource);
+            icon.setImageResource(
+                    iconResource
+            );
         }
 
         icon.setScaleType(
-                ImageView.ScaleType.CENTER_INSIDE
+                ImageView.ScaleType
+                        .CENTER_INSIDE
         );
 
         FrameLayout.LayoutParams iconLp =
@@ -687,8 +858,13 @@ public class CustomerChatActivity extends Activity {
                         dp(34)
                 );
 
-        iconLp.gravity = Gravity.CENTER;
-        iconFrame.addView(icon, iconLp);
+        iconLp.gravity =
+                Gravity.CENTER;
+
+        iconFrame.addView(
+                icon,
+                iconLp
+        );
 
         card.addView(
                 iconFrame,
@@ -712,50 +888,51 @@ public class CustomerChatActivity extends Activity {
                 0
         );
 
-        String participant = first(
-                item.optString(
-                        "participant_name"
-                ),
-                item.optString("driver"),
-                serviceName(
+        String participant =
+                first(
                         item.optString(
-                                "order_type",
-                                ""
+                                "participant_name"
+                        ),
+                        item.optString(
+                                "driver"
+                        ),
+                        serviceName(
+                                item.optString(
+                                        "order_type",
+                                        ""
+                                )
                         )
-                )
-        );
+                );
 
-        info.addView(
+        TextView participantView =
                 text(
                         participant,
                         14,
                         "#0B3A78",
                         true
-                )
+                );
+
+        participantView.setSingleLine(
+                true
+        );
+
+        participantView.setEllipsize(
+                TextUtils.TruncateAt.END
         );
 
         info.addView(
-                text(
-                        first(
-                                item.optString(
-                                        "last_message"
-                                ),
-                                CustomerMessageStatus
-                                        .availabilityLabel(
-                                                item.optString(
-                                                        "status",
-                                                        ""
-                                                ),
-                                                history
-                                        )
-                        ),
-                        11,
-                        "#64748B",
-                        false
-                )
+                participantView
         );
 
         info.addView(
+                buildLastMessagePreview(
+                        item,
+                        participant,
+                        history
+                )
+        );
+
+        TextView orderInfo =
                 text(
                         serviceName(
                                 item.optString(
@@ -780,8 +957,15 @@ public class CustomerChatActivity extends Activity {
                                 ? "#8495A8"
                                 : "#0B7CFF",
                         true
-                )
+                );
+
+        orderInfo.setSingleLine(true);
+
+        orderInfo.setEllipsize(
+                TextUtils.TruncateAt.END
         );
+
+        info.addView(orderInfo);
 
         card.addView(
                 info,
@@ -801,7 +985,7 @@ public class CustomerChatActivity extends Activity {
 
         end.setGravity(Gravity.END);
 
-        end.addView(
+        TextView date =
                 text(
                         formatDate(
                                 item.optString(
@@ -815,19 +999,32 @@ public class CustomerChatActivity extends Activity {
                         9,
                         "#94A3B8",
                         false
-                )
+                );
+
+        date.setGravity(
+                Gravity.END
         );
 
-        TextView arrow = text(
-                canOpen ? "›" : "🔒",
-                canOpen ? 25 : 13,
-                canOpen
-                        ? "#0B7CFF"
-                        : "#94A3B8",
-                true
+        end.addView(date);
+
+        TextView arrow =
+                text(
+                        canOpen
+                                ? "›"
+                                : "🔒",
+                        canOpen
+                                ? 25
+                                : 13,
+                        canOpen
+                                ? "#0B7CFF"
+                                : "#94A3B8",
+                        true
+                );
+
+        arrow.setGravity(
+                Gravity.END
         );
 
-        arrow.setGravity(Gravity.END);
         end.addView(arrow);
 
         card.addView(
@@ -845,6 +1042,7 @@ public class CustomerChatActivity extends Activity {
                             history
                     )
             );
+
         } else {
             card.setOnClickListener(
                     view -> toast(
@@ -854,7 +1052,10 @@ public class CustomerChatActivity extends Activity {
         }
 
         LinearLayout.LayoutParams cardLp =
-                new LinearLayout.LayoutParams(-1, -2);
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
 
         cardLp.setMargins(
                 0,
@@ -863,36 +1064,264 @@ public class CustomerChatActivity extends Activity {
                 dp(9)
         );
 
-        card.setLayoutParams(cardLp);
+        card.setLayoutParams(
+                cardLp
+        );
 
         return card;
+    }
+
+    private View buildLastMessagePreview(
+            JSONObject item,
+            String participant,
+            boolean history
+    ) {
+        String fallback =
+                CustomerMessageStatus
+                        .availabilityLabel(
+                                item.optString(
+                                        "status",
+                                        ""
+                                ),
+                                history
+                        );
+
+        String raw =
+                item.optString(
+                        "last_message",
+                        ""
+                ).trim();
+
+        boolean imageMessage =
+                isImageMessage(raw);
+
+        String preview;
+
+        if (imageMessage) {
+            preview =
+                    isLastMessageMine(item)
+                            ? "Anda mengirim foto"
+                            : first(
+                            participant,
+                            "Mitra"
+                    )
+                            + " mengirim foto";
+
+        } else {
+            preview = first(
+                    raw,
+                    fallback,
+                    "Belum ada pesan"
+            );
+        }
+
+        LinearLayout row =
+                new LinearLayout(this);
+
+        row.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        row.setGravity(
+                Gravity.CENTER_VERTICAL
+        );
+
+        if (imageMessage) {
+            row.setPadding(
+                    dp(7),
+                    dp(4),
+                    dp(8),
+                    dp(4)
+            );
+
+            row.setBackground(
+                    round(
+                            history
+                                    ? "#F1F5F9"
+                                    : "#EAF4FF",
+                            9
+                    )
+            );
+
+            TextView camera =
+                    text(
+                            "▣",
+                            11,
+                            history
+                                    ? "#64748B"
+                                    : "#0B7CFF",
+                            true
+                    );
+
+            camera.setGravity(
+                    Gravity.CENTER
+            );
+
+            LinearLayout.LayoutParams cameraLp =
+                    new LinearLayout.LayoutParams(
+                            dp(20),
+                            dp(20)
+                    );
+
+            cameraLp.setMargins(
+                    0,
+                    0,
+                    dp(4),
+                    0
+            );
+
+            row.addView(
+                    camera,
+                    cameraLp
+            );
+        }
+
+        TextView message =
+                text(
+                        preview,
+                        11,
+                        imageMessage
+                                ? (
+                                history
+                                        ? "#64748B"
+                                        : "#0B5FAF"
+                        )
+                                : "#64748B",
+                        imageMessage
+                );
+
+        message.setSingleLine(true);
+
+        message.setEllipsize(
+                TextUtils.TruncateAt.END
+        );
+
+        message.setMaxLines(1);
+
+        row.addView(
+                message,
+                new LinearLayout.LayoutParams(
+                        0,
+                        -2,
+                        1
+                )
+        );
+
+        LinearLayout.LayoutParams rowLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
+        rowLp.setMargins(
+                0,
+                dp(2),
+                0,
+                dp(2)
+        );
+
+        row.setLayoutParams(rowLp);
+
+        return row;
+    }
+
+    private boolean isImageMessage(
+            String message
+    ) {
+        String value =
+                message == null
+                        ? ""
+                        : message.trim();
+
+        return value.startsWith(
+                IMAGE_PREFIX
+        )
+                || value.startsWith(
+                IMAGE_V2_PREFIX
+        );
+    }
+
+    private boolean isLastMessageMine(
+            JSONObject item
+    ) {
+        if (
+                item.optBoolean(
+                        "last_message_is_mine",
+                        false
+                )
+                        || item.optBoolean(
+                        "is_mine",
+                        false
+                )
+        ) {
+            return true;
+        }
+
+        String sender =
+                first(
+                        item.optString(
+                                "last_sender_type"
+                        ),
+                        item.optString(
+                                "sender_type"
+                        ),
+                        item.optString(
+                                "last_message_sender"
+                        ),
+                        item.optString(
+                                "sender_role"
+                        )
+                ).toLowerCase(
+                        Locale.US
+                );
+
+        return sender.equals(
+                "customer"
+        )
+                || sender.equals(
+                "user"
+        )
+                || sender.equals(
+                "pelanggan"
+        );
     }
 
     private void openRoom(
             JSONObject item,
             boolean history
     ) {
-        Intent intent = new Intent(
-                this,
-                CustomerChatRoomActivity.class
-        );
+        Intent intent =
+                new Intent(
+                        this,
+                        CustomerChatRoomActivity.class
+                );
 
         intent.putExtra(
                 "order_id",
                 first(
-                        item.optString("order_id"),
-                        item.optString("id")
+                        item.optString(
+                                "order_id"
+                        ),
+                        item.optString(
+                                "id"
+                        )
                 )
         );
 
         intent.putExtra(
                 "room_id",
-                item.optString("room_id", "")
+                item.optString(
+                        "room_id",
+                        ""
+                )
         );
 
         intent.putExtra(
                 "driver_name",
-                item.optString("driver", "")
+                item.optString(
+                        "driver",
+                        ""
+                )
         );
 
         intent.putExtra(
@@ -938,7 +1367,9 @@ public class CustomerChatActivity extends Activity {
                 LinearLayout.VERTICAL
         );
 
-        card.setGravity(Gravity.CENTER);
+        card.setGravity(
+                Gravity.CENTER
+        );
 
         card.setPadding(
                 dp(18),
@@ -956,13 +1387,16 @@ public class CustomerChatActivity extends Activity {
                 )
         );
 
-        ImageView image = new ImageView(this);
+        ImageView image =
+                new ImageView(this);
 
         int resource =
                 drawable("ic_nav_chat");
 
         if (resource != 0) {
-            image.setImageResource(resource);
+            image.setImageResource(
+                    resource
+            );
         }
 
         image.setAlpha(0.7f);
@@ -975,14 +1409,17 @@ public class CustomerChatActivity extends Activity {
                 )
         );
 
-        TextView heading = text(
-                title,
-                14,
-                "#0B3A78",
-                true
-        );
+        TextView heading =
+                text(
+                        title,
+                        14,
+                        "#0B3A78",
+                        true
+                );
 
-        heading.setGravity(Gravity.CENTER);
+        heading.setGravity(
+                Gravity.CENTER
+        );
 
         LinearLayout.LayoutParams headingLp =
                 new LinearLayout.LayoutParams(
@@ -997,18 +1434,24 @@ public class CustomerChatActivity extends Activity {
                 dp(5)
         );
 
-        card.addView(heading, headingLp);
-
-        TextView body = text(
-                description,
-                11,
-                "#718096",
-                false
+        card.addView(
+                heading,
+                headingLp
         );
 
-        body.setGravity(Gravity.CENTER);
-        card.addView(body);
+        TextView body =
+                text(
+                        description,
+                        11,
+                        "#718096",
+                        false
+                );
 
+        body.setGravity(
+                Gravity.CENTER
+        );
+
+        card.addView(body);
         listBox.addView(card);
     }
 
@@ -1020,7 +1463,9 @@ public class CustomerChatActivity extends Activity {
                 LinearLayout.HORIZONTAL
         );
 
-        nav.setGravity(Gravity.CENTER);
+        nav.setGravity(
+                Gravity.CENTER
+        );
 
         nav.setPadding(
                 dp(5),
@@ -1029,7 +1474,10 @@ public class CustomerChatActivity extends Activity {
                 dp(4)
         );
 
-        nav.setBackgroundColor(Color.WHITE);
+        nav.setBackgroundColor(
+                Color.WHITE
+        );
+
         nav.setElevation(dp(8));
 
         nav.addView(
@@ -1105,10 +1553,11 @@ public class CustomerChatActivity extends Activity {
                 target == null
                         ? null
                         : () -> {
-                    Intent intent = new Intent(
-                            this,
-                            target
-                    );
+                    Intent intent =
+                            new Intent(
+                                    this,
+                                    target
+                            );
 
                     intent.addFlags(
                             Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
@@ -1133,17 +1582,27 @@ public class CustomerChatActivity extends Activity {
                 LinearLayout.VERTICAL
         );
 
-        item.setGravity(Gravity.CENTER);
+        item.setGravity(
+                Gravity.CENTER
+        );
 
-        ImageView icon = new ImageView(this);
+        ImageView icon =
+                new ImageView(this);
 
-        int resource = drawable(iconName);
+        int resource =
+                drawable(iconName);
 
         if (resource != 0) {
-            icon.setImageResource(resource);
+            icon.setImageResource(
+                    resource
+            );
         }
 
-        icon.setAlpha(active ? 1f : 0.62f);
+        icon.setAlpha(
+                active
+                        ? 1f
+                        : 0.62f
+        );
 
         item.addView(
                 icon,
@@ -1153,16 +1612,19 @@ public class CustomerChatActivity extends Activity {
                 )
         );
 
-        TextView title = text(
-                label,
-                9,
-                active
-                        ? "#0B7CFF"
-                        : "#64748B",
-                active
-        );
+        TextView title =
+                text(
+                        label,
+                        9,
+                        active
+                                ? "#0B7CFF"
+                                : "#64748B",
+                        active
+                );
 
-        title.setGravity(Gravity.CENTER);
+        title.setGravity(
+                Gravity.CENTER
+        );
 
         LinearLayout.LayoutParams titleLp =
                 new LinearLayout.LayoutParams(
@@ -1177,7 +1639,10 @@ public class CustomerChatActivity extends Activity {
                 0
         );
 
-        item.addView(title, titleLp);
+        item.addView(
+                title,
+                titleLp
+        );
 
         if (action != null) {
             item.setOnClickListener(
@@ -1201,7 +1666,9 @@ public class CustomerChatActivity extends Activity {
                 startActivity(
                         new Intent(
                                 this,
-                                Class.forName(className)
+                                Class.forName(
+                                        className
+                                )
                         )
                 );
 
@@ -1211,11 +1678,17 @@ public class CustomerChatActivity extends Activity {
             }
         }
 
-        toast("Halaman transaksi sedang disiapkan");
+        toast(
+                "Halaman transaksi sedang disiapkan"
+        );
     }
 
-    private String serviceName(String type) {
-        type = CustomerMessageStatus.normalize(type);
+    private String serviceName(
+            String type
+    ) {
+        type =
+                CustomerMessageStatus
+                        .normalize(type);
 
         if (type.contains("food")) {
             return "TransFood";
@@ -1247,41 +1720,63 @@ public class CustomerChatActivity extends Activity {
         return "TransRide";
     }
 
-    private int serviceDrawable(String type) {
-        type = CustomerMessageStatus.normalize(type);
+    private int serviceDrawable(
+            String type
+    ) {
+        type =
+                CustomerMessageStatus
+                        .normalize(type);
 
         if (type.contains("food")) {
-            return drawable("ic_service_food");
+            return drawable(
+                    "ic_service_food"
+            );
         }
 
         if (
                 type.contains("car")
                         || type.contains("mobil")
         ) {
-            return drawable("ic_service_car");
+            return drawable(
+                    "ic_service_car"
+            );
         }
 
         if (type.contains("tour")) {
-            return drawable("ic_service_tour");
+            return drawable(
+                    "ic_service_tour"
+            );
         }
 
         if (type.contains("laundry")) {
-            return drawable("ic_service_laundry");
+            return drawable(
+                    "ic_service_laundry"
+            );
         }
 
         if (type.contains("pickup")) {
-            return drawable("ic_service_pickup");
+            return drawable(
+                    "ic_service_pickup"
+            );
         }
 
         if (type.contains("mart")) {
-            return drawable("ic_service_mart");
+            return drawable(
+                    "ic_service_mart"
+            );
         }
 
-        return drawable("ic_service_ride");
+        return drawable(
+                "ic_service_ride"
+        );
     }
 
-    private String serviceSoftColor(String type) {
-        type = CustomerMessageStatus.normalize(type);
+    private String serviceSoftColor(
+            String type
+    ) {
+        type =
+                CustomerMessageStatus
+                        .normalize(type);
 
         if (type.contains("food")) {
             return "#FFF4E8";
@@ -1298,8 +1793,13 @@ public class CustomerChatActivity extends Activity {
         return "#EAF4FF";
     }
 
-    private String formatDate(String value) {
-        if (value == null || value.trim().isEmpty()) {
+    private String formatDate(
+            String value
+    ) {
+        if (
+                value == null
+                        || value.trim().isEmpty()
+        ) {
             return "";
         }
 
@@ -1314,12 +1814,17 @@ public class CustomerChatActivity extends Activity {
                         new SimpleDateFormat(
                                 format,
                                 Locale.US
-                        ).parse(value.trim());
+                        ).parse(
+                                value.trim()
+                        );
 
                 if (date != null) {
                     return new SimpleDateFormat(
                             "dd MMM\nHH:mm",
-                            new Locale("id", "ID")
+                            new Locale(
+                                    "id",
+                                    "ID"
+                            )
                     ).format(date);
                 }
 
@@ -1336,12 +1841,24 @@ public class CustomerChatActivity extends Activity {
             String color,
             boolean bold
     ) {
-        TextView view = new TextView(this);
+        TextView view =
+                new TextView(this);
 
-        view.setText(value == null ? "" : value);
+        view.setText(
+                value == null
+                        ? ""
+                        : value
+        );
+
         view.setTextSize(size);
-        view.setTextColor(Color.parseColor(color));
-        view.setIncludeFontPadding(false);
+
+        view.setTextColor(
+                Color.parseColor(color)
+        );
+
+        view.setIncludeFontPadding(
+                false
+        );
 
         if (bold) {
             view.setTypeface(
@@ -1364,7 +1881,9 @@ public class CustomerChatActivity extends Activity {
                 Color.parseColor(color)
         );
 
-        drawable.setCornerRadius(dp(radius));
+        drawable.setCornerRadius(
+                dp(radius)
+        );
 
         return drawable;
     }
@@ -1376,7 +1895,10 @@ public class CustomerChatActivity extends Activity {
             int width
     ) {
         GradientDrawable drawable =
-                round(fill, radius);
+                round(
+                        fill,
+                        radius
+                );
 
         drawable.setStroke(
                 dp(width),
@@ -1393,24 +1915,31 @@ public class CustomerChatActivity extends Activity {
     ) {
         GradientDrawable drawable =
                 new GradientDrawable(
-                        GradientDrawable.Orientation.LEFT_RIGHT,
+                        GradientDrawable
+                                .Orientation
+                                .LEFT_RIGHT,
                         new int[]{
                                 Color.parseColor(start),
                                 Color.parseColor(end)
                         }
                 );
 
-        drawable.setCornerRadius(dp(radius));
+        drawable.setCornerRadius(
+                dp(radius)
+        );
 
         return drawable;
     }
 
-    private int drawable(String name) {
-        return getResources().getIdentifier(
-                name,
-                "drawable",
-                getPackageName()
-        );
+    private int drawable(
+            String name
+    ) {
+        return getResources()
+                .getIdentifier(
+                        name,
+                        "drawable",
+                        getPackageName()
+                );
     }
 
     private int dp(int value) {
@@ -1422,7 +1951,9 @@ public class CustomerChatActivity extends Activity {
         );
     }
 
-    private String first(String... values) {
+    private String first(
+            String... values
+    ) {
         if (values == null) {
             return "";
         }
@@ -1430,8 +1961,14 @@ public class CustomerChatActivity extends Activity {
         for (String value : values) {
             if (
                     value != null
-                            && !value.trim().isEmpty()
-                            && !"null".equalsIgnoreCase(
+                            && !value.trim()
+                            .isEmpty()
+                            && !"null"
+                            .equalsIgnoreCase(
+                                    value.trim()
+                            )
+                            && !"undefined"
+                            .equalsIgnoreCase(
                                     value.trim()
                             )
             ) {
@@ -1442,7 +1979,9 @@ public class CustomerChatActivity extends Activity {
         return "";
     }
 
-    private void toast(String message) {
+    private void toast(
+            String message
+    ) {
         Toast.makeText(
                 this,
                 message,
