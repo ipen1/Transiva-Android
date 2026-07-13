@@ -73,6 +73,7 @@ public class CustomerChatRoomActivity extends Activity {
 
     private static final int REQUEST_GALLERY = 4101;
     private static final int REQUEST_CAMERA = 4102;
+    private static final int REQUEST_INTERNAL_CAMERA = 4104;
     private static final int REQUEST_CAMERA_PERMISSION = 4103;
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
@@ -598,31 +599,14 @@ public class CustomerChatRoomActivity extends Activity {
 
     private void launchCameraInternal() {
         try {
-            cleanupCameraFile();
-
             Intent intent = new Intent(
-                    MediaStore.ACTION_IMAGE_CAPTURE
+                    this,
+                    ChatCameraActivity.class
             );
-
-            /*
-             * Mode kamera sederhana:
-             * jangan memakai EXTRA_OUTPUT/MediaStore/FileProvider.
-             * Kamera mengembalikan Bitmap melalui Intent data.
-             * Ini paling kompatibel untuk kamera bawaan Infinix/XOS.
-             */
-            if (
-                    intent.resolveActivity(
-                            getPackageManager()
-                    ) == null
-            ) {
-                throw new IllegalStateException(
-                        "Aplikasi kamera tidak ditemukan"
-                );
-            }
 
             startActivityForResult(
                     intent,
-                    REQUEST_CAMERA
+                    REQUEST_INTERNAL_CAMERA
             );
 
         } catch (Exception error) {
@@ -698,31 +682,37 @@ public class CustomerChatRoomActivity extends Activity {
                 data
         );
 
-        if (requestCode == REQUEST_CAMERA) {
+        if (
+                requestCode == REQUEST_INTERNAL_CAMERA
+        ) {
             if (
                     resultCode != RESULT_OK
                             || data == null
-                            || data.getExtras() == null
             ) {
                 toast("Pengambilan foto dibatalkan");
                 return;
             }
 
-            Object value =
-                    data.getExtras().get("data");
+            String path =
+                    data.getStringExtra(
+                            "photo_path"
+                    );
 
-            if (!(value instanceof Bitmap)) {
+            if (
+                    path == null
+                            || path.trim().isEmpty()
+            ) {
                 showMessage(
                         "Foto gagal diproses",
-                        "Kamera tidak mengembalikan gambar.",
+                        "File kamera tidak ditemukan.",
                         false
                 );
 
                 return;
             }
 
-            processCameraBitmap(
-                    (Bitmap) value
+            processCameraFile(
+                    path.trim()
             );
 
             return;
@@ -737,58 +727,25 @@ public class CustomerChatRoomActivity extends Activity {
                 return;
             }
 
-            processGalleryPhoto(
-                    data.getData()
+            processSelectedPhoto(
+                    data.getData(),
+                    false
             );
         }
     }
 
-    private void processCameraBitmap(
-            Bitmap bitmap
-    ) {
-        if (bitmap == null || uploading) {
-            return;
-        }
-
-        setPhotoProcessingState(true);
-
-        new Thread(() -> {
-            try {
-                ChatImageProcessor.ImagePayload payload =
-                        ChatImageProcessor.fromBitmap(
-                                bitmap
-                        );
-
-                mainHandler.post(() -> {
-                    setPhotoProcessingState(false);
-                    uploadPhoto(payload);
-                });
-
-            } catch (Exception error) {
-                mainHandler.post(() -> {
-                    setPhotoProcessingState(false);
-
-                    showMessage(
-                            "Foto gagal diproses",
-                            first(
-                                    error.getMessage(),
-                                    "Foto kamera tidak dapat dikonversi."
-                            ),
-                            false
-                    );
-                });
-            }
-        }).start();
-    }
-
-    private void processGalleryPhoto(
-            Uri sourceUri
+    private void processSelectedPhoto(
+            Uri sourceUri,
+            boolean fromCamera
     ) {
         if (sourceUri == null || uploading) {
             return;
         }
 
-        setPhotoProcessingState(true);
+        uploading = true;
+        progress.setVisibility(View.VISIBLE);
+        attachButton.setEnabled(false);
+        sendButton.setEnabled(false);
 
         new Thread(() -> {
             try {
@@ -799,19 +756,23 @@ public class CustomerChatRoomActivity extends Activity {
                         );
 
                 mainHandler.post(() -> {
-                    setPhotoProcessingState(false);
+                    uploading = false;
+                    progress.setVisibility(View.GONE);
                     uploadPhoto(payload);
                 });
 
             } catch (Exception error) {
                 mainHandler.post(() -> {
-                    setPhotoProcessingState(false);
+                    uploading = false;
+                    progress.setVisibility(View.GONE);
+                    attachButton.setEnabled(true);
+                    sendButton.setEnabled(true);
 
                     showMessage(
                             "Foto gagal diproses",
                             first(
                                     error.getMessage(),
-                                    "Foto galeri tidak dapat dibaca."
+                                    "Foto tidak dapat dibaca."
                             ),
                             false
                     );
@@ -820,19 +781,135 @@ public class CustomerChatRoomActivity extends Activity {
         }).start();
     }
 
-    private void setPhotoProcessingState(
-            boolean processing
+    private void processCameraFile(
+            String filePath
     ) {
-        uploading = processing;
+        if (
+                filePath == null
+                        || filePath.trim().isEmpty()
+                        || uploading
+        ) {
+            return;
+        }
 
-        progress.setVisibility(
-                processing
-                        ? View.VISIBLE
-                        : View.GONE
-        );
+        uploading = true;
+        progress.setVisibility(View.VISIBLE);
+        attachButton.setEnabled(false);
+        sendButton.setEnabled(false);
 
-        attachButton.setEnabled(!processing);
-        sendButton.setEnabled(!processing);
+        new Thread(() -> {
+            java.io.File file =
+                    new java.io.File(filePath);
+
+            try {
+                ChatImageProcessor.ImagePayload payload =
+                        ChatImageProcessor.fromFile(file);
+
+                mainHandler.post(() -> {
+                    uploading = false;
+                    progress.setVisibility(View.GONE);
+                    uploadPhoto(payload);
+
+                    try {
+                        file.delete();
+                    } catch (Exception ignored) {
+                    }
+                });
+
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    uploading = false;
+                    progress.setVisibility(View.GONE);
+                    attachButton.setEnabled(true);
+                    sendButton.setEnabled(true);
+
+                    showMessage(
+                            "Foto gagal diproses",
+                            first(
+                                    error.getMessage(),
+                                    "Foto kamera tidak dapat dibaca."
+                            ),
+                            false
+                    );
+                });
+            }
+        }).start();
+    }
+
+    private void waitForCameraOutput(
+            Uri uri
+    ) throws Exception {
+        long size = 0L;
+        long previousSize = -1L;
+        int stableCount = 0;
+
+        for (int attempt = 0; attempt < 20; attempt++) {
+            size = getUriLength(uri);
+
+            if (size > 1024L && size == previousSize) {
+                stableCount++;
+
+                if (stableCount >= 2) {
+                    return;
+                }
+
+            } else {
+                stableCount = 0;
+            }
+
+            previousSize = size;
+
+            try {
+                Thread.sleep(150L);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        if (size <= 1024L) {
+            throw new IllegalStateException(
+                    "Kamera belum menghasilkan file foto"
+            );
+        }
+    }
+
+    private long getUriLength(
+            Uri uri
+    ) {
+        if (uri == null) {
+            return 0L;
+        }
+
+        try (
+                AssetFileDescriptor descriptor =
+                        getContentResolver()
+                                .openAssetFileDescriptor(
+                                        uri,
+                                        "r"
+                                )
+        ) {
+            if (descriptor == null) {
+                return 0L;
+            }
+
+            long length = descriptor.getLength();
+
+            if (length >= 0L) {
+                return length;
+            }
+
+            try (
+                    InputStream input =
+                            descriptor
+                                    .createInputStream()
+            ) {
+                return input.available();
+            }
+
+        } catch (Exception ignored) {
+            return 0L;
+        }
     }
 
     private void uploadPhoto(

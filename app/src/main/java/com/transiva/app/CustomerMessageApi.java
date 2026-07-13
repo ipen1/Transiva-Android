@@ -38,7 +38,7 @@ public final class CustomerMessageApi {
         if (
                 payload == null
                         || payload.previewWebp == null
-                        || payload.hdWebp == null
+                        || payload.hdJpeg == null
         ) {
             throw new IllegalArgumentException(
                     "Data foto tidak valid"
@@ -105,9 +105,9 @@ public final class CustomerMessageApi {
                         output,
                         boundary,
                         "hd_image",
-                        "hd.webp",
-                        "image/webp",
-                        payload.hdWebp
+                        "hd.jpg",
+                        "image/jpeg",
+                        payload.hdJpeg
                 );
 
                 output.write(

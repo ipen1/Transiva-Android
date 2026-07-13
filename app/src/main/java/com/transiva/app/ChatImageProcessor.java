@@ -13,29 +13,29 @@ import java.io.InputStream;
 
 public final class ChatImageProcessor {
 
-    private static final int PREVIEW_MAX_SIDE = 960;
-    private static final int HD_MAX_SIDE = 2560;
+    private static final int PREVIEW_MAX_SIDE = 1080;
+    private static final int HD_MAX_SIDE = 3000;
 
     private static final int PREVIEW_QUALITY = 80;
-    private static final int HD_QUALITY = 90;
+    private static final int HD_QUALITY = 92;
 
     private ChatImageProcessor() {
     }
 
     public static final class ImagePayload {
         public final byte[] previewWebp;
-        public final byte[] hdWebp;
+        public final byte[] hdJpeg;
         public final int originalWidth;
         public final int originalHeight;
 
         private ImagePayload(
                 byte[] previewWebp,
-                byte[] hdWebp,
+                byte[] hdJpeg,
                 int originalWidth,
                 int originalHeight
         ) {
             this.previewWebp = previewWebp;
-            this.hdWebp = hdWebp;
+            this.hdJpeg = hdJpeg;
             this.originalWidth = originalWidth;
             this.originalHeight = originalHeight;
         }
@@ -72,6 +72,82 @@ public final class ChatImageProcessor {
                 decoded,
                 orientation
         );
+
+        return createPayload(oriented);
+    }
+
+    public static ImagePayload fromFile(
+            java.io.File file
+    ) throws Exception {
+        if (
+                file == null
+                        || !file.exists()
+                        || file.length() <= 0L
+        ) {
+            throw new IllegalArgumentException(
+                    "File foto tidak ditemukan"
+            );
+        }
+
+        int orientation;
+
+        try {
+            ExifInterface exif =
+                    new ExifInterface(
+                            file.getAbsolutePath()
+                    );
+
+            orientation =
+                    exif.getAttributeInt(
+                            ExifInterface.TAG_ORIENTATION,
+                            ExifInterface.ORIENTATION_NORMAL
+                    );
+
+        } catch (Exception ignored) {
+            orientation =
+                    ExifInterface.ORIENTATION_NORMAL;
+        }
+
+        BitmapFactory.Options bounds =
+                new BitmapFactory.Options();
+
+        bounds.inJustDecodeBounds = true;
+
+        BitmapFactory.decodeFile(
+                file.getAbsolutePath(),
+                bounds
+        );
+
+        BitmapFactory.Options options =
+                new BitmapFactory.Options();
+
+        options.inSampleSize =
+                sampleSize(
+                        bounds.outWidth,
+                        bounds.outHeight,
+                        HD_MAX_SIDE
+                );
+
+        options.inPreferredConfig =
+                Bitmap.Config.ARGB_8888;
+
+        Bitmap decoded =
+                BitmapFactory.decodeFile(
+                        file.getAbsolutePath(),
+                        options
+                );
+
+        if (decoded == null) {
+            throw new IllegalStateException(
+                    "Foto kamera tidak dapat dibaca"
+            );
+        }
+
+        Bitmap oriented =
+                applyExifOrientation(
+                        decoded,
+                        orientation
+                );
 
         return createPayload(oriented);
     }
