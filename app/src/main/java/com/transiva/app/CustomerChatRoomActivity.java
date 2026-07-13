@@ -2,10 +2,14 @@ package com.transiva.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.MediaStore;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
@@ -25,6 +29,9 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -44,6 +51,13 @@ public class CustomerChatRoomActivity extends Activity {
 
     private static final long REFRESH_MS = 2500L;
 
+    private static final String UPLOAD_IMAGE_URL =
+            BASE_URL + "server/upload_chat_image.php";
+
+    private static final int REQUEST_GALLERY = 4101;
+    private static final int REQUEST_CAMERA = 4102;
+    private static final String IMAGE_PREFIX = "[[IMAGE]]";
+
     private final Handler mainHandler =
             new Handler(Looper.getMainLooper());
 
@@ -53,6 +67,7 @@ public class CustomerChatRoomActivity extends Activity {
     private TextView statusText;
     private EditText input;
     private Button sendButton;
+    private Button attachButton;
     private ProgressBar progress;
     private LinearLayout inputCard;
 
@@ -65,6 +80,7 @@ public class CustomerChatRoomActivity extends Activity {
     private boolean readOnly;
     private boolean loading;
     private boolean sending;
+    private boolean uploading;
     private boolean destroyed;
     private int lastId;
     private boolean firstLoad = true;
@@ -370,6 +386,20 @@ public class CustomerChatRoomActivity extends Activity {
 
         inputCard.setElevation(dp(5));
 
+        attachButton = new Button(this);
+        attachButton.setText("+");
+        attachButton.setAllCaps(false);
+        attachButton.setTextSize(22);
+        attachButton.setTextColor(Color.parseColor("#0B7CFF"));
+        attachButton.setPadding(0, 0, 0, 0);
+        attachButton.setBackground(round("#EAF4FF", 15));
+        attachButton.setOnClickListener(view -> showAttachmentMenu());
+
+        inputCard.addView(
+                attachButton,
+                new LinearLayout.LayoutParams(dp(44), -1)
+        );
+
         input = new EditText(this);
         input.setSingleLine(false);
         input.setMaxLines(3);
@@ -409,14 +439,10 @@ public class CustomerChatRoomActivity extends Activity {
                 )
         );
 
-        inputCard.addView(
-                input,
-                new LinearLayout.LayoutParams(
-                        0,
-                        -1,
-                        1
-                )
-        );
+        LinearLayout.LayoutParams inputLp =
+                new LinearLayout.LayoutParams(0, -1, 1);
+        inputLp.setMargins(dp(7), 0, 0, 0);
+        inputCard.addView(input, inputLp);
 
         sendButton = primaryButton("Kirim");
 
@@ -478,6 +504,133 @@ public class CustomerChatRoomActivity extends Activity {
         return page;
     }
 
+    private void showAttachmentMenu() {
+        if (readOnly || uploading) return;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Kirim Foto")
+                .setItems(
+                        new String[]{"Ambil Foto", "Pilih dari Galeri"},
+                        (dialog, which) -> {
+                            if (which == 0) openCamera();
+                            else openGallery();
+                        }
+                )
+                .show();
+    }
+
+    private void openCamera() {
+        try {
+            startActivityForResult(
+                    new Intent(MediaStore.ACTION_IMAGE_CAPTURE),
+                    REQUEST_CAMERA
+            );
+        } catch (Exception error) {
+            toast("Kamera tidak tersedia");
+        }
+    }
+
+    private void openGallery() {
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("image/*");
+            startActivityForResult(intent, REQUEST_GALLERY);
+        } catch (Exception error) {
+            toast("Galeri tidak tersedia");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data
+    ) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (resultCode != RESULT_OK || data == null) return;
+
+        try {
+            Bitmap bitmap = null;
+
+            if (requestCode == REQUEST_CAMERA) {
+                Object value = data.getExtras() == null
+                        ? null
+                        : data.getExtras().get("data");
+
+                if (value instanceof Bitmap) {
+                    bitmap = ChatImageProcessor.fromCamera((Bitmap)value);
+                }
+            } else if (requestCode == REQUEST_GALLERY) {
+                bitmap = ChatImageProcessor.fromUri(
+                        getContentResolver(),
+                        data.getData()
+                );
+            }
+
+            if (bitmap == null) {
+                toast("Foto tidak dapat dibaca");
+                return;
+            }
+
+            uploadPhoto(bitmap);
+
+        } catch (Exception error) {
+            toast("Foto gagal diproses: " + error.getMessage());
+        }
+    }
+
+    private void uploadPhoto(Bitmap bitmap) {
+        if (uploading || readOnly) return;
+
+        uploading = true;
+        progress.setVisibility(View.VISIBLE);
+        attachButton.setEnabled(false);
+        sendButton.setEnabled(false);
+
+        new Thread(() -> {
+            try {
+                JSONObject response = CustomerMessageApi.uploadWebp(
+                        UPLOAD_IMAGE_URL,
+                        roomId,
+                        "customer",
+                        bitmap
+                );
+
+                mainHandler.post(() -> {
+                    uploading = false;
+                    progress.setVisibility(View.GONE);
+                    attachButton.setEnabled(true);
+                    sendButton.setEnabled(true);
+
+                    if (response.optBoolean("success", false)) {
+                        loadMessages(false);
+                    } else {
+                        showMessage(
+                                "Foto gagal dikirim",
+                                first(response.optString("message"), "Coba lagi."),
+                                false
+                        );
+                    }
+                });
+
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    uploading = false;
+                    progress.setVisibility(View.GONE);
+                    attachButton.setEnabled(true);
+                    sendButton.setEnabled(true);
+                    showMessage(
+                            "Foto gagal dikirim",
+                            "Periksa koneksi lalu coba lagi.",
+                            false
+                    );
+                });
+            }
+        }).start();
+    }
+
     private void applyReadOnlyState() {
         if (inputCard == null) {
             return;
@@ -488,6 +641,9 @@ public class CustomerChatRoomActivity extends Activity {
             input.setHint(
                     "Percakapan ini hanya dapat dibaca"
             );
+
+            attachButton.setEnabled(false);
+            attachButton.setAlpha(0.45f);
 
             sendButton.setEnabled(false);
             sendButton.setText("Selesai");
@@ -683,128 +839,103 @@ public class CustomerChatRoomActivity extends Activity {
     }
 
     private void addBubble(JSONObject message) {
-        String sender =
-                CustomerMessageStatus.normalize(
-                        message.optString(
-                                "sender_type",
-                                ""
-                        )
-                );
-
-        boolean mine =
-                sender.equals("customer");
-
-        LinearLayout wrapper =
-                new LinearLayout(this);
-
-        wrapper.setOrientation(
-                LinearLayout.VERTICAL
+        String sender = CustomerMessageStatus.normalize(
+                message.optString("sender_type", "")
         );
+        boolean mine = sender.equals("customer");
+        String content = message.optString("message", "");
 
-        wrapper.setGravity(
-                mine
-                        ? Gravity.RIGHT
-                        : Gravity.LEFT
-        );
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setGravity(mine ? Gravity.RIGHT : Gravity.LEFT);
 
         LinearLayout.LayoutParams wrapperLp =
-                new LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                );
+                new LinearLayout.LayoutParams(-1, -2);
+        wrapperLp.setMargins(0, dp(4), 0, dp(4));
+        messagesBox.addView(wrapper, wrapperLp);
 
-        wrapperLp.setMargins(
-                0,
-                dp(4),
-                0,
-                dp(4)
-        );
-
-        messagesBox.addView(
-                wrapper,
-                wrapperLp
-        );
-
-        TextView bubble = text(
-                message.optString(
-                        "message",
-                        ""
-                ),
-                13,
-                mine
-                        ? "#FFFFFF"
-                        : "#0F172A",
-                false
-        );
-
-        bubble.setPadding(
-                dp(13),
-                dp(9),
-                dp(13),
-                dp(9)
-        );
-
-        bubble.setMaxWidth(
-                (int)(
-                        getResources()
-                                .getDisplayMetrics()
-                                .widthPixels
-                                * 0.75
-                )
-        );
-
-        bubble.setBackground(
-                mine
-                        ? gradient(
-                        "#086BFF",
-                        "#2EA2FF",
-                        17
-                )
-                        : roundStroke(
-                        "#FFFFFF",
-                        "#D7E6F8",
-                        17,
-                        1
-                )
-        );
-
-        wrapper.addView(
-                bubble,
-                new LinearLayout.LayoutParams(
-                        -2,
-                        -2
-                )
-        );
-
-        String time = formatTime(
-                message.optString(
-                        "created_at",
-                        ""
-                )
-        );
-
-        if (!time.isEmpty()) {
-            TextView timestamp = text(
-                    time,
-                    9,
-                    "#94A3B8",
+        if (content.startsWith(IMAGE_PREFIX)) {
+            String imageUrl = content.substring(IMAGE_PREFIX.length()).trim();
+            ImageView image = new ImageView(this);
+            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            image.setBackground(round("#EAF1FA", 16));
+            wrapper.addView(
+                    image,
+                    new LinearLayout.LayoutParams(dp(220), dp(165))
+            );
+            loadRemoteImage(image, imageUrl);
+            image.setOnClickListener(view -> openImage(imageUrl));
+        } else {
+            TextView bubble = text(
+                    content,
+                    13,
+                    mine ? "#FFFFFF" : "#0F172A",
                     false
             );
-
-            timestamp.setPadding(
-                    dp(7),
-                    dp(2),
-                    dp(7),
-                    0
+            bubble.setPadding(dp(13), dp(9), dp(13), dp(9));
+            bubble.setMaxWidth((int)(
+                    getResources().getDisplayMetrics().widthPixels * 0.75
+            ));
+            bubble.setBackground(
+                    mine
+                            ? gradient("#086BFF", "#2EA2FF", 17)
+                            : roundStroke("#FFFFFF", "#D7E6F8", 17, 1)
             );
+            wrapper.addView(
+                    bubble,
+                    new LinearLayout.LayoutParams(-2, -2)
+            );
+        }
 
+        String time = formatTime(message.optString("created_at", ""));
+        if (!time.isEmpty()) {
+            TextView timestamp = text(time, 9, "#94A3B8", false);
+            timestamp.setPadding(dp(7), dp(2), dp(7), 0);
             wrapper.addView(
                     timestamp,
-                    new LinearLayout.LayoutParams(
-                            -2,
-                            -2
-                    )
+                    new LinearLayout.LayoutParams(-2, -2)
             );
+        }
+    }
+
+    private void loadRemoteImage(ImageView target, String imageUrl) {
+        final String fixed = absoluteUrl(imageUrl);
+
+        new Thread(() -> {
+            Bitmap bitmap = null;
+            HttpURLConnection connection = null;
+
+            try {
+                connection = (HttpURLConnection)new URL(fixed).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(15000);
+                connection.setUseCaches(true);
+
+                try (InputStream stream = connection.getInputStream()) {
+                    bitmap = BitmapFactory.decodeStream(stream);
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+
+            Bitmap result = bitmap;
+            mainHandler.post(() -> {
+                if (result != null) target.setImageBitmap(result);
+                else target.setImageResource(
+                        android.R.drawable.ic_menu_report_image
+                );
+            });
+        }).start();
+    }
+
+    private void openImage(String imageUrl) {
+        try {
+            startActivity(
+                    new Intent(Intent.ACTION_VIEW, Uri.parse(absoluteUrl(imageUrl)))
+            );
+        } catch (Exception error) {
+            toast("Gambar tidak dapat dibuka");
         }
     }
 
@@ -848,18 +979,10 @@ public class CustomerChatRoomActivity extends Activity {
     }
 
     private void sendMessage() {
-        if (readOnly || sending) {
-            return;
-        }
+        if (readOnly || sending) return;
 
-        String message =
-                input.getText()
-                        .toString()
-                        .trim();
-
-        if (message.isEmpty()) {
-            return;
-        }
+        String message = input.getText().toString().trim();
+        if (message.isEmpty()) return;
 
         if (message.length() > 1000) {
             showMessage(
@@ -867,91 +990,102 @@ public class CustomerChatRoomActivity extends Activity {
                     "Maksimal 1000 karakter.",
                     false
             );
-
             return;
         }
 
         sending = true;
         sendButton.setEnabled(false);
         sendButton.setText("...");
+        final String originalMessage = message;
 
         new Thread(() -> {
             try {
-                JSONObject payload =
-                        new JSONObject();
+                JSONObject payload = new JSONObject();
+                payload.put("room_id", roomId);
+                payload.put("sender_type", "customer");
+                payload.put("message", originalMessage);
+                payload.put("order_id", orderId);
 
-                payload.put(
-                        "room_id",
-                        roomId
+                JSONObject response = CustomerMessageApi.post(
+                        SEND_CHAT_URL,
+                        payload
                 );
-
-                payload.put(
-                        "sender_type",
-                        "customer"
-                );
-
-                payload.put(
-                        "message",
-                        message
-                );
-
-                JSONObject response =
-                        CustomerMessageApi.post(
-                                SEND_CHAT_URL,
-                                payload
-                        );
 
                 mainHandler.post(() -> {
-                    sending = false;
-                    sendButton.setEnabled(true);
-                    sendButton.setText("Kirim");
-
-                    if (
-                            response.optBoolean(
-                                    "success",
-                                    false
-                            )
-                    ) {
+                    if (response.optBoolean("success", false)) {
+                        sending = false;
+                        sendButton.setEnabled(true);
+                        sendButton.setText("Kirim");
                         input.setText("");
                         loadMessages(false);
-                        return;
+                    } else {
+                        verifyDelivered(originalMessage);
                     }
-
-                    if (
-                            response.optBoolean(
-                                    "ended",
-                                    false
-                            )
-                    ) {
-                        readOnly = true;
-                        applyReadOnlyState();
-                    }
-
-                    showMessage(
-                            "Chat",
-                            first(
-                                    response.optString(
-                                            "message"
-                                    ),
-                                    "Gagal mengirim pesan"
-                            ),
-                            false
-                    );
                 });
 
             } catch (Exception error) {
-                mainHandler.post(() -> {
-                    sending = false;
-                    sendButton.setEnabled(true);
-                    sendButton.setText("Kirim");
+                mainHandler.post(() -> verifyDelivered(originalMessage));
+            }
+        }).start();
+    }
 
+    private void verifyDelivered(String originalMessage) {
+        new Thread(() -> {
+            boolean delivered = false;
+
+            try {
+                String endpoint = GET_CHAT_URL
+                        + "?room_id="
+                        + URLEncoder.encode(
+                                roomId,
+                                StandardCharsets.UTF_8.name()
+                        );
+
+                JSONObject response = CustomerMessageApi.get(endpoint);
+                JSONArray array = response.optJSONArray("messages");
+
+                if (array != null) {
+                    for (
+                            int i = array.length() - 1;
+                            i >= 0 && i >= array.length() - 12;
+                            i--
+                    ) {
+                        JSONObject item = array.optJSONObject(i);
+                        if (item == null) continue;
+
+                        if (
+                                "customer".equalsIgnoreCase(
+                                        item.optString("sender_type", "")
+                                )
+                                        && originalMessage.equals(
+                                        item.optString("message", "")
+                                )
+                        ) {
+                            delivered = true;
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+
+            final boolean found = delivered;
+            mainHandler.post(() -> {
+                sending = false;
+                sendButton.setEnabled(true);
+                sendButton.setText("Kirim");
+
+                if (found) {
+                    input.setText("");
+                    loadMessages(false);
+                } else {
                     showMessage(
-                            "Koneksi gagal",
-                            "Pesan belum terkirim. Coba lagi.",
+                            "Pesan belum terkirim",
+                            "Koneksi bermasalah. Coba lagi.",
                             false
                     );
-                });
-            }
+                }
+            });
         }).start();
     }
 
@@ -1039,6 +1173,22 @@ public class CustomerChatRoomActivity extends Activity {
         }
 
         return value;
+    }
+
+    private String absoluteUrl(String value) {
+        String path = value == null
+                ? ""
+                : value.trim().replace("\\", "/");
+
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            return path;
+        }
+
+        if (path.startsWith("/")) {
+            return "https://transiva.my.id" + path;
+        }
+
+        return BASE_URL + path;
     }
 
     private Button primaryButton(String value) {
