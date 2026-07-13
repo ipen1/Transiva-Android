@@ -3,6 +3,7 @@ package com.transiva.app;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.Intent;
@@ -10,6 +11,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -21,6 +23,7 @@ import android.os.Looper;
 import android.os.Environment;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.Window;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -103,6 +106,7 @@ public class CustomerChatRoomActivity extends Activity {
     private Uri cameraPhotoUri;
     private File cameraPhotoFile;
     private boolean cameraUsesMediaStore;
+    private long pendingPhotoSequence;
 
     private final Runnable refreshRunnable =
             new Runnable() {
@@ -877,14 +881,22 @@ public class CustomerChatRoomActivity extends Activity {
     private void uploadPhoto(
             ChatImageProcessor.ImagePayload payload
     ) {
-        if (uploading || readOnly) {
+        if (
+                uploading
+                        || readOnly
+                        || payload == null
+        ) {
             return;
         }
 
         uploading = true;
-        progress.setVisibility(View.VISIBLE);
         attachButton.setEnabled(false);
         sendButton.setEnabled(false);
+
+        final PendingPhotoBubble pendingBubble =
+                addPendingPhotoBubble(payload);
+
+        scrollBottom();
 
         new Thread(() -> {
             try {
@@ -898,7 +910,6 @@ public class CustomerChatRoomActivity extends Activity {
 
                 mainHandler.post(() -> {
                     uploading = false;
-                    progress.setVisibility(View.GONE);
                     attachButton.setEnabled(true);
                     sendButton.setEnabled(true);
 
@@ -908,41 +919,304 @@ public class CustomerChatRoomActivity extends Activity {
                                     false
                             )
                     ) {
-                        loadMessages(false);
+                        pendingBubble.markSuccess();
                         cleanupCameraFile();
+
+                        /*
+                         * Beri server/getChat.php sedikit waktu lalu ambil
+                         * pesan baru. Jika poller sedang bekerja, fungsi ini
+                         * menunggu sampai request sebelumnya selesai.
+                         */
+                        refreshMessagesAfterUpload(
+                                pendingBubble,
+                                0
+                        );
+
                         return;
                     }
 
-                    showMessage(
-                            "Foto gagal dikirim",
+                    pendingBubble.markFailed(
                             first(
                                     response.optString(
                                             "message"
                                     ),
-                                    "Coba lagi."
-                            ),
-                            false
+                                    "Foto gagal dikirim"
+                            )
                     );
                 });
 
             } catch (Exception error) {
                 mainHandler.post(() -> {
                     uploading = false;
-                    progress.setVisibility(View.GONE);
                     attachButton.setEnabled(true);
                     sendButton.setEnabled(true);
 
-                    showMessage(
-                            "Foto gagal dikirim",
+                    pendingBubble.markFailed(
                             first(
                                     error.getMessage(),
                                     "Periksa koneksi lalu coba lagi."
-                            ),
-                            false
+                            )
                     );
                 });
             }
         }).start();
+    }
+
+    private void refreshMessagesAfterUpload(
+            PendingPhotoBubble pendingBubble,
+            int attempt
+    ) {
+        if (destroyed) {
+            return;
+        }
+
+        if (loading && attempt < 12) {
+            mainHandler.postDelayed(
+                    () -> refreshMessagesAfterUpload(
+                            pendingBubble,
+                            attempt + 1
+                    ),
+                    350
+            );
+
+            return;
+        }
+
+        if (pendingBubble.root.getParent() != null) {
+            messagesBox.removeView(
+                    pendingBubble.root
+            );
+        }
+
+        loadMessages(false);
+
+        /*
+         * Fallback kedua. Ini mengatasi kondisi last_id server baru belum
+         * terbaca pada request pertama setelah upload.
+         */
+        mainHandler.postDelayed(
+                () -> {
+                    if (!loading) {
+                        loadMessages(false);
+                    }
+                },
+                1100
+        );
+    }
+
+    private PendingPhotoBubble addPendingPhotoBubble(
+            ChatImageProcessor.ImagePayload payload
+    ) {
+        pendingPhotoSequence++;
+
+        LinearLayout wrapper =
+                new LinearLayout(this);
+
+        wrapper.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        wrapper.setGravity(Gravity.RIGHT);
+
+        LinearLayout.LayoutParams wrapperLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
+        wrapperLp.setMargins(
+                0,
+                dp(4),
+                0,
+                dp(4)
+        );
+
+        FrameLayout imageFrame =
+                new FrameLayout(this);
+
+        imageFrame.setBackground(
+                round("#EAF1FA", 16)
+        );
+
+        ImageView preview =
+                new ImageView(this);
+
+        preview.setScaleType(
+                ImageView.ScaleType.CENTER_CROP
+        );
+
+        Bitmap previewBitmap =
+                BitmapFactory.decodeByteArray(
+                        payload.previewWebp,
+                        0,
+                        payload.previewWebp.length
+                );
+
+        if (previewBitmap != null) {
+            preview.setImageBitmap(
+                    previewBitmap
+            );
+        }
+
+        imageFrame.addView(
+                preview,
+                new FrameLayout.LayoutParams(
+                        -1,
+                        -1
+                )
+        );
+
+        FrameLayout loadingLayer =
+                new FrameLayout(this);
+
+        loadingLayer.setBackgroundColor(
+                Color.argb(
+                        70,
+                        0,
+                        0,
+                        0
+                )
+        );
+
+        ProgressBar spinner =
+                new ProgressBar(this);
+
+        spinner.setIndeterminate(true);
+
+        FrameLayout.LayoutParams spinnerLp =
+                new FrameLayout.LayoutParams(
+                        dp(42),
+                        dp(42)
+                );
+
+        spinnerLp.gravity = Gravity.CENTER;
+
+        loadingLayer.addView(
+                spinner,
+                spinnerLp
+        );
+
+        imageFrame.addView(
+                loadingLayer,
+                new FrameLayout.LayoutParams(
+                        -1,
+                        -1
+                )
+        );
+
+        wrapper.addView(
+                imageFrame,
+                new LinearLayout.LayoutParams(
+                        dp(220),
+                        dp(165)
+                )
+        );
+
+        TextView state = text(
+                "Mengirim foto…",
+                9,
+                "#64748B",
+                true
+        );
+
+        state.setGravity(Gravity.RIGHT);
+        state.setPadding(
+                dp(7),
+                dp(3),
+                dp(7),
+                0
+        );
+
+        wrapper.addView(
+                state,
+                new LinearLayout.LayoutParams(
+                        -2,
+                        -2
+                )
+        );
+
+        messagesBox.addView(
+                wrapper,
+                wrapperLp
+        );
+
+        return new PendingPhotoBubble(
+                wrapper,
+                loadingLayer,
+                state
+        );
+    }
+
+    private final class PendingPhotoBubble {
+
+        final LinearLayout root;
+        final FrameLayout loadingLayer;
+        final TextView state;
+
+        PendingPhotoBubble(
+                LinearLayout root,
+                FrameLayout loadingLayer,
+                TextView state
+        ) {
+            this.root = root;
+            this.loadingLayer = loadingLayer;
+            this.state = state;
+        }
+
+        void markSuccess() {
+            loadingLayer.setVisibility(
+                    View.GONE
+            );
+
+            state.setText(
+                    "Terkirim • memuat chat…"
+            );
+
+            state.setTextColor(
+                    Color.parseColor("#0B7CFF")
+            );
+        }
+
+        void markFailed(String message) {
+            loadingLayer.removeAllViews();
+
+            TextView failed = text(
+                    "!",
+                    22,
+                    "#FFFFFF",
+                    true
+            );
+
+            failed.setGravity(Gravity.CENTER);
+
+            loadingLayer.setBackgroundColor(
+                    Color.argb(
+                            145,
+                            190,
+                            38,
+                            38
+                    )
+            );
+
+            loadingLayer.addView(
+                    failed,
+                    new FrameLayout.LayoutParams(
+                            -1,
+                            -1
+                    )
+            );
+
+            state.setText(
+                    first(
+                            message,
+                            "Foto gagal dikirim"
+                    )
+            );
+
+            state.setTextColor(
+                    Color.parseColor("#C23636")
+            );
+        }
     }
 
     private void cleanupCameraFile() {
@@ -1367,59 +1641,140 @@ public class CustomerChatRoomActivity extends Activity {
     private void showHdImage(
             String imageUrl
     ) {
-        final ImageView image =
-                new ImageView(this);
+        final Dialog dialog =
+                new Dialog(this);
 
-        image.setScaleType(
-                ImageView.ScaleType.FIT_CENTER
+        FrameLayout page =
+                new FrameLayout(this);
+
+        page.setBackgroundColor(Color.BLACK);
+
+        ZoomableImageView zoomImage =
+                new ZoomableImageView(this);
+
+        zoomImage.setBackgroundColor(
+                Color.BLACK
         );
 
-        image.setAdjustViewBounds(true);
-        image.setMinimumHeight(dp(260));
+        page.addView(
+                zoomImage,
+                new FrameLayout.LayoutParams(
+                        -1,
+                        -1
+                )
+        );
 
-        final ProgressBar loadingHd =
+        ProgressBar loadingHd =
                 new ProgressBar(this);
 
-        LinearLayout container =
-                new LinearLayout(this);
+        FrameLayout.LayoutParams loadingLp =
+                new FrameLayout.LayoutParams(
+                        dp(48),
+                        dp(48)
+                );
 
-        container.setOrientation(
-                LinearLayout.VERTICAL
-        );
+        loadingLp.gravity = Gravity.CENTER;
 
-        container.setGravity(Gravity.CENTER);
-        container.setPadding(
-                dp(8),
-                dp(8),
-                dp(8),
-                dp(8)
-        );
-
-        container.addView(
+        page.addView(
                 loadingHd,
-                new LinearLayout.LayoutParams(
+                loadingLp
+        );
+
+        TextView hint = text(
+                "Cubit untuk zoom • geser gambar",
+                11,
+                "#FFFFFF",
+                true
+        );
+
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(
+                dp(14),
+                dp(9),
+                dp(14),
+                dp(9)
+        );
+
+        hint.setBackgroundColor(
+                Color.argb(
+                        135,
+                        0,
+                        0,
+                        0
+                )
+        );
+
+        FrameLayout.LayoutParams hintLp =
+                new FrameLayout.LayoutParams(
+                        -2,
+                        -2
+                );
+
+        hintLp.gravity =
+                Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+
+        hintLp.topMargin = dp(18);
+        page.addView(hint, hintLp);
+
+        TextView close = text(
+                "✕",
+                20,
+                "#FFFFFF",
+                true
+        );
+
+        close.setGravity(Gravity.CENTER);
+
+        close.setBackground(
+                round("#66000000", 22)
+        );
+
+        close.setOnClickListener(
+                view -> dialog.dismiss()
+        );
+
+        FrameLayout.LayoutParams closeLp =
+                new FrameLayout.LayoutParams(
                         dp(44),
                         dp(44)
-                )
-        );
+                );
 
-        container.addView(
-                image,
-                new LinearLayout.LayoutParams(
+        closeLp.gravity =
+                Gravity.TOP | Gravity.RIGHT;
+
+        closeLp.topMargin = dp(14);
+        closeLp.rightMargin = dp(14);
+
+        page.addView(close, closeLp);
+
+        dialog.setContentView(page);
+
+        Window window = dialog.getWindow();
+
+        if (window != null) {
+            window.setBackgroundDrawable(
+                    new ColorDrawable(
+                            Color.BLACK
+                    )
+            );
+
+            window.setLayout(
+                    -1,
+                    -1
+            );
+        }
+
+        dialog.setOnShowListener(ignored -> {
+            Window shownWindow =
+                    dialog.getWindow();
+
+            if (shownWindow != null) {
+                shownWindow.setLayout(
                         -1,
-                        -2
-                )
-        );
-
-        AlertDialog dialog =
-                new AlertDialog.Builder(this)
-                        .setTitle("Foto HD")
-                        .setView(container)
-                        .setNegativeButton(
-                                "Tutup",
-                                null
-                        )
-                        .create();
+                        -1
+                );
+            }
+        });
 
         dialog.show();
 
@@ -1437,7 +1792,7 @@ public class CustomerChatRoomActivity extends Activity {
                                         .openConnection();
 
                 connection.setConnectTimeout(25000);
-                connection.setReadTimeout(30000);
+                connection.setReadTimeout(45000);
                 connection.setUseCaches(true);
 
                 try (
@@ -1463,9 +1818,20 @@ public class CustomerChatRoomActivity extends Activity {
                 loadingHd.setVisibility(View.GONE);
 
                 if (finalBitmap != null) {
-                    image.setImageBitmap(finalBitmap);
+                    zoomImage.setImageBitmap(
+                            finalBitmap
+                    );
+
+                    mainHandler.postDelayed(
+                            () -> hint.animate()
+                                    .alpha(0f)
+                                    .setDuration(350)
+                                    .start(),
+                            1800
+                    );
+
                 } else {
-                    image.setImageResource(
+                    zoomImage.setImageResource(
                             android.R.drawable
                                     .ic_menu_report_image
                     );
