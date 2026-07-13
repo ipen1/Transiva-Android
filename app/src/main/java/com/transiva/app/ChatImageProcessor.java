@@ -4,57 +4,247 @@ import android.content.ContentResolver;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
+
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 
 public final class ChatImageProcessor {
-    private static final int MAX_SIDE = 1280;
-    private ChatImageProcessor() {}
 
-    public static Bitmap fromUri(ContentResolver resolver, Uri uri) throws Exception {
-        if (resolver == null || uri == null) throw new IllegalArgumentException("Foto tidak ditemukan");
+    private static final int PREVIEW_MAX_SIDE = 960;
+    private static final int HD_MAX_SIDE = 2560;
 
-        BitmapFactory.Options bounds = new BitmapFactory.Options();
+    private static final int PREVIEW_QUALITY = 80;
+    private static final int HD_QUALITY = 90;
+
+    private ChatImageProcessor() {
+    }
+
+    public static final class ImagePayload {
+        public final byte[] previewWebp;
+        public final byte[] hdWebp;
+        public final int originalWidth;
+        public final int originalHeight;
+
+        private ImagePayload(
+                byte[] previewWebp,
+                byte[] hdWebp,
+                int originalWidth,
+                int originalHeight
+        ) {
+            this.previewWebp = previewWebp;
+            this.hdWebp = hdWebp;
+            this.originalWidth = originalWidth;
+            this.originalHeight = originalHeight;
+        }
+    }
+
+    public static ImagePayload fromUri(
+            ContentResolver resolver,
+            Uri uri
+    ) throws Exception {
+        if (resolver == null || uri == null) {
+            throw new IllegalArgumentException(
+                    "Foto tidak ditemukan"
+            );
+        }
+
+        Bitmap source = decode(
+                resolver,
+                uri,
+                HD_MAX_SIDE
+        );
+
+        if (source == null) {
+            throw new IllegalStateException(
+                    "Foto tidak dapat dibaca"
+            );
+        }
+
+        return createPayload(source);
+    }
+
+    public static ImagePayload fromBitmap(
+            Bitmap bitmap
+    ) throws Exception {
+        if (bitmap == null) {
+            throw new IllegalArgumentException(
+                    "Foto tidak ditemukan"
+            );
+        }
+
+        return createPayload(bitmap);
+    }
+
+    private static ImagePayload createPayload(
+            Bitmap source
+    ) throws Exception {
+        int originalWidth = source.getWidth();
+        int originalHeight = source.getHeight();
+
+        Bitmap hd = scaleInside(
+                source,
+                HD_MAX_SIDE
+        );
+
+        Bitmap preview = scaleInside(
+                hd,
+                PREVIEW_MAX_SIDE
+        );
+
+        byte[] previewBytes = compress(
+                preview,
+                PREVIEW_QUALITY
+        );
+
+        byte[] hdBytes = compress(
+                hd,
+                HD_QUALITY
+        );
+
+        if (
+                preview != hd
+                        && preview != source
+        ) {
+            preview.recycle();
+        }
+
+        if (hd != source) {
+            hd.recycle();
+        }
+
+        if (!source.isRecycled()) {
+            source.recycle();
+        }
+
+        return new ImagePayload(
+                previewBytes,
+                hdBytes,
+                originalWidth,
+                originalHeight
+        );
+    }
+
+    private static Bitmap decode(
+            ContentResolver resolver,
+            Uri uri,
+            int maxSide
+    ) throws Exception {
+        BitmapFactory.Options bounds =
+                new BitmapFactory.Options();
+
         bounds.inJustDecodeBounds = true;
-        try (InputStream stream = resolver.openInputStream(uri)) {
-            BitmapFactory.decodeStream(stream, null, bounds);
+
+        try (
+                InputStream stream =
+                        resolver.openInputStream(uri)
+        ) {
+            BitmapFactory.decodeStream(
+                    stream,
+                    null,
+                    bounds
+            );
         }
 
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight);
-        options.inPreferredConfig = Bitmap.Config.RGB_565;
+        BitmapFactory.Options options =
+                new BitmapFactory.Options();
 
-        Bitmap decoded;
-        try (InputStream stream = resolver.openInputStream(uri)) {
-            decoded = BitmapFactory.decodeStream(stream, null, options);
+        options.inSampleSize =
+                sampleSize(
+                        bounds.outWidth,
+                        bounds.outHeight,
+                        maxSide
+                );
+
+        options.inPreferredConfig =
+                Bitmap.Config.ARGB_8888;
+
+        try (
+                InputStream stream =
+                        resolver.openInputStream(uri)
+        ) {
+            return BitmapFactory.decodeStream(
+                    stream,
+                    null,
+                    options
+            );
+        }
+    }
+
+    private static byte[] compress(
+            Bitmap bitmap,
+            int quality
+    ) throws Exception {
+        ByteArrayOutputStream output =
+                new ByteArrayOutputStream();
+
+        boolean success = bitmap.compress(
+                Bitmap.CompressFormat.WEBP,
+                quality,
+                output
+        );
+
+        if (!success) {
+            throw new IllegalStateException(
+                    "Foto gagal dikompres"
+            );
         }
 
-        if (decoded == null) throw new IllegalStateException("Foto tidak dapat dibaca");
-        return scale(decoded);
+        return output.toByteArray();
     }
 
-    public static Bitmap fromCamera(Bitmap bitmap) {
-        return bitmap == null ? null : scale(bitmap);
-    }
-
-    private static Bitmap scale(Bitmap source) {
+    private static Bitmap scaleInside(
+            Bitmap source,
+            int maxSide
+    ) {
         int width = source.getWidth();
         int height = source.getHeight();
-        if (width <= MAX_SIDE && height <= MAX_SIDE) return source;
 
-        float ratio = Math.min((float)MAX_SIDE / width, (float)MAX_SIDE / height);
-        Bitmap scaled = Bitmap.createScaledBitmap(
+        if (
+                width <= maxSide
+                        && height <= maxSide
+        ) {
+            return source;
+        }
+
+        float ratio = Math.min(
+                (float) maxSide / width,
+                (float) maxSide / height
+        );
+
+        int targetWidth =
+                Math.max(
+                        1,
+                        Math.round(width * ratio)
+                );
+
+        int targetHeight =
+                Math.max(
+                        1,
+                        Math.round(height * ratio)
+                );
+
+        return Bitmap.createScaledBitmap(
                 source,
-                Math.max(1, Math.round(width * ratio)),
-                Math.max(1, Math.round(height * ratio)),
+                targetWidth,
+                targetHeight,
                 true
         );
-        if (scaled != source) source.recycle();
-        return scaled;
     }
 
-    private static int sampleSize(int width, int height) {
+    private static int sampleSize(
+            int width,
+            int height,
+            int maxSide
+    ) {
         int sample = 1;
-        while (width / sample > MAX_SIDE * 2 || height / sample > MAX_SIDE * 2) sample *= 2;
+
+        while (
+                width / sample > maxSide * 2
+                        || height / sample > maxSide * 2
+        ) {
+            sample *= 2;
+        }
+
         return Math.max(1, sample);
     }
 }

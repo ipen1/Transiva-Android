@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.provider.MediaStore;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Environment;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -28,9 +29,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.core.content.FileProvider;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -59,6 +63,7 @@ public class CustomerChatRoomActivity extends Activity {
     private static final int REQUEST_GALLERY = 4101;
     private static final int REQUEST_CAMERA = 4102;
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
+    private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
 
     private final Handler mainHandler =
             new Handler(Looper.getMainLooper());
@@ -86,6 +91,9 @@ public class CustomerChatRoomActivity extends Activity {
     private boolean destroyed;
     private int lastId;
     private boolean firstLoad = true;
+
+    private Uri cameraPhotoUri;
+    private File cameraPhotoFile;
 
     private final Runnable refreshRunnable =
             new Runnable() {
@@ -554,21 +562,85 @@ public class CustomerChatRoomActivity extends Activity {
 
     private void openCamera() {
         try {
+            File pictureDir = getExternalFilesDir(
+                    Environment.DIRECTORY_PICTURES
+            );
+
+            if (pictureDir == null) {
+                pictureDir = getCacheDir();
+            }
+
+            File cameraDir = new File(
+                    pictureDir,
+                    "chat_camera"
+            );
+
+            if (
+                    !cameraDir.exists()
+                            && !cameraDir.mkdirs()
+            ) {
+                throw new IllegalStateException(
+                        "Folder kamera tidak dapat dibuat"
+                );
+            }
+
+            cameraPhotoFile = File.createTempFile(
+                    "chat_",
+                    ".jpg",
+                    cameraDir
+            );
+
+            cameraPhotoUri = FileProvider.getUriForFile(
+                    this,
+                    getPackageName()
+                            + ".chat.fileprovider",
+                    cameraPhotoFile
+            );
+
+            Intent intent = new Intent(
+                    MediaStore.ACTION_IMAGE_CAPTURE
+            );
+
+            intent.putExtra(
+                    MediaStore.EXTRA_OUTPUT,
+                    cameraPhotoUri
+            );
+
+            intent.addFlags(
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_READ_URI_PERMISSION
+            );
+
             startActivityForResult(
-                    new Intent(MediaStore.ACTION_IMAGE_CAPTURE),
+                    intent,
                     REQUEST_CAMERA
             );
+
         } catch (Exception error) {
-            toast("Kamera tidak tersedia");
+            toast(
+                    "Kamera tidak tersedia: "
+                            + error.getMessage()
+            );
         }
     }
 
     private void openGallery() {
         try {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            Intent intent = new Intent(
+                    Intent.ACTION_OPEN_DOCUMENT
+            );
+
+            intent.addCategory(
+                    Intent.CATEGORY_OPENABLE
+            );
+
             intent.setType("image/*");
-            startActivityForResult(intent, REQUEST_GALLERY);
+
+            startActivityForResult(
+                    intent,
+                    REQUEST_GALLERY
+            );
+
         } catch (Exception error) {
             toast("Galeri tidak tersedia");
         }
@@ -580,42 +652,56 @@ public class CustomerChatRoomActivity extends Activity {
             int resultCode,
             Intent data
     ) {
-        super.onActivityResult(requestCode, resultCode, data);
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
 
-        if (resultCode != RESULT_OK || data == null) return;
+        if (resultCode != RESULT_OK) {
+            return;
+        }
 
         try {
-            Bitmap bitmap = null;
+            Uri sourceUri = null;
 
             if (requestCode == REQUEST_CAMERA) {
-                Object value = data.getExtras() == null
-                        ? null
-                        : data.getExtras().get("data");
+                sourceUri = cameraPhotoUri;
 
-                if (value instanceof Bitmap) {
-                    bitmap = ChatImageProcessor.fromCamera((Bitmap)value);
-                }
-            } else if (requestCode == REQUEST_GALLERY) {
-                bitmap = ChatImageProcessor.fromUri(
-                        getContentResolver(),
-                        data.getData()
-                );
+            } else if (
+                    requestCode == REQUEST_GALLERY
+                            && data != null
+            ) {
+                sourceUri = data.getData();
             }
 
-            if (bitmap == null) {
+            if (sourceUri == null) {
                 toast("Foto tidak dapat dibaca");
                 return;
             }
 
-            uploadPhoto(bitmap);
+            ChatImageProcessor.ImagePayload payload =
+                    ChatImageProcessor.fromUri(
+                            getContentResolver(),
+                            sourceUri
+                    );
+
+            uploadPhoto(payload);
 
         } catch (Exception error) {
-            toast("Foto gagal diproses: " + error.getMessage());
+            toast(
+                    "Foto gagal diproses: "
+                            + error.getMessage()
+            );
         }
     }
 
-    private void uploadPhoto(Bitmap bitmap) {
-        if (uploading || readOnly) return;
+    private void uploadPhoto(
+            ChatImageProcessor.ImagePayload payload
+    ) {
+        if (uploading || readOnly) {
+            return;
+        }
 
         uploading = true;
         progress.setVisibility(View.VISIBLE);
@@ -624,12 +710,13 @@ public class CustomerChatRoomActivity extends Activity {
 
         new Thread(() -> {
             try {
-                JSONObject response = CustomerMessageApi.uploadWebp(
-                        UPLOAD_IMAGE_URL,
-                        roomId,
-                        "customer",
-                        bitmap
-                );
+                JSONObject response =
+                        CustomerMessageApi.uploadImagePair(
+                                UPLOAD_IMAGE_URL,
+                                roomId,
+                                "customer",
+                                payload
+                        );
 
                 mainHandler.post(() -> {
                     uploading = false;
@@ -637,15 +724,27 @@ public class CustomerChatRoomActivity extends Activity {
                     attachButton.setEnabled(true);
                     sendButton.setEnabled(true);
 
-                    if (response.optBoolean("success", false)) {
+                    if (
+                            response.optBoolean(
+                                    "success",
+                                    false
+                            )
+                    ) {
                         loadMessages(false);
-                    } else {
-                        showMessage(
-                                "Foto gagal dikirim",
-                                first(response.optString("message"), "Coba lagi."),
-                                false
-                        );
+                        cleanupCameraFile();
+                        return;
                     }
+
+                    showMessage(
+                            "Foto gagal dikirim",
+                            first(
+                                    response.optString(
+                                            "message"
+                                    ),
+                                    "Coba lagi."
+                            ),
+                            false
+                    );
                 });
 
             } catch (Exception error) {
@@ -654,14 +753,33 @@ public class CustomerChatRoomActivity extends Activity {
                     progress.setVisibility(View.GONE);
                     attachButton.setEnabled(true);
                     sendButton.setEnabled(true);
+
                     showMessage(
                             "Foto gagal dikirim",
-                            "Periksa koneksi lalu coba lagi.",
+                            first(
+                                    error.getMessage(),
+                                    "Periksa koneksi lalu coba lagi."
+                            ),
                             false
                     );
                 });
             }
         }).start();
+    }
+
+    private void cleanupCameraFile() {
+        try {
+            if (
+                    cameraPhotoFile != null
+                            && cameraPhotoFile.exists()
+            ) {
+                cameraPhotoFile.delete();
+            }
+        } catch (Exception ignored) {
+        }
+
+        cameraPhotoFile = null;
+        cameraPhotoUri = null;
     }
 
     private void applyReadOnlyState() {
@@ -887,17 +1005,100 @@ public class CustomerChatRoomActivity extends Activity {
         wrapperLp.setMargins(0, dp(4), 0, dp(4));
         messagesBox.addView(wrapper, wrapperLp);
 
-        if (content.startsWith(IMAGE_PREFIX)) {
-            String imageUrl = content.substring(IMAGE_PREFIX.length()).trim();
+        if (
+                content.startsWith(IMAGE_V2_PREFIX)
+                        || content.startsWith(IMAGE_PREFIX)
+        ) {
+            String previewUrl;
+            String hdUrl;
+
+            if (content.startsWith(IMAGE_V2_PREFIX)) {
+                String value = content.substring(
+                        IMAGE_V2_PREFIX.length()
+                ).trim();
+
+                String[] parts = value.split(
+                        "\\|",
+                        2
+                );
+
+                previewUrl =
+                        parts.length > 0
+                                ? parts[0].trim()
+                                : "";
+
+                hdUrl =
+                        parts.length > 1
+                                ? parts[1].trim()
+                                : previewUrl;
+
+            } else {
+                previewUrl = content.substring(
+                        IMAGE_PREFIX.length()
+                ).trim();
+
+                hdUrl = previewUrl;
+            }
+
             ImageView image = new ImageView(this);
-            image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            image.setBackground(round("#EAF1FA", 16));
+
+            image.setScaleType(
+                    ImageView.ScaleType.CENTER_CROP
+            );
+
+            image.setBackground(
+                    round("#EAF1FA", 16)
+            );
+
             wrapper.addView(
                     image,
-                    new LinearLayout.LayoutParams(dp(220), dp(165))
+                    new LinearLayout.LayoutParams(
+                            dp(220),
+                            dp(165)
+                    )
             );
-            loadRemoteImage(image, imageUrl);
-            image.setOnClickListener(view -> openImage(imageUrl));
+
+            loadRemoteImage(
+                    image,
+                    previewUrl
+            );
+
+            TextView hdHint = text(
+                    "Ketuk untuk lihat HD",
+                    9,
+                    "#0B7CFF",
+                    true
+            );
+
+            hdHint.setPadding(
+                    dp(7),
+                    dp(3),
+                    dp(7),
+                    0
+            );
+
+            wrapper.addView(
+                    hdHint,
+                    new LinearLayout.LayoutParams(
+                            -2,
+                            -2
+                    )
+            );
+
+            String finalHdUrl = hdUrl;
+
+            image.setOnClickListener(
+                    view -> showHdImage(
+                            finalHdUrl
+                    )
+            );
+
+            hdHint.setOnClickListener(
+                    view -> showHdImage(
+                            finalHdUrl
+                    )
+            );
+
         } else {
             TextView bubble = text(
                     content,
@@ -962,14 +1163,118 @@ public class CustomerChatRoomActivity extends Activity {
         }).start();
     }
 
-    private void openImage(String imageUrl) {
-        try {
-            startActivity(
-                    new Intent(Intent.ACTION_VIEW, Uri.parse(absoluteUrl(imageUrl)))
-            );
-        } catch (Exception error) {
-            toast("Gambar tidak dapat dibuka");
-        }
+    private void showHdImage(
+            String imageUrl
+    ) {
+        final ImageView image =
+                new ImageView(this);
+
+        image.setScaleType(
+                ImageView.ScaleType.FIT_CENTER
+        );
+
+        image.setAdjustViewBounds(true);
+        image.setMinimumHeight(dp(260));
+
+        final ProgressBar loadingHd =
+                new ProgressBar(this);
+
+        LinearLayout container =
+                new LinearLayout(this);
+
+        container.setOrientation(
+                LinearLayout.VERTICAL
+        );
+
+        container.setGravity(Gravity.CENTER);
+        container.setPadding(
+                dp(8),
+                dp(8),
+                dp(8),
+                dp(8)
+        );
+
+        container.addView(
+                loadingHd,
+                new LinearLayout.LayoutParams(
+                        dp(44),
+                        dp(44)
+                )
+        );
+
+        container.addView(
+                image,
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                )
+        );
+
+        AlertDialog dialog =
+                new AlertDialog.Builder(this)
+                        .setTitle("Foto HD")
+                        .setView(container)
+                        .setNegativeButton(
+                                "Tutup",
+                                null
+                        )
+                        .create();
+
+        dialog.show();
+
+        final String fixed =
+                absoluteUrl(imageUrl);
+
+        new Thread(() -> {
+            Bitmap bitmap = null;
+            HttpURLConnection connection = null;
+
+            try {
+                connection =
+                        (HttpURLConnection)
+                                new URL(fixed)
+                                        .openConnection();
+
+                connection.setConnectTimeout(25000);
+                connection.setReadTimeout(30000);
+                connection.setUseCaches(true);
+
+                try (
+                        InputStream stream =
+                                connection.getInputStream()
+                ) {
+                    bitmap =
+                            BitmapFactory.decodeStream(
+                                    stream
+                            );
+                }
+
+            } catch (Exception ignored) {
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+
+            Bitmap finalBitmap = bitmap;
+
+            mainHandler.post(() -> {
+                loadingHd.setVisibility(View.GONE);
+
+                if (finalBitmap != null) {
+                    image.setImageBitmap(finalBitmap);
+                } else {
+                    image.setImageResource(
+                            android.R.drawable
+                                    .ic_menu_report_image
+                    );
+
+                    toast(
+                            "Gambar HD tidak dapat dimuat"
+                    );
+                }
+            });
+        }).start();
     }
 
     private void addSystemMessage(
