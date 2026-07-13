@@ -2,6 +2,7 @@ package com.transiva.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -562,16 +563,13 @@ public class CustomerChatRoomActivity extends Activity {
 
     private void openCamera() {
         try {
-            File pictureDir = getExternalFilesDir(
-                    Environment.DIRECTORY_PICTURES
-            );
-
-            if (pictureDir == null) {
-                pictureDir = getCacheDir();
-            }
-
+            /*
+             * Gunakan cache internal aplikasi.
+             * Beberapa aplikasi kamera menolak URI external-files dan
+             * menampilkan "tidak dapat menulis penyimpanan eksternal".
+             */
             File cameraDir = new File(
-                    pictureDir,
+                    getCacheDir(),
                     "chat_camera"
             );
 
@@ -583,6 +581,8 @@ public class CustomerChatRoomActivity extends Activity {
                         "Folder kamera tidak dapat dibuat"
                 );
             }
+
+            cleanupCameraFile();
 
             cameraPhotoFile = File.createTempFile(
                     "chat_",
@@ -606,10 +606,49 @@ public class CustomerChatRoomActivity extends Activity {
                     cameraPhotoUri
             );
 
-            intent.addFlags(
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                            | Intent.FLAG_GRANT_READ_URI_PERMISSION
+            intent.setClipData(
+                    ClipData.newRawUri(
+                            "Transiva chat camera",
+                            cameraPhotoUri
+                    )
             );
+
+            int uriFlags =
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_READ_URI_PERMISSION;
+
+            intent.addFlags(uriFlags);
+
+            /*
+             * Berikan izin URI secara eksplisit ke seluruh aplikasi kamera
+             * yang dapat menangani intent. Ini penting pada beberapa ROM
+             * Android seperti XOS, MIUI, ColorOS, dan perangkat lama.
+             */
+            for (
+                    android.content.pm.ResolveInfo info
+                    : getPackageManager()
+                    .queryIntentActivities(
+                            intent,
+                            android.content.pm.PackageManager
+                                    .MATCH_DEFAULT_ONLY
+                    )
+            ) {
+                grantUriPermission(
+                        info.activityInfo.packageName,
+                        cameraPhotoUri,
+                        uriFlags
+                );
+            }
+
+            if (
+                    intent.resolveActivity(
+                            getPackageManager()
+                    ) == null
+            ) {
+                throw new IllegalStateException(
+                        "Aplikasi kamera tidak ditemukan"
+                );
+            }
 
             startActivityForResult(
                     intent,
@@ -617,6 +656,8 @@ public class CustomerChatRoomActivity extends Activity {
             );
 
         } catch (Exception error) {
+            cleanupCameraFile();
+
             toast(
                     "Kamera tidak tersedia: "
                             + error.getMessage()
@@ -658,7 +699,19 @@ public class CustomerChatRoomActivity extends Activity {
                 data
         );
 
+        if (requestCode == REQUEST_CAMERA) {
+            try {
+                revokeUriPermission(
+                        cameraPhotoUri,
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                | Intent.FLAG_GRANT_READ_URI_PERMISSION
+                );
+            } catch (Exception ignored) {
+            }
+        }
+
         if (resultCode != RESULT_OK) {
+            cleanupCameraFile();
             return;
         }
 
