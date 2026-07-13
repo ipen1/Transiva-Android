@@ -68,6 +68,16 @@ public class CustomerChatActivity extends Activity {
 
         loadSession();
         setContentView(buildScreen());
+
+        CustomerChatNotificationPoller.requestPermission(
+                this
+        );
+
+        CustomerChatNotificationPoller.start(
+                this,
+                userId
+        );
+
         loadConversations();
     }
 

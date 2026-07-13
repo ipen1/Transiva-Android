@@ -2,7 +2,6 @@ package com.transiva.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -21,7 +20,6 @@ import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -116,6 +114,37 @@ public class CustomerChatRoomActivity extends Activity {
 
         readIntent();
         setContentView(buildScreen());
+
+        CustomerChatNotificationPoller.requestPermission(
+                this
+        );
+
+        int notificationUserId = 0;
+
+        try {
+            SessionManager session =
+                    new SessionManager(this);
+
+            notificationUserId =
+                    Integer.parseInt(
+                            first(
+                                    session.getId(),
+                                    session.getUserId(),
+                                    "0"
+                            )
+                    );
+
+        } catch (Exception ignored) {
+        }
+
+        CustomerChatNotificationPoller.start(
+                this,
+                notificationUserId
+        );
+
+        CustomerChatNotificationPoller.setOpenRoom(
+                roomId
+        );
 
         if (roomId.isEmpty()) {
             showMessage(
@@ -1340,6 +1369,24 @@ public class CustomerChatRoomActivity extends Activity {
                 message,
                 Toast.LENGTH_SHORT
         ).show();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        CustomerChatNotificationPoller.setOpenRoom(
+                roomId
+        );
+    }
+
+    @Override
+    protected void onPause() {
+        CustomerChatNotificationPoller.clearOpenRoom(
+                roomId
+        );
+
+        super.onPause();
     }
 
     @Override
