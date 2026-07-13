@@ -1305,30 +1305,54 @@ public class CustomerHistoryActivity extends Activity {
         );
 
         if (isActiveStatus(status)) {
-            Button track =
-                    primaryButton(
-                            trackButtonLabel(order)
-                    );
+            if (canCustomerCancel(status)) {
+                Button cancel =
+                        dangerButton("Batalkan");
 
-            track.setOnClickListener(
-                    view -> openActiveOrder(order)
-            );
+                cancel.setOnClickListener(
+                        view -> confirmCancelOrder(order)
+                );
 
-            LinearLayout.LayoutParams trackLp =
-                    new LinearLayout.LayoutParams(
-                            0,
-                            dp(42),
-                            1
-                    );
+                LinearLayout.LayoutParams cancelLp =
+                        new LinearLayout.LayoutParams(
+                                0,
+                                dp(42),
+                                1
+                        );
 
-            trackLp.setMargins(
-                    dp(8),
-                    0,
-                    0,
-                    0
-            );
+                cancelLp.setMargins(
+                        dp(8),
+                        0,
+                        0,
+                        0
+                );
 
-            actions.addView(track, trackLp);
+                actions.addView(cancel, cancelLp);
+
+            } else if (canTrackOrder(status)) {
+                Button track =
+                        primaryButton("Lacak");
+
+                track.setOnClickListener(
+                        view -> openActiveOrder(order)
+                );
+
+                LinearLayout.LayoutParams trackLp =
+                        new LinearLayout.LayoutParams(
+                                0,
+                                dp(42),
+                                1
+                        );
+
+                trackLp.setMargins(
+                        dp(8),
+                        0,
+                        0,
+                        0
+                );
+
+                actions.addView(track, trackLp);
+            }
 
         } else {
             Button repeat =
@@ -1769,65 +1793,7 @@ public class CustomerHistoryActivity extends Activity {
     private void openActiveOrder(
             JSONObject order
     ) {
-        String type = serviceType(order);
-
         try {
-            if (type.contains("food")) {
-                startActivity(
-                        new Intent(
-                                this,
-                                TransFoodActivity.class
-                        )
-                );
-                return;
-            }
-
-            if (
-                    type.contains("tour")
-                            || type.contains("wisata")
-            ) {
-                startActivity(
-                        new Intent(
-                                this,
-                                TranstourActivity.class
-                        )
-                );
-                return;
-            }
-
-            if (type.contains("laundry")) {
-                startActivity(
-                        new Intent(
-                                this,
-                                TransLaundryActivity.class
-                        )
-                );
-                return;
-            }
-
-            if (type.contains("pickup")) {
-                startActivity(
-                        new Intent(
-                                this,
-                                TransPickupActivity.class
-                        )
-                );
-                return;
-            }
-
-            if (
-                    type.contains("car")
-                            || type.contains("mobil")
-            ) {
-                startActivity(
-                        new Intent(
-                                this,
-                                PassengerCarActivity.class
-                        )
-                );
-                return;
-            }
-
             Intent trip = new Intent(
                     this,
                     CustomerTripActivity.class
@@ -1844,13 +1810,148 @@ public class CustomerHistoryActivity extends Activity {
                     )
             );
 
+            trip.putExtra(
+                    "active_order_id",
+                    first(
+                            order.optString(
+                                    "order_id"
+                            ),
+                            order.optString("id"),
+                            ""
+                    )
+            );
+
+            trip.putExtra(
+                    "pickup_lat",
+                    order.optDouble(
+                            "pickup_lat",
+                            0
+                    )
+            );
+
+            trip.putExtra(
+                    "pickup_lng",
+                    order.optDouble(
+                            "pickup_lng",
+                            0
+                    )
+            );
+
+            trip.putExtra(
+                    "delivery_lat",
+                    order.optDouble(
+                            "delivery_lat",
+                            0
+                    )
+            );
+
+            trip.putExtra(
+                    "delivery_lng",
+                    order.optDouble(
+                            "delivery_lng",
+                            0
+                    )
+            );
+
+            trip.putExtra(
+                    "active_driver_type",
+                    isCarOrder(order)
+                            ? "car"
+                            : "motor"
+            );
+
             startActivity(trip);
 
-        } catch (Exception ignored) {
+        } catch (Exception error) {
             toast(
-                    "Halaman pelacakan belum tersedia untuk layanan ini."
+                    "Trip View customer tidak dapat dibuka."
             );
         }
+    }
+
+    private void confirmCancelOrder(
+            JSONObject order
+    ) {
+        String orderId = first(
+                order.optString("order_id"),
+                order.optString("id"),
+                ""
+        );
+
+        if (orderId.isEmpty()) {
+            toast("ID order tidak ditemukan");
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Batalkan Pesanan")
+                .setMessage(
+                        "Pesanan dapat dibatalkan selama belum diambil driver. Lanjutkan pembatalan?"
+                )
+                .setNegativeButton(
+                        "Kembali",
+                        null
+                )
+                .setPositiveButton(
+                        "Batalkan",
+                        (dialog, which) ->
+                                cancelOrder(order)
+                )
+                .show();
+    }
+
+    private void cancelOrder(
+            JSONObject order
+    ) {
+        if (loading) {
+            return;
+        }
+
+        loading = true;
+        progressBar.setVisibility(View.VISIBLE);
+
+        CustomerActivityOrderAction.cancel(
+                this,
+                order,
+                userId,
+                username,
+                new CustomerActivityOrderAction.Callback() {
+                    @Override
+                    public void onSuccess(
+                            String message
+                    ) {
+                        loading = false;
+                        progressBar.setVisibility(
+                                View.GONE
+                        );
+
+                        toast(message);
+                        loadHistory();
+                    }
+
+                    @Override
+                    public void onError(
+                            String message
+                    ) {
+                        loading = false;
+                        progressBar.setVisibility(
+                                View.GONE
+                        );
+
+                        toast(message);
+                        loadHistory();
+                    }
+                }
+        );
+    }
+
+    private boolean isCarOrder(
+            JSONObject order
+    ) {
+        String type = serviceType(order);
+
+        return type.contains("car")
+                || type.contains("mobil");
     }
 
     private void openRepeat(
@@ -2243,6 +2344,46 @@ public class CustomerHistoryActivity extends Activity {
     ) {
         return !isCompletedStatus(status)
                 && !isCanceledStatus(status);
+    }
+
+    /**
+     * Server cancel_order.php mengizinkan pembatalan pada:
+     * pending dan merchant_accepted.
+     *
+     * Status pencarian juga ditampilkan sebagai Batalkan karena secara UI
+     * driver belum mengambil order. Server tetap menjadi validasi terakhir.
+     */
+    private boolean canCustomerCancel(
+            String status
+    ) {
+        return status.equals("pending")
+                || status.equals("merchant_accepted")
+                || status.equals("searching")
+                || status.equals("search")
+                || status.equals("finding")
+                || status.equals("waiting")
+                || status.equals("created");
+    }
+
+    /**
+     * Tombol Lacak baru muncul mulai status taken dan seluruh proses
+     * setelah driver mengambil order.
+     */
+    private boolean canTrackOrder(
+            String status
+    ) {
+        return status.equals("taken")
+                || status.contains("driver_taken")
+                || status.contains("accepted")
+                || status.contains("driver_assigned")
+                || status.contains("pickup")
+                || status.contains("arriving")
+                || status.contains("menuju")
+                || status.contains("ongoing")
+                || status.contains("trip")
+                || status.contains("delivery")
+                || status.contains("delivering")
+                || status.contains("process");
     }
 
     private boolean isCompletedStatus(
@@ -2681,6 +2822,31 @@ public class CustomerHistoryActivity extends Activity {
                 gradient(
                         "#086BFF",
                         "#2EA2FF",
+                        12
+                )
+        );
+
+        return button;
+    }
+
+    private Button dangerButton(
+            String label
+    ) {
+        Button button = new Button(this);
+
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextSize(10);
+        button.setTextColor(Color.WHITE);
+
+        button.setTypeface(
+                Typeface.DEFAULT,
+                Typeface.BOLD
+        );
+
+        button.setBackground(
+                round(
+                        "#E34848",
                         12
                 )
         );
