@@ -1856,75 +1856,43 @@ public class CustomerHistoryActivity extends Activity {
     private void openRepeat(
             JSONObject order
     ) {
-        String type = serviceType(order);
-
         try {
-            if (type.contains("food")) {
-                startActivity(
-                        new Intent(
-                                this,
-                                TransFoodActivity.class
-                        )
-                );
-                return;
-            }
+            RepeatOrderData data =
+                    RepeatOrderData.fromOrder(order);
 
-            if (
-                    type.contains("tour")
-                            || type.contains("wisata")
+            Intent intent;
+
+            if (data.isFood()) {
+                intent = new Intent(
+                        this,
+                        RepeatFoodOrderActivity.class
+                );
+            } else if (
+                    data.isCar()
+                            || serviceType(order)
+                            .contains("ride")
+                            || serviceType(order)
+                            .contains("bike")
+                            || serviceType(order)
+                            .contains("motor")
             ) {
-                startActivity(
-                        new Intent(
-                                this,
-                                TranstourActivity.class
-                        )
+                intent = new Intent(
+                        this,
+                        RepeatRideOrderActivity.class
+                );
+            } else {
+                toast(
+                        "Pesan lagi belum tersedia untuk layanan ini."
                 );
                 return;
             }
 
-            if (type.contains("laundry")) {
-                startActivity(
-                        new Intent(
-                                this,
-                                TransLaundryActivity.class
-                        )
-                );
-                return;
-            }
+            data.putInto(intent);
+            startActivity(intent);
 
-            if (type.contains("pickup")) {
-                startActivity(
-                        new Intent(
-                                this,
-                                TransPickupActivity.class
-                        )
-                );
-                return;
-            }
-
-            if (
-                    type.contains("car")
-                            || type.contains("mobil")
-            ) {
-                startActivity(
-                        new Intent(
-                                this,
-                                PassengerCarActivity.class
-                        )
-                );
-                return;
-            }
-
-            startActivity(
-                    new Intent(
-                            this,
-                            TransRideActivity.class
-                    )
-            );
-
-        } catch (Exception ignored) {
+        } catch (Exception error) {
             toast(
-                    "Layanan belum tersedia."
+                    "Data order lama tidak dapat dibuka."
             );
         }
     }
