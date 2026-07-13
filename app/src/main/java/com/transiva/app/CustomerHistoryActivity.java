@@ -1101,7 +1101,10 @@ public class CustomerHistoryActivity extends Activity {
                 );
 
         TextView badge = text(
-                statusLabel(status),
+                OrderStatusPresentation.label(
+                        status,
+                        serviceType(order)
+                ),
                 9,
                 statusTextColor(status),
                 true
@@ -2357,33 +2360,17 @@ public class CustomerHistoryActivity extends Activity {
             String status
     ) {
         return status.equals("pending")
-                || status.equals("merchant_accepted")
-                || status.equals("searching")
-                || status.equals("search")
-                || status.equals("finding")
-                || status.equals("waiting")
-                || status.equals("created");
+                || status.equals("merchant_accepted");
     }
 
-    /**
-     * Tombol Lacak baru muncul mulai status taken dan seluruh proses
-     * setelah driver mengambil order.
-     */
+    /** Status resmi driver dari endpoint PHP. */
     private boolean canTrackOrder(
             String status
     ) {
         return status.equals("taken")
-                || status.contains("driver_taken")
-                || status.contains("accepted")
-                || status.contains("driver_assigned")
-                || status.contains("pickup")
-                || status.contains("arriving")
-                || status.contains("menuju")
-                || status.contains("ongoing")
-                || status.contains("trip")
-                || status.contains("delivery")
-                || status.contains("delivering")
-                || status.contains("process");
+                || status.equals("arrived_pickup")
+                || status.equals("on_delivery")
+                || status.equals("arrived_delivery");
     }
 
     private boolean isCompletedStatus(
@@ -2402,9 +2389,10 @@ public class CustomerHistoryActivity extends Activity {
     private boolean isCanceledStatus(
             String status
     ) {
-        return status.contains("cancel")
+        return status.equals("merchant_rejected")
+                || status.equals("canceled")
+                || status.equals("cancelled")
                 || status.contains("batal")
-                || status.contains("reject")
                 || status.contains("failed")
                 || status.contains("expired");
     }
@@ -2412,182 +2400,31 @@ public class CustomerHistoryActivity extends Activity {
     private String statusLabel(
             String status
     ) {
-        if (isCompletedStatus(status)) {
-            return "Selesai";
-        }
-
-        if (isCanceledStatus(status)) {
-            return "Dibatalkan";
-        }
-
-        if (
-                status.contains("search")
-                        || status.contains("finding")
-                        || status.contains("pending")
-        ) {
-            return "Mencari";
-        }
-
-        if (
-                status.contains("accepted")
-                        || status.contains("driver_assigned")
-        ) {
-            return "Diterima";
-        }
-
-        if (
-                status.contains("pickup")
-                        || status.contains("arriving")
-                        || status.contains("menuju")
-        ) {
-            return "Menuju Lokasi";
-        }
-
-        if (
-                status.contains("process")
-                        || status.contains("preparing")
-                        || status.contains("cooking")
-        ) {
-            return "Diproses";
-        }
-
-        if (
-                status.contains("ongoing")
-                        || status.contains("trip")
-                        || status.contains("delivery")
-        ) {
-            return "Berlangsung";
-        }
-
-        return "Aktif";
+        return OrderStatusPresentation.label(status, "");
     }
 
     private String statusTextColor(
             String status
     ) {
-        if (isCompletedStatus(status)) {
-            return "#07864B";
-        }
-
-        if (isCanceledStatus(status)) {
-            return "#C23636";
-        }
-
-        if (
-                status.contains("pending")
-                        || status.contains("search")
-        ) {
-            return "#B66A00";
-        }
-
-        return "#0B7CFF";
+        return OrderStatusPresentation.textColor(status);
     }
 
     private String statusBackground(
             String status
     ) {
-        if (isCompletedStatus(status)) {
-            return "#EAFBF2";
-        }
-
-        if (isCanceledStatus(status)) {
-            return "#FFF0F0";
-        }
-
-        if (
-                status.contains("pending")
-                        || status.contains("search")
-        ) {
-            return "#FFF7E5";
-        }
-
-        return "#EAF4FF";
+        return OrderStatusPresentation.backgroundColor(status);
     }
 
     private String statusDotColor(
             String status
     ) {
-        if (isCompletedStatus(status)) {
-            return "#14A867";
-        }
-
-        if (isCanceledStatus(status)) {
-            return "#E35353";
-        }
-
-        if (
-                status.contains("pending")
-                        || status.contains("search")
-        ) {
-            return "#F0A51A";
-        }
-
-        return "#0B7CFF";
+        return OrderStatusPresentation.dotColor(status);
     }
 
     private String progressDescription(
             JSONObject order
     ) {
-        String status =
-                normalizedStatus(
-                        order.optString("status")
-                );
-
-        String driver = first(
-                order.optString("driver"),
-                order.optString(
-                        "driver_username"
-                ),
-                ""
-        );
-
-        if (isCompletedStatus(status)) {
-            return "Pesanan telah selesai";
-        }
-
-        if (isCanceledStatus(status)) {
-            return "Pesanan tidak dilanjutkan";
-        }
-
-        if (
-                status.contains("search")
-                        || status.contains("pending")
-        ) {
-            return "Sedang mencari mitra terbaik";
-        }
-
-        if (
-                status.contains("preparing")
-                        || status.contains("cooking")
-        ) {
-            return "Merchant sedang menyiapkan pesanan";
-        }
-
-        if (
-                status.contains("accepted")
-                        || status.contains(
-                        "driver_assigned"
-                )
-        ) {
-            return driver.isEmpty()
-                    ? "Mitra telah menerima pesanan"
-                    : driver
-                    + " telah menerima pesanan";
-        }
-
-        if (
-                status.contains("pickup")
-                        || status.contains("arriving")
-        ) {
-            return driver.isEmpty()
-                    ? "Mitra sedang menuju lokasi"
-                    : driver
-                    + " sedang menuju lokasi";
-        }
-
-        return driver.isEmpty()
-                ? "Pesanan sedang berlangsung"
-                : "Ditangani oleh " + driver;
+        return OrderStatusPresentation.description(order);
     }
 
     private String orderMainLine(
