@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -12,6 +13,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.os.Handler;
@@ -100,6 +102,7 @@ public class CustomerChatRoomActivity extends Activity {
 
     private Uri cameraPhotoUri;
     private File cameraPhotoFile;
+    private boolean cameraUsesMediaStore;
 
     private final Runnable refreshRunnable =
             new Runnable() {
@@ -590,39 +593,86 @@ public class CustomerChatRoomActivity extends Activity {
 
     private void launchCameraInternal() {
         try {
-            /*
-             * Gunakan cache internal aplikasi.
-             * Beberapa aplikasi kamera menolak URI external-files dan
-             * menampilkan "tidak dapat menulis penyimpanan eksternal".
-             */
-            File cameraDir = new File(
-                    getCacheDir(),
-                    "chat_camera"
-            );
-
-            if (
-                    !cameraDir.exists()
-                            && !cameraDir.mkdirs()
-            ) {
-                throw new IllegalStateException(
-                        "Folder kamera tidak dapat dibuat"
-                );
-            }
-
             cleanupCameraFile();
 
-            cameraPhotoFile = File.createTempFile(
-                    "chat_",
-                    ".jpg",
-                    cameraDir
-            );
+            if (
+                    Build.VERSION.SDK_INT
+                            >= Build.VERSION_CODES.Q
+            ) {
+                ContentValues values =
+                        new ContentValues();
 
-            cameraPhotoUri = FileProvider.getUriForFile(
-                    this,
-                    getPackageName()
-                            + ".chat.fileprovider",
-                    cameraPhotoFile
-            );
+                values.put(
+                        MediaStore.Images.Media.DISPLAY_NAME,
+                        "transiva_chat_"
+                                + System.currentTimeMillis()
+                                + ".jpg"
+                );
+
+                values.put(
+                        MediaStore.Images.Media.MIME_TYPE,
+                        "image/jpeg"
+                );
+
+                values.put(
+                        MediaStore.Images.Media.RELATIVE_PATH,
+                        Environment.DIRECTORY_PICTURES
+                                + "/Transiva/Chat"
+                );
+
+                values.put(
+                        MediaStore.Images.Media.IS_PENDING,
+                        1
+                );
+
+                cameraPhotoUri =
+                        getContentResolver().insert(
+                                MediaStore.Images.Media
+                                        .EXTERNAL_CONTENT_URI,
+                                values
+                        );
+
+                if (cameraPhotoUri == null) {
+                    throw new IllegalStateException(
+                            "Gagal membuat lokasi foto kamera"
+                    );
+                }
+
+                cameraUsesMediaStore = true;
+                cameraPhotoFile = null;
+
+            } else {
+                File cameraDir = new File(
+                        getCacheDir(),
+                        "chat_camera"
+                );
+
+                if (
+                        !cameraDir.exists()
+                                && !cameraDir.mkdirs()
+                ) {
+                    throw new IllegalStateException(
+                            "Folder kamera tidak dapat dibuat"
+                    );
+                }
+
+                cameraPhotoFile =
+                        File.createTempFile(
+                                "chat_",
+                                ".jpg",
+                                cameraDir
+                        );
+
+                cameraPhotoUri =
+                        FileProvider.getUriForFile(
+                                this,
+                                getPackageName()
+                                        + ".chat.fileprovider",
+                                cameraPhotoFile
+                        );
+
+                cameraUsesMediaStore = false;
+            }
 
             Intent intent = new Intent(
                     MediaStore.ACTION_IMAGE_CAPTURE
@@ -646,11 +696,6 @@ public class CustomerChatRoomActivity extends Activity {
 
             intent.addFlags(uriFlags);
 
-            /*
-             * Berikan izin URI secara eksplisit ke seluruh aplikasi kamera
-             * yang dapat menangani intent. Ini penting pada beberapa ROM
-             * Android seperti XOS, MIUI, ColorOS, dan perangkat lama.
-             */
             for (
                     android.content.pm.ResolveInfo info
                     : getPackageManager()
@@ -768,6 +813,28 @@ public class CustomerChatRoomActivity extends Activity {
             if (requestCode == REQUEST_CAMERA) {
                 sourceUri = cameraPhotoUri;
 
+                if (
+                        cameraUsesMediaStore
+                                &&
+                        Build.VERSION.SDK_INT
+                                >= Build.VERSION_CODES.Q
+                ) {
+                    ContentValues completed =
+                            new ContentValues();
+
+                    completed.put(
+                            MediaStore.Images.Media.IS_PENDING,
+                            0
+                    );
+
+                    getContentResolver().update(
+                            cameraPhotoUri,
+                            completed,
+                            null,
+                            null
+                    );
+                }
+
             } else if (
                     requestCode == REQUEST_GALLERY
                             && data != null
@@ -881,16 +948,39 @@ public class CustomerChatRoomActivity extends Activity {
     private void cleanupCameraFile() {
         try {
             if (
+                    cameraUsesMediaStore
+                            && cameraPhotoUri != null
+            ) {
+                getContentResolver().delete(
+                        cameraPhotoUri,
+                        null,
+                        null
+                );
+
+            } else if (
                     cameraPhotoFile != null
                             && cameraPhotoFile.exists()
             ) {
                 cameraPhotoFile.delete();
+            }
+
+        } catch (Exception ignored) {
+        }
+
+        try {
+            if (cameraPhotoUri != null) {
+                revokeUriPermission(
+                        cameraPhotoUri,
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                | Intent.FLAG_GRANT_READ_URI_PERMISSION
+                );
             }
         } catch (Exception ignored) {
         }
 
         cameraPhotoFile = null;
         cameraPhotoUri = null;
+        cameraUsesMediaStore = false;
     }
 
     private void applyReadOnlyState() {
