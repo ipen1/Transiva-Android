@@ -3,7 +3,10 @@ package com.transiva.app;
 import android.content.ContentResolver;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
 import android.net.Uri;
+
+import androidx.exifinterface.media.ExifInterface;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -48,19 +51,29 @@ public final class ChatImageProcessor {
             );
         }
 
-        Bitmap source = decode(
+        int orientation = readExifOrientation(
+                resolver,
+                uri
+        );
+
+        Bitmap decoded = decode(
                 resolver,
                 uri,
                 HD_MAX_SIDE
         );
 
-        if (source == null) {
+        if (decoded == null) {
             throw new IllegalStateException(
                     "Foto tidak dapat dibaca"
             );
         }
 
-        return createPayload(source);
+        Bitmap oriented = applyExifOrientation(
+                decoded,
+                orientation
+        );
+
+        return createPayload(oriented);
     }
 
     public static ImagePayload fromBitmap(
@@ -73,6 +86,98 @@ public final class ChatImageProcessor {
         }
 
         return createPayload(bitmap);
+    }
+
+    private static int readExifOrientation(
+            ContentResolver resolver,
+            Uri uri
+    ) {
+        try (
+                InputStream stream =
+                        resolver.openInputStream(uri)
+        ) {
+            if (stream == null) {
+                return ExifInterface.ORIENTATION_NORMAL;
+            }
+
+            ExifInterface exif =
+                    new ExifInterface(stream);
+
+            return exif.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL
+            );
+
+        } catch (Exception ignored) {
+            return ExifInterface.ORIENTATION_NORMAL;
+        }
+    }
+
+    private static Bitmap applyExifOrientation(
+            Bitmap source,
+            int orientation
+    ) {
+        Matrix matrix = new Matrix();
+
+        switch (orientation) {
+            case ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
+                matrix.setScale(-1f, 1f);
+                break;
+
+            case ExifInterface.ORIENTATION_ROTATE_180:
+                matrix.setRotate(180f);
+                break;
+
+            case ExifInterface.ORIENTATION_FLIP_VERTICAL:
+                matrix.setRotate(180f);
+                matrix.postScale(-1f, 1f);
+                break;
+
+            case ExifInterface.ORIENTATION_TRANSPOSE:
+                matrix.setRotate(90f);
+                matrix.postScale(-1f, 1f);
+                break;
+
+            case ExifInterface.ORIENTATION_ROTATE_90:
+                matrix.setRotate(90f);
+                break;
+
+            case ExifInterface.ORIENTATION_TRANSVERSE:
+                matrix.setRotate(-90f);
+                matrix.postScale(-1f, 1f);
+                break;
+
+            case ExifInterface.ORIENTATION_ROTATE_270:
+                matrix.setRotate(-90f);
+                break;
+
+            case ExifInterface.ORIENTATION_NORMAL:
+            case ExifInterface.ORIENTATION_UNDEFINED:
+            default:
+                return source;
+        }
+
+        try {
+            Bitmap transformed =
+                    Bitmap.createBitmap(
+                            source,
+                            0,
+                            0,
+                            source.getWidth(),
+                            source.getHeight(),
+                            matrix,
+                            true
+                    );
+
+            if (transformed != source) {
+                source.recycle();
+            }
+
+            return transformed;
+
+        } catch (OutOfMemoryError error) {
+            return source;
+        }
     }
 
     private static ImagePayload createPayload(
@@ -138,10 +243,25 @@ public final class ChatImageProcessor {
                 InputStream stream =
                         resolver.openInputStream(uri)
         ) {
+            if (stream == null) {
+                throw new IllegalStateException(
+                        "File foto tidak dapat dibuka"
+                );
+            }
+
             BitmapFactory.decodeStream(
                     stream,
                     null,
                     bounds
+            );
+        }
+
+        if (
+                bounds.outWidth <= 0
+                        || bounds.outHeight <= 0
+        ) {
+            throw new IllegalStateException(
+                    "Ukuran foto tidak valid"
             );
         }
 
@@ -162,6 +282,12 @@ public final class ChatImageProcessor {
                 InputStream stream =
                         resolver.openInputStream(uri)
         ) {
+            if (stream == null) {
+                throw new IllegalStateException(
+                        "File foto tidak dapat dibuka"
+                );
+            }
+
             return BitmapFactory.decodeStream(
                     stream,
                     null,
