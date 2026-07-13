@@ -1,6 +1,5 @@
 package com.transiva.app;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
@@ -10,6 +9,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
+import androidx.activity.ComponentActivity;
 import androidx.annotation.NonNull;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageCapture;
@@ -25,7 +25,8 @@ import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class ChatCameraActivity extends Activity {
+public class ChatCameraActivity
+        extends ComponentActivity {
 
     private PreviewView previewView;
     private ImageCapture imageCapture;
@@ -34,11 +35,18 @@ public class ChatCameraActivity extends Activity {
     private boolean capturing;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    protected void onCreate(
+            Bundle savedInstanceState
+    ) {
         super.onCreate(savedInstanceState);
 
-        getWindow().setStatusBarColor(Color.BLACK);
-        getWindow().setNavigationBarColor(Color.BLACK);
+        getWindow().setStatusBarColor(
+                Color.BLACK
+        );
+
+        getWindow().setNavigationBarColor(
+                Color.BLACK
+        );
 
         cameraExecutor =
                 Executors.newSingleThreadExecutor();
@@ -72,11 +80,18 @@ public class ChatCameraActivity extends Activity {
                 new LinearLayout(this);
 
         controls.setGravity(Gravity.CENTER);
-        controls.setPadding(20, 18, 20, 26);
+
+        controls.setPadding(
+                20,
+                18,
+                20,
+                26
+        );
 
         captureButton = new Button(this);
         captureButton.setText("Ambil Foto");
         captureButton.setAllCaps(false);
+
         captureButton.setOnClickListener(
                 view -> takePhoto()
         );
@@ -155,7 +170,9 @@ public class ChatCameraActivity extends Activity {
                         finish();
                     }
                 },
-                ContextCompat.getMainExecutor(this)
+                ContextCompat.getMainExecutor(
+                        this
+                )
         );
     }
 
@@ -168,6 +185,7 @@ public class ChatCameraActivity extends Activity {
         }
 
         capturing = true;
+
         captureButton.setEnabled(false);
         captureButton.setText("Memproses…");
 
@@ -200,15 +218,19 @@ public class ChatCameraActivity extends Activity {
         imageCapture.takePicture(
                 options,
                 cameraExecutor,
-                new ImageCapture.OnImageSavedCallback() {
+                new ImageCapture
+                        .OnImageSavedCallback() {
+
                     @Override
                     public void onImageSaved(
                             @NonNull
-                            ImageCapture.OutputFileResults
+                            ImageCapture
+                                    .OutputFileResults
                                     outputFileResults
                     ) {
                         runOnUiThread(() -> {
-                            Intent result = new Intent();
+                            Intent result =
+                                    new Intent();
 
                             result.putExtra(
                                     "photo_path",
@@ -231,12 +253,18 @@ public class ChatCameraActivity extends Activity {
                     ) {
                         runOnUiThread(() -> {
                             capturing = false;
-                            captureButton.setEnabled(true);
-                            captureButton.setText("Ambil Foto");
+
+                            captureButton
+                                    .setEnabled(true);
+
+                            captureButton.setText(
+                                    "Ambil Foto"
+                            );
 
                             toast(
                                     "Foto gagal: "
-                                            + exception.getMessage()
+                                            + exception
+                                            .getMessage()
                             );
                         });
                     }
