@@ -9,7 +9,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.TextWatcher;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
@@ -41,6 +43,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 public class CustomerBalanceHistoryActivity
         extends Activity {
@@ -53,6 +56,9 @@ public class CustomerBalanceHistoryActivity
 
     private static final String TRANSFER_URL =
             BASE_URL + "customer_wallet_transfer.php";
+
+    private static final String QUOTE_TRANSFER_URL =
+            BASE_URL + "customer_wallet_quote.php";
 
     private static final String LOOKUP_USER_URL =
             BASE_URL + "customer_wallet_lookup_user.php";
@@ -1487,9 +1493,11 @@ public class CustomerBalanceHistoryActivity
 
         EditText amount =
                 input(
-                        "Nominal kirim dana",
+                        "Minimal Rp10.000",
                         InputType.TYPE_CLASS_NUMBER
                 );
+
+        installRupiahFormatting(amount);
 
         EditText note =
                 input(
@@ -1497,9 +1505,25 @@ public class CustomerBalanceHistoryActivity
                         InputType.TYPE_CLASS_TEXT
                 );
 
+        TextView quotaInfo =
+                text(
+                        "5 transfer gratis setiap bulan. Setelah kuota habis, biaya Rp500 per transfer.",
+                        10,
+                        "#64748B",
+                        false
+                );
+
+        quotaInfo.setPadding(
+                dp(4),
+                dp(7),
+                dp(4),
+                dp(4)
+        );
+
         form.addView(recipient);
         form.addView(spacer());
         form.addView(amount);
+        form.addView(quotaInfo);
         form.addView(spacer());
         form.addView(note);
 
@@ -1507,7 +1531,7 @@ public class CustomerBalanceHistoryActivity
                 new AlertDialog.Builder(this)
                         .setTitle("Kirim Dana")
                         .setMessage(
-                                "Kirim saldo ke customer Transiva melalui username."
+                                "Masukkan username customer dan nominal yang akan dikirim."
                         )
                         .setView(form)
                         .setNegativeButton(
@@ -1515,7 +1539,7 @@ public class CustomerBalanceHistoryActivity
                                 null
                         )
                         .setPositiveButton(
-                                "Lanjutkan",
+                                "Lihat Detail",
                                 null
                         )
                         .create();
@@ -1559,16 +1583,16 @@ public class CustomerBalanceHistoryActivity
                                         return;
                                     }
 
-                                    if (value < 1000) {
+                                    if (value < 10000) {
                                         amount.setError(
-                                                "Minimal kirim dana Rp1.000"
+                                                "Minimal transfer Rp10.000"
                                         );
                                         return;
                                     }
 
                                     dialog.dismiss();
 
-                                    validateRecipientAndConfirm(
+                                    requestTransferQuote(
                                             to,
                                             value,
                                             note
@@ -1583,123 +1607,7 @@ public class CustomerBalanceHistoryActivity
         dialog.show();
     }
 
-    private void validateRecipientAndConfirm(
-            String recipient,
-            int amount,
-            String note
-    ) {
-        setLoading(true);
-
-        new Thread(() -> {
-            try {
-                JSONObject request =
-                        new JSONObject();
-
-                request.put(
-                        "user_id",
-                        userId
-                );
-
-                request.put(
-                        "username",
-                        username
-                );
-
-                request.put(
-                        "recipient",
-                        recipient
-                );
-
-                JSONObject response =
-                        postJson(
-                                LOOKUP_USER_URL,
-                                request
-                        );
-
-                mainHandler.post(() -> {
-                    setLoading(false);
-
-                    if (
-                            !response.optBoolean(
-                                    "success",
-                                    false
-                            )
-                    ) {
-                        showInfo(
-                                "Penerima Tidak Ditemukan",
-                                response.optString(
-                                        "message",
-                                        "Pastikan username penerima benar."
-                                )
-                        );
-
-                        return;
-                    }
-
-                    String receiverName =
-                            first(
-                                    response.optString(
-                                            "display_name"
-                                    ),
-                                    response.optString(
-                                            "username"
-                                    ),
-                                    recipient
-                            );
-
-                    new AlertDialog.Builder(this)
-                            .setTitle("Konfirmasi Kirim Dana")
-                            .setMessage(
-                                    "Penerima: "
-                                            + receiverName
-                                            + "\nUsername: "
-                                            + response.optString(
-                                            "username",
-                                            recipient
-                                    )
-                                            + "\nNominal: "
-                                            + rupiah(amount)
-                                            + (
-                                            note.isEmpty()
-                                                    ? ""
-                                                    : "\nCatatan: "
-                                                    + note
-                                    )
-                                            + "\n\nPastikan data penerima sudah benar."
-                            )
-                            .setNegativeButton(
-                                    "Periksa Lagi",
-                                    null
-                            )
-                            .setPositiveButton(
-                                    "Kirim Sekarang",
-                                    (confirmDialog, which) ->
-                                            submitTransfer(
-                                                    recipient,
-                                                    amount,
-                                                    note
-                                            )
-                            )
-                            .show();
-                });
-
-            } catch (Exception error) {
-                mainHandler.post(() -> {
-                    setLoading(false);
-
-                    showInfo(
-                            "Gagal Memeriksa Penerima",
-                            first(
-                                    error.getMessage(),
-                                    "Periksa koneksi internet."
-                            )
-                    );
-                });
-            }
-        }).start();
-    }
-
-    private void submitTransfer(
+    private void requestTransferQuote(
             String recipient,
             int amount,
             String note
@@ -1732,8 +1640,236 @@ public class CustomerBalanceHistoryActivity
                 );
 
                 request.put(
+                        "request_id",
+                        UUID.randomUUID()
+                                .toString()
+                );
+
+                JSONObject response =
+                        postJson(
+                                QUOTE_TRANSFER_URL,
+                                request
+                        );
+
+                mainHandler.post(() -> {
+                    setLoading(false);
+
+                    if (
+                            !response.optBoolean(
+                                    "success",
+                                    false
+                            )
+                    ) {
+                        showInfo(
+                                "Kirim Dana",
+                                response.optString(
+                                        "message",
+                                        "Detail transfer tidak dapat dibuat."
+                                )
+                        );
+
+                        return;
+                    }
+
+                    showTransferConfirmation(
+                            response,
+                            recipient,
+                            amount,
+                            note
+                    );
+                });
+
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    setLoading(false);
+
+                    showInfo(
+                            "Gagal Membuat Detail",
+                            first(
+                                    error.getMessage(),
+                                    "Periksa koneksi internet."
+                            )
+                    );
+                });
+            }
+        }).start();
+    }
+
+    private void showTransferConfirmation(
+            JSONObject quote,
+            String recipient,
+            int amount,
+            String note
+    ) {
+        String receiverName =
+                first(
+                        quote.optString(
+                                "receiver_name"
+                        ),
+                        quote.optString(
+                                "receiver_username"
+                        ),
+                        recipient
+                );
+
+        int fee =
+                quote.optInt(
+                        "fee",
+                        0
+                );
+
+        int totalDebit =
+                quote.optInt(
+                        "total_debit",
+                        amount + fee
+                );
+
+        int remainingBefore =
+                quote.optInt(
+                        "free_remaining_before",
+                        0
+                );
+
+        int remainingAfter =
+                quote.optInt(
+                        "free_remaining_after",
+                        0
+                );
+
+        boolean free =
+                quote.optBoolean(
+                        "free_transfer",
+                        fee == 0
+                );
+
+        String quotaLine =
+                free
+                        ? "Kuota gratis digunakan: 1\n"
+                        + "Sisa setelah transfer: "
+                        + remainingAfter
+                        + " kali"
+                        : "Kuota gratis bulan ini telah habis";
+
+        String detail =
+                "Penerima\n"
+                        + receiverName
+                        + " ("
+                        + quote.optString(
+                        "receiver_username",
+                        recipient
+                )
+                        + ")\n\n"
+                        + "Nominal diterima     "
+                        + rupiah(amount)
+                        + "\n"
+                        + "Biaya layanan        "
+                        + (
+                        fee == 0
+                                ? "Gratis"
+                                : rupiah(fee)
+                )
+                        + "\n"
+                        + "Total saldo dipotong "
+                        + rupiah(totalDebit)
+                        + "\n\n"
+                        + quotaLine
+                        + (
+                        note.isEmpty()
+                                ? ""
+                                : "\n\nCatatan: "
+                                + note
+                );
+
+        new AlertDialog.Builder(this)
+                .setTitle(
+                        "Detail Pengiriman"
+                )
+                .setMessage(detail)
+                .setNegativeButton(
+                        "Periksa Lagi",
+                        null
+                )
+                .setPositiveButton(
+                        "Kirim Sekarang",
+                        (confirm, which) ->
+                                submitTransfer(
+                                        recipient,
+                                        amount,
+                                        note,
+                                        quote.optString(
+                                                "quote_token",
+                                                ""
+                                        ),
+                                        quote.optString(
+                                                "request_id",
+                                                UUID.randomUUID()
+                                                        .toString()
+                                        )
+                                )
+                )
+                .show();
+    }
+
+    private void submitTransfer(
+            String recipient,
+            int amount,
+            String note,
+            String quoteToken,
+            String requestId
+    ) {
+        if (
+                quoteToken == null
+                        || quoteToken.trim()
+                        .isEmpty()
+        ) {
+            showInfo(
+                    "Kirim Dana",
+                    "Detail transfer tidak valid. Silakan ulangi."
+            );
+
+            return;
+        }
+
+        setLoading(true);
+
+        new Thread(() -> {
+            try {
+                JSONObject request =
+                        new JSONObject();
+
+                request.put(
+                        "user_id",
+                        userId
+                );
+
+                request.put(
+                        "username",
+                        username
+                );
+
+                request.put(
+                        "recipient",
+                        recipient
+                );
+
+                request.put(
+                        "amount",
+                        amount
+                );
+
+                request.put(
                         "note",
                         note
+                );
+
+                request.put(
+                        "quote_token",
+                        quoteToken
+                );
+
+                request.put(
+                        "request_id",
+                        requestId
                 );
 
                 JSONObject response =
@@ -1751,12 +1887,38 @@ public class CustomerBalanceHistoryActivity
                                     false
                             )
                     ) {
+                        int fee =
+                                response.optInt(
+                                        "fee",
+                                        0
+                                );
+
+                        int total =
+                                response.optInt(
+                                        "total_debit",
+                                        amount + fee
+                                );
+
                         showInfo(
                                 "Kirim Dana Berhasil",
                                 response.optString(
                                         "message",
-                                        "Dana berhasil ditransfer."
+                                        "Dana berhasil dikirim."
                                 )
+                                        + "\n\nBiaya: "
+                                        + (
+                                        fee == 0
+                                                ? "Gratis"
+                                                : rupiah(fee)
+                                )
+                                        + "\nTotal dipotong: "
+                                        + rupiah(total)
+                                        + "\nSisa kuota gratis: "
+                                        + response.optInt(
+                                        "free_remaining",
+                                        0
+                                )
+                                        + " kali"
                         );
 
                         loadWallet();
@@ -1786,6 +1948,86 @@ public class CustomerBalanceHistoryActivity
                 });
             }
         }).start();
+    }
+
+    private void installRupiahFormatting(
+            EditText input
+    ) {
+        input.addTextChangedListener(
+                new TextWatcher() {
+
+                    private boolean updating;
+
+                    @Override
+                    public void beforeTextChanged(
+                            CharSequence value,
+                            int start,
+                            int count,
+                            int after
+                    ) {
+                    }
+
+                    @Override
+                    public void onTextChanged(
+                            CharSequence value,
+                            int start,
+                            int before,
+                            int count
+                    ) {
+                    }
+
+                    @Override
+                    public void afterTextChanged(
+                            Editable editable
+                    ) {
+                        if (updating) {
+                            return;
+                        }
+
+                        updating = true;
+
+                        String digits =
+                                editable.toString()
+                                        .replaceAll(
+                                                "[^0-9]",
+                                                ""
+                                        );
+
+                        if (digits.isEmpty()) {
+                            input.setText("");
+                            updating = false;
+                            return;
+                        }
+
+                        try {
+                            long number =
+                                    Long.parseLong(
+                                            digits
+                                    );
+
+                            String formatted =
+                                    NumberFormat
+                                            .getNumberInstance(
+                                                    new Locale(
+                                                            "id",
+                                                            "ID"
+                                                    )
+                                            )
+                                            .format(number);
+
+                            input.setText(formatted);
+
+                            input.setSelection(
+                                    formatted.length()
+                            );
+
+                        } catch (Exception ignored) {
+                        }
+
+                        updating = false;
+                    }
+                }
+        );
     }
 
     private void showWithdrawDialog() {
