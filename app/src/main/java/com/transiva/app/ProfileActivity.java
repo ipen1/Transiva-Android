@@ -1,14 +1,22 @@
 package com.transiva.app;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -17,6 +25,7 @@ import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewOutlineProvider;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
 import android.widget.EditText;
@@ -39,6 +48,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.List;
 
 public class ProfileActivity extends Activity {
 
@@ -52,6 +62,7 @@ public class ProfileActivity extends Activity {
             BASE_URL + "update_customer_profile.php";
 
     private static final int REQUEST_GALLERY = 5101;
+    private static final int REQUEST_LOCATION = 5102;
     private static final int TIMEOUT_MS = 30000;
 
     private final Handler mainHandler =
@@ -73,6 +84,7 @@ public class ProfileActivity extends Activity {
     private EditText passwordInput;
 
     private Button photoButton;
+    private Button locationButton;
     private Button saveButton;
     private Button logoutButton;
     private ProgressBar progress;
@@ -87,6 +99,8 @@ public class ProfileActivity extends Activity {
     private boolean loading;
 
     private byte[] pendingPhotoWebp;
+    private double deliveryLat;
+    private double deliveryLng;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -401,13 +415,28 @@ public class ProfileActivity extends Activity {
         FrameLayout avatarFrame =
                 new FrameLayout(this);
 
+        GradientDrawable avatarBorder =
+                new GradientDrawable();
+
+        avatarBorder.setShape(
+                GradientDrawable.OVAL
+        );
+
+        avatarBorder.setColor(
+                Color.WHITE
+        );
+
+        avatarBorder.setStroke(
+                dp(3),
+                Color.parseColor("#FFFFFF")
+        );
+
         avatarFrame.setBackground(
-                roundStroke(
-                        "#FFFFFF",
-                        "#FFFFFF",
-                        50,
-                        3
-                )
+                avatarBorder
+        );
+
+        avatarFrame.setElevation(
+                dp(5)
         );
 
         avatarView =
@@ -420,6 +449,27 @@ public class ProfileActivity extends Activity {
         avatarView.setImageResource(
                 android.R.drawable
                         .sym_def_app_icon
+        );
+
+        GradientDrawable avatarMask =
+                new GradientDrawable();
+
+        avatarMask.setShape(
+                GradientDrawable.OVAL
+        );
+
+        avatarMask.setColor(
+                Color.parseColor("#EAF4FF")
+        );
+
+        avatarView.setBackground(
+                avatarMask
+        );
+
+        avatarView.setClipToOutline(true);
+
+        avatarView.setOutlineProvider(
+                ViewOutlineProvider.BACKGROUND
         );
 
         FrameLayout.LayoutParams avatarLp =
@@ -439,13 +489,13 @@ public class ProfileActivity extends Activity {
         card.addView(
                 avatarFrame,
                 new LinearLayout.LayoutParams(
-                        dp(98),
-                        dp(98)
+                        dp(100),
+                        dp(100)
                 )
         );
 
         photoButton =
-                outlineLightButton(
+                premiumLightButton(
                         "Ubah Foto Profil"
                 );
 
@@ -542,8 +592,8 @@ public class ProfileActivity extends Activity {
         roleView =
                 badge(
                         "Customer",
-                        "#FFFFFF22",
-                        "#FFFFFF"
+                        "#FFE08A",
+                        "#5C3A00"
                 );
 
         LinearLayout.LayoutParams roleLp =
@@ -675,6 +725,20 @@ public class ProfileActivity extends Activity {
                 addressLp
         );
 
+        locationButton =
+                outlineButton(
+                        "📍 Dapatkan Lokasi Saya"
+                );
+
+        locationButton.setOnClickListener(
+                view -> requestCurrentLocation()
+        );
+
+        card.addView(
+                locationButton,
+                buttonLp()
+        );
+
         saveButton =
                 primaryButton(
                         "Simpan Perubahan"
@@ -778,6 +842,313 @@ public class ProfileActivity extends Activity {
                 card,
                 sectionLp()
         );
+    }
+
+    private void requestCurrentLocation() {
+        if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                        && checkSelfPermission(
+                        Manifest.permission.ACCESS_FINE_LOCATION
+                ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                    new String[]{
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
+                    },
+                    REQUEST_LOCATION
+            );
+
+            return;
+        }
+
+        fetchCurrentLocation();
+    }
+
+    private void fetchCurrentLocation() {
+        LocationManager manager =
+                (LocationManager)
+                        getSystemService(
+                                LOCATION_SERVICE
+                        );
+
+        if (manager == null) {
+            showInfo(
+                    "Lokasi Tidak Tersedia",
+                    "Layanan lokasi tidak tersedia pada perangkat."
+            );
+            return;
+        }
+
+        boolean gpsEnabled =
+                manager.isProviderEnabled(
+                        LocationManager.GPS_PROVIDER
+                );
+
+        boolean networkEnabled =
+                manager.isProviderEnabled(
+                        LocationManager.NETWORK_PROVIDER
+                );
+
+        if (!gpsEnabled && !networkEnabled) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Aktifkan Lokasi")
+                    .setMessage(
+                            "Aktifkan GPS atau layanan lokasi untuk mengisi alamat otomatis."
+                    )
+                    .setNegativeButton(
+                            "Batal",
+                            null
+                    )
+                    .setPositiveButton(
+                            "Buka Pengaturan",
+                            (dialog, which) ->
+                                    startActivity(
+                                            new Intent(
+                                                    Settings
+                                                            .ACTION_LOCATION_SOURCE_SETTINGS
+                                            )
+                                    )
+                    )
+                    .show();
+            return;
+        }
+
+        setLoading(true);
+
+        Location best =
+                lastKnownLocation(
+                        manager
+                );
+
+        if (best != null) {
+            resolveAddress(best);
+            return;
+        }
+
+        LocationListener listener =
+                new LocationListener() {
+                    @Override
+                    public void onLocationChanged(
+                            Location location
+                    ) {
+                        try {
+                            manager.removeUpdates(this);
+                        } catch (Exception ignored) {
+                        }
+
+                        resolveAddress(location);
+                    }
+
+                    @Override
+                    public void onProviderDisabled(
+                            String provider
+                    ) {
+                    }
+
+                    @Override
+                    public void onProviderEnabled(
+                            String provider
+                    ) {
+                    }
+
+                    @Override
+                    public void onStatusChanged(
+                            String provider,
+                            int status,
+                            Bundle extras
+                    ) {
+                    }
+                };
+
+        try {
+            String provider =
+                    gpsEnabled
+                            ? LocationManager.GPS_PROVIDER
+                            : LocationManager.NETWORK_PROVIDER;
+
+            manager.requestSingleUpdate(
+                    provider,
+                    listener,
+                    Looper.getMainLooper()
+            );
+
+            mainHandler.postDelayed(
+                    () -> {
+                        if (loading) {
+                            try {
+                                manager.removeUpdates(listener);
+                            } catch (Exception ignored) {
+                            }
+
+                            setLoading(false);
+
+                            showInfo(
+                                    "Lokasi Belum Ditemukan",
+                                    "Pastikan GPS aktif dan coba kembali di area terbuka."
+                            );
+                        }
+                    },
+                    20000
+            );
+
+        } catch (SecurityException error) {
+            setLoading(false);
+
+            showInfo(
+                    "Izin Lokasi Diperlukan",
+                    "Berikan izin lokasi agar alamat dapat diisi otomatis."
+            );
+        }
+    }
+
+    private Location lastKnownLocation(
+            LocationManager manager
+    ) {
+        Location best = null;
+
+        String[] providers = {
+                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER
+        };
+
+        for (String provider : providers) {
+            try {
+                if (
+                        !manager.isProviderEnabled(
+                                provider
+                        )
+                ) {
+                    continue;
+                }
+
+                Location location =
+                        manager.getLastKnownLocation(
+                                provider
+                        );
+
+                if (
+                        location != null
+                                && (
+                                best == null
+                                        || location.getAccuracy()
+                                        < best.getAccuracy()
+                        )
+                ) {
+                    best = location;
+                }
+
+            } catch (SecurityException ignored) {
+            }
+        }
+
+        return best;
+    }
+
+    private void resolveAddress(
+            Location location
+    ) {
+        new Thread(() -> {
+            String addressText = "";
+
+            try {
+                Geocoder geocoder =
+                        new Geocoder(
+                                this,
+                                new Locale(
+                                        "id",
+                                        "ID"
+                                )
+                        );
+
+                List<Address> results =
+                        geocoder.getFromLocation(
+                                location.getLatitude(),
+                                location.getLongitude(),
+                                1
+                        );
+
+                if (
+                        results != null
+                                && !results.isEmpty()
+                ) {
+                    Address result =
+                            results.get(0);
+
+                    addressText =
+                            first(
+                                    result.getAddressLine(0),
+                                    result.getFeatureName()
+                            );
+                }
+
+            } catch (Exception ignored) {
+            }
+
+            final String resolved =
+                    addressText.isEmpty()
+                            ? (
+                            String.format(
+                                    Locale.US,
+                                    "%.6f, %.6f",
+                                    location.getLatitude(),
+                                    location.getLongitude()
+                            )
+                    )
+                            : addressText;
+
+            mainHandler.post(() -> {
+                deliveryLat =
+                        location.getLatitude();
+
+                deliveryLng =
+                        location.getLongitude();
+
+                addressInput.setText(
+                        resolved
+                );
+
+                addressInput.setSelection(
+                        resolved.length()
+                );
+
+                setLoading(false);
+
+                toast(
+                        "Alamat berhasil diisi dari lokasi"
+                );
+            });
+        }).start();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(
+            int requestCode,
+            String[] permissions,
+            int[] grantResults
+    ) {
+        super.onRequestPermissionsResult(
+                requestCode,
+                permissions,
+                grantResults
+        );
+
+        if (
+                requestCode == REQUEST_LOCATION
+                        && grantResults.length > 0
+                        && grantResults[0]
+                        == PackageManager.PERMISSION_GRANTED
+        ) {
+            fetchCurrentLocation();
+            return;
+        }
+
+        if (requestCode == REQUEST_LOCATION) {
+            showInfo(
+                    "Izin Lokasi Ditolak",
+                    "Izin lokasi diperlukan untuk mengisi alamat otomatis."
+            );
+        }
     }
 
     private void openGallery() {
@@ -1117,6 +1488,18 @@ public class ProfileActivity extends Activity {
                 photoUrl
         );
 
+        deliveryLat =
+                user.optDouble(
+                        "delivery_lat",
+                        deliveryLat
+                );
+
+        deliveryLng =
+                user.optDouble(
+                        "delivery_lng",
+                        deliveryLng
+                );
+
         emailVerified =
                 user.optInt(
                         "email_verified",
@@ -1354,6 +1737,24 @@ public class ProfileActivity extends Activity {
                             boundary,
                             "delivery_address",
                             newAddress
+                    );
+
+                    writeField(
+                            output,
+                            boundary,
+                            "delivery_lat",
+                            String.valueOf(
+                                    deliveryLat
+                            )
+                    );
+
+                    writeField(
+                            output,
+                            boundary,
+                            "delivery_lng",
+                            String.valueOf(
+                                    deliveryLng
+                            )
                     );
 
                     writeField(
@@ -1787,6 +2188,10 @@ public class ProfileActivity extends Activity {
             photoButton.setEnabled(!value);
         }
 
+        if (locationButton != null) {
+            locationButton.setEnabled(!value);
+        }
+
         if (saveButton != null) {
             saveButton.setEnabled(!value);
         }
@@ -2048,6 +2453,30 @@ public class ProfileActivity extends Activity {
                         "#FFFFFF",
                         "#A8D1FF",
                         15,
+                        1
+                )
+        );
+
+        return button;
+    }
+
+    private Button premiumLightButton(
+            String value
+    ) {
+        Button button =
+                primaryButton(value);
+
+        button.setTextSize(11);
+
+        button.setTextColor(
+                Color.parseColor("#0B3A78")
+        );
+
+        button.setBackground(
+                roundStroke(
+                        "#FFFFFF",
+                        "#D8EBFF",
+                        14,
                         1
                 )
         );
