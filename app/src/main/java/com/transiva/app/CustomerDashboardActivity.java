@@ -56,6 +56,7 @@ public class CustomerDashboardActivity extends Activity
     private TextView locationText;
     private TextView balanceText;
     private TextView orderText;
+    private TextView orderHint;
     private TextView verificationText;
 
     private LinearLayout promoSection;
@@ -472,7 +473,7 @@ public class CustomerDashboardActivity extends Activity
         LinearLayout.LayoutParams frameLp =
                 new LinearLayout.LayoutParams(
                         -1,
-                        dp(170)
+                        dp(128)
                 );
 
         frameLp.setMargins(
@@ -495,8 +496,8 @@ public class CustomerDashboardActivity extends Activity
 
         FrameLayout.LayoutParams artLp =
                 new FrameLayout.LayoutParams(
-                        dp(125),
-                        dp(125)
+                        dp(112),
+                        dp(112)
                 );
 
         artLp.gravity =
@@ -553,128 +554,11 @@ public class CustomerDashboardActivity extends Activity
                 0,
                 dp(1),
                 0,
-                dp(8)
+                0
         );
 
         card.addView(balanceText, balanceLp);
 
-        LinearLayout actions =
-                new LinearLayout(this);
-
-        actions.setOrientation(
-                LinearLayout.HORIZONTAL
-        );
-
-        card.addView(
-                actions,
-                new LinearLayout.LayoutParams(-1, -2)
-        );
-
-        actions.addView(
-                walletAction(
-                        "＋",
-                        "Isi Saldo",
-                        () -> startActivity(
-                                new Intent(
-                                        this,
-                                        CustomerTopUpActivity.class
-                                )
-                        )
-                )
-        );
-
-        actions.addView(
-                walletAction(
-                        "⇄",
-                        "Transfer",
-                        () -> Toast.makeText(
-                                this,
-                                "Fitur transfer segera tersedia",
-                                Toast.LENGTH_SHORT
-                        ).show()
-                )
-        );
-
-        actions.addView(
-                walletAction(
-                        "◷",
-                        "Transaksi",
-                        this::openBalanceTransactions
-                )
-        );
-    }
-
-    private View walletAction(
-            String symbol,
-            String label,
-            Runnable action
-    ) {
-        LinearLayout item =
-                new LinearLayout(this);
-
-        item.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        item.setGravity(Gravity.CENTER);
-
-        item.setPadding(
-                0,
-                0,
-                dp(13),
-                0
-        );
-
-        TextView button = text(
-                symbol,
-                21,
-                "#0B7CFF",
-                false
-        );
-
-        button.setGravity(Gravity.CENTER);
-
-        button.setBackground(
-                Shape.round(
-                        "#FFFFFF",
-                        dp(13)
-                )
-        );
-
-        item.addView(
-                button,
-                new LinearLayout.LayoutParams(
-                        dp(44),
-                        dp(44)
-                )
-        );
-
-        TextView caption = text(
-                label,
-                10,
-                "#FFFFFF",
-                true
-        );
-
-        caption.setGravity(Gravity.CENTER);
-
-        LinearLayout.LayoutParams captionLp =
-                new LinearLayout.LayoutParams(-2, -2);
-
-        captionLp.setMargins(
-                0,
-                dp(4),
-                0,
-                0
-        );
-
-        item.addView(caption, captionLp);
-
-        item.setOnClickListener(
-                view -> action.run()
-        );
-
-        return item;
     }
 
     private void openBalanceTransactions() {
@@ -1455,7 +1339,7 @@ public class CustomerDashboardActivity extends Activity
 
         box.addView(orderText, orderLp);
 
-        TextView hint = text(
+        orderHint = text(
                 "Yuk, pesan layanan Transiva sekarang!",
                 9,
                 "#8AA0B8",
@@ -1472,7 +1356,7 @@ public class CustomerDashboardActivity extends Activity
                 0
         );
 
-        box.addView(hint, hintLp);
+        box.addView(orderHint, hintLp);
     }
 
     private void buildRecommendationSection() {
@@ -1832,12 +1716,24 @@ public class CustomerDashboardActivity extends Activity
                 rupiah(state.balance)
         );
 
-        orderText.setText(
+        String activeOrderText =
                 first(
                         state.activeOrderText,
                         "Belum ada pesanan aktif"
-                )
-        );
+                );
+
+        orderText.setText(activeOrderText);
+
+        boolean hasActiveOrder =
+                isActiveOrderText(activeOrderText);
+
+        if (orderHint != null) {
+            orderHint.setVisibility(
+                    hasActiveOrder
+                            ? View.GONE
+                            : View.VISIBLE
+            );
+        }
 
         renderPromos(state.promos);
     }
@@ -1856,6 +1752,37 @@ public class CustomerDashboardActivity extends Activity
                 ),
                 Toast.LENGTH_SHORT
         ).show();
+    }
+
+    private boolean isActiveOrderText(
+            String value
+    ) {
+        String normalized =
+                first(value)
+                        .trim()
+                        .toLowerCase(
+                                Locale.ROOT
+                        );
+
+        if (normalized.isEmpty()) {
+            return false;
+        }
+
+        return !normalized.equals(
+                "belum ada pesanan aktif"
+        )
+                && !normalized.equals(
+                "tidak ada pesanan aktif"
+        )
+                && !normalized.equals(
+                "belum ada order aktif"
+        )
+                && !normalized.equals(
+                "tidak ada order aktif"
+        )
+                && !normalized.equals(
+                "no active order"
+        );
     }
 
     private TextView text(
