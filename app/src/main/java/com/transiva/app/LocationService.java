@@ -14,469 +14,278 @@ import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.os.SystemClock;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 
+import com.transiva.app.driver.data.DriverApiClient;
+
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.net.HttpURLConnection;
-import java.net.URL;
-
-/*
- * LocationService.java
- * Versi fix tanpa Google Play Services.
- * Aman untuk project yang belum punya dependency com.google.android.gms:play-services-location.
- *
- * Endpoint sesuai backend Transiva:
- * https://transiva.my.id/server/updateDriverLocation.php
- *
- * JSON yang dikirim:
- * username
- * order_id
- * latitude
- * longitude
- */
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class LocationService extends Service {
 
-    public static final String ACTION_START = "com.transiva.app.START_LOCATION";
-    public static final String ACTION_STOP = "com.transiva.app.STOP_LOCATION";
+    public static final String ACTION_START =
+            "com.transiva.app.START_DRIVER_LOCATION";
+    public static final String ACTION_STOP =
+            "com.transiva.app.STOP_DRIVER_LOCATION";
 
-    private static final String CHANNEL_ID = "transiva_location_channel";
-    private static final String CHANNEL_NAME = "Lokasi Transiva";
-    private static final int NOTIFICATION_ID = 2026;
+    private static final String TAG = "DriverLocationService";
+    private static final String CHANNEL_ID = "driver_location_native";
+    private static final int NOTIFICATION_ID = 2206;
+    private static final long MIN_INTERVAL = 10000L;
+    private static final float MIN_DISTANCE = 20f;
+    private static final long MAX_AGE = 60000L;
+    private static final float MAX_ACCURACY = 150f;
 
-    private static final String BASE_URL = "https://transiva.my.id/";
-    private static final String ENDPOINT = "server/updateDriverLocation.php";
-
-    private static final long MIN_TIME_MS = 5000L;
-    private static final float MIN_DISTANCE_METER = 3f;
-
-    private static final int CONNECT_TIMEOUT = 15000;
-    private static final int READ_TIMEOUT = 20000;
-
+    private SessionManager session;
+    private DriverApiClient api;
     private LocationManager locationManager;
-    private SessionManager sessionManager;
+    private final ExecutorService sender = Executors.newSingleThreadExecutor();
+    private long lastSentAt;
+    private Location lastSent;
 
-    private boolean isRunning = false;
-    private long lastSendTime = 0L;
-
-    private final LocationListener gpsListener = new LocationListener() {
-        @Override
-        public void onLocationChanged(Location location) {
-            handleLocation(location);
+    private final LocationListener listener = new LocationListener() {
+        @Override public void onLocationChanged(Location location) {
+            handle(location);
         }
-
-        @Override
-        public void onStatusChanged(String provider, int status, Bundle extras) {}
-
-        @Override
-        public void onProviderEnabled(String provider) {}
-
-        @Override
-        public void onProviderDisabled(String provider) {}
+        @Override public void onProviderEnabled(String provider) {}
+        @Override public void onProviderDisabled(String provider) {
+            updateNotification("GPS tidak aktif");
+        }
+        @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
     };
 
-    private final LocationListener networkListener = new LocationListener() {
-        @Override
-        public void onLocationChanged(Location location) {
-            handleLocation(location);
-        }
-
-        @Override
-        public void onStatusChanged(String provider, int status, Bundle extras) {}
-
-        @Override
-        public void onProviderEnabled(String provider) {}
-
-        @Override
-        public void onProviderDisabled(String provider) {}
-    };
-
-    @Override
-    public void onCreate() {
+    @Override public void onCreate() {
         super.onCreate();
-
-        sessionManager = new SessionManager(this);
+        session = new SessionManager(this);
+        api = new DriverApiClient(session);
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-
         createChannel();
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-
+    @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? ACTION_START : intent.getAction();
-
         if (ACTION_STOP.equals(action)) {
-            stopLocationService();
+            stopTracking();
             return START_NOT_STICKY;
         }
 
-        startForeground(
-                NOTIFICATION_ID,
-                buildNotification("Tracking lokasi Transiva aktif")
-        );
+        startForeground(NOTIFICATION_ID,
+                notification("Menyiapkan lokasi driver…"));
 
-        startLocationUpdates();
+        if (!canTrack()) {
+            stopTracking();
+            return START_NOT_STICKY;
+        }
 
+        requestUpdates();
         return START_STICKY;
     }
 
-    private void startLocationUpdates() {
-        if (isRunning) return;
+    private boolean canTrack() {
+        return session.isLoggedIn()
+                && "driver".equals(session.normalizeRole(session.getRole()))
+                && "1".equals(session.get("driver_server_online"))
+                && hasPermission();
+    }
 
-        if (!hasLocationPermission()) {
-            stopSelf();
-            return;
-        }
-
-        if (locationManager == null) {
-            stopSelf();
+    private void requestUpdates() {
+        if (locationManager == null || !hasPermission()) {
+            stopTracking();
             return;
         }
 
         try {
-            isRunning = true;
-
-            try {
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                         LocationManager.GPS_PROVIDER,
-                        MIN_TIME_MS,
-                        MIN_DISTANCE_METER,
-                        gpsListener
+                        MIN_INTERVAL,
+                        MIN_DISTANCE,
+                        listener
                 );
-            } catch (Exception ignored) {}
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "GPS listener gagal", e);
+        }
 
-            try {
+        try {
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                         LocationManager.NETWORK_PROVIDER,
-                        MIN_TIME_MS,
-                        MIN_DISTANCE_METER,
-                        networkListener
+                        MIN_INTERVAL,
+                        MIN_DISTANCE,
+                        listener
                 );
-            } catch (Exception ignored) {}
-
-            Location last = getBestLastKnownLocation();
-
-            if (last != null) {
-                handleLocation(last);
             }
-
         } catch (Exception e) {
-            isRunning = false;
-            stopSelf();
-        }
-    }
-
-    private Location getBestLastKnownLocation() {
-        if (!hasLocationPermission() || locationManager == null) return null;
-
-        Location gps = null;
-        Location network = null;
-
-        try {
-            gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-        } catch (Exception ignored) {}
-
-        try {
-            network = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-        } catch (Exception ignored) {}
-
-        if (gps != null && network != null) {
-            return gps.getTime() >= network.getTime() ? gps : network;
+            Log.e(TAG, "Network listener gagal", e);
         }
 
-        if (gps != null) return gps;
-
-        return network;
+        updateNotification("Online • lokasi aktif");
     }
 
-    private void handleLocation(Location location) {
-        try {
-            if (location == null) return;
-
-            double lat = location.getLatitude();
-            double lng = location.getLongitude();
-
-            if (!isValidCoordinate(lat, lng)) return;
-
-            sessionManager.saveLastLocation(
-                    String.valueOf(lat),
-                    String.valueOf(lng)
-            );
-
-            long now = System.currentTimeMillis();
-
-            if (now - lastSendTime < MIN_TIME_MS) {
-                return;
-            }
-
-            lastSendTime = now;
-
-            sendLocationToServer(lat, lng);
-
-        } catch (Exception ignored) {}
-    }
-
-    private void sendLocationToServer(double latitude, double longitude) {
-        new Thread(() -> {
-
-            HttpURLConnection conn = null;
-
-            try {
-                String username = sessionManager.getUsername();
-                String orderId = sessionManager.get("current_order_id");
-
-                if (username == null) username = "";
-                if (orderId == null) orderId = "";
-
-                if (username.trim().isEmpty()) {
-                    sessionManager.put("last_location_error", "Username kosong");
-                    return;
-                }
-
-                JSONObject body = new JSONObject();
-
-                body.put("username", username);
-                body.put("order_id", orderId);
-                body.put("latitude", latitude);
-                body.put("longitude", longitude);
-
-                URL url = new URL(BASE_URL + ENDPOINT);
-
-                conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("POST");
-                conn.setConnectTimeout(CONNECT_TIMEOUT);
-                conn.setReadTimeout(READ_TIMEOUT);
-                conn.setUseCaches(false);
-                conn.setDoInput(true);
-                conn.setDoOutput(true);
-
-                conn.setRequestProperty("Accept", "application/json");
-                conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-                conn.setRequestProperty("X-Transiva-Channel", "TransivaNative");
-                conn.setRequestProperty("X-Transiva-Client", "Android-LocationService");
-
-                BufferedWriter writer =
-                        new BufferedWriter(
-                                new OutputStreamWriter(
-                                        conn.getOutputStream(),
-                                        "UTF-8"
-                                )
-                        );
-
-                writer.write(body.toString());
-                writer.flush();
-                writer.close();
-
-                int status = conn.getResponseCode();
-
-                InputStream stream =
-                        status >= 200 && status < 400
-                                ? conn.getInputStream()
-                                : conn.getErrorStream();
-
-                String response = readStream(stream);
-
-                sessionManager.put("last_location_http_status", String.valueOf(status));
-                sessionManager.put("last_location_response", response);
-                sessionManager.put("last_location_sync_at", String.valueOf(System.currentTimeMillis()));
-
-            } catch (Exception e) {
-                sessionManager.put("last_location_error", e.getMessage());
-                sessionManager.put("last_location_error_at", String.valueOf(System.currentTimeMillis()));
-            } finally {
-                try {
-                    if (conn != null) conn.disconnect();
-                } catch (Exception ignored) {}
-            }
-
-        }).start();
-    }
-
-    private String readStream(InputStream stream) {
-        try {
-            if (stream == null) return "";
-
-            BufferedReader reader =
-                    new BufferedReader(
-                            new InputStreamReader(stream, "UTF-8")
-                    );
-
-            StringBuilder builder = new StringBuilder();
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                builder.append(line);
-            }
-
-            reader.close();
-
-            return builder.toString();
-
-        } catch (Exception e) {
-            return "";
+    private void handle(Location location) {
+        if (!canTrack()) {
+            stopTracking();
+            return;
         }
-    }
+        if (!usable(location)) return;
 
-    private boolean isValidCoordinate(double lat, double lng) {
-        return lat != 0
-                && lng != 0
-                && lat >= -90
-                && lat <= 90
-                && lng >= -180
-                && lng <= 180;
-    }
+        long now = System.currentTimeMillis();
+        if (now - lastSentAt < MIN_INTERVAL) return;
+        if (lastSent != null && lastSent.distanceTo(location) < MIN_DISTANCE) return;
 
-    private boolean hasLocationPermission() {
-        return ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-                || ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    private Notification buildNotification(String text) {
-
-        Intent openIntent = new Intent(this, MainActivity.class);
-        openIntent.setFlags(
-                Intent.FLAG_ACTIVITY_SINGLE_TOP |
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+        lastSentAt = now;
+        lastSent = new Location(location);
+        session.saveLastLocation(
+                String.valueOf(location.getLatitude()),
+                String.valueOf(location.getLongitude())
         );
 
-        PendingIntent openPendingIntent =
-                PendingIntent.getActivity(
-                        this,
-                        2001,
-                        openIntent,
-                        PendingIntent.FLAG_IMMUTABLE |
-                                PendingIntent.FLAG_UPDATE_CURRENT
-                );
+        sender.execute(() -> send(location));
+    }
 
-        Intent stopIntent = new Intent(this, LocationService.class);
-        stopIntent.setAction(ACTION_STOP);
+    private void send(Location location) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("latitude", location.getLatitude());
+            body.put("longitude", location.getLongitude());
+            body.put("accuracy",
+                    location.hasAccuracy() ? location.getAccuracy() : JSONObject.NULL);
+            body.put("speed",
+                    location.hasSpeed() ? location.getSpeed() : JSONObject.NULL);
+            body.put("bearing",
+                    location.hasBearing() ? location.getBearing() : JSONObject.NULL);
+            body.put("location_time", location.getTime());
+            body.put("order_id", session.get("current_order_id"));
 
-        PendingIntent stopPendingIntent =
-                PendingIntent.getService(
-                        this,
-                        2002,
-                        stopIntent,
-                        PendingIntent.FLAG_IMMUTABLE |
-                                PendingIntent.FLAG_UPDATE_CURRENT
-                );
+            DriverApiClient.Result result =
+                    api.post("driver_update_location_native.php", body);
+
+            if (!result.body.optBoolean("driver_online", true)) {
+                session.put("driver_server_online", "0");
+                stopTracking();
+            } else {
+                session.put("last_location_sync_at",
+                        String.valueOf(System.currentTimeMillis()));
+                updateNotification("Online • lokasi terkirim");
+            }
+        } catch (DriverApiClient.ApiException e) {
+            Log.e(TAG, e.code + ": " + e.getMessage(), e);
+            if (e.status == 401 || e.status == 403) {
+                session.forceLogout("session_expired");
+                stopTracking();
+            } else {
+                updateNotification("Online • lokasi belum tersinkron");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Payload lokasi gagal", e);
+        }
+    }
+
+    private boolean usable(Location location) {
+        if (location == null) return false;
+        double lat = location.getLatitude();
+        double lng = location.getLongitude();
+        if (lat == 0 || lng == 0
+                || lat < -90 || lat > 90
+                || lng < -180 || lng > 180) return false;
+        if (location.hasAccuracy() && location.getAccuracy() > MAX_ACCURACY) {
+            return false;
+        }
+
+        long age;
+        if (Build.VERSION.SDK_INT >= 17) {
+            age = SystemClock.elapsedRealtime()
+                    - location.getElapsedRealtimeNanos() / 1000000L;
+        } else {
+            age = System.currentTimeMillis() - location.getTime();
+        }
+        if (age < 0 || age > MAX_AGE) return false;
+
+        return Build.VERSION.SDK_INT < 18 || !location.isFromMockProvider();
+    }
+
+    private boolean hasPermission() {
+        return ActivityCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_FINE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED
+                || ActivityCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void stopTracking() {
+        try {
+            if (locationManager != null) locationManager.removeUpdates(listener);
+        } catch (Exception ignored) {}
+        try {
+            stopForeground(true);
+        } catch (Exception ignored) {}
+        stopSelf();
+    }
+
+    private Notification notification(String text) {
+        Intent open = new Intent(this, DriverDashboardActivity.class);
+        open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pending = PendingIntent.getActivity(
+                this,
+                2206,
+                open,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("Transiva")
+                .setContentTitle("Transiva Driver")
                 .setContentText(text)
-                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE)
-                .setContentIntent(openPendingIntent)
-                .addAction(
-                        R.mipmap.ic_launcher,
-                        "Stop",
-                        stopPendingIntent
-                )
+                .setContentIntent(pending)
                 .build();
+    }
+
+    private void updateNotification(String text) {
+        NotificationManager manager =
+                (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (manager != null) manager.notify(NOTIFICATION_ID, notification(text));
     }
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT < 26) return;
+        NotificationManager manager =
+                (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (manager == null) return;
 
-        try {
-            NotificationManager manager =
-                    (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-
-            if (manager == null) return;
-
-            NotificationChannel old = manager.getNotificationChannel(CHANNEL_ID);
-
-            if (old != null) return;
-
-            NotificationChannel channel =
-                    new NotificationChannel(
-                            CHANNEL_ID,
-                            CHANNEL_NAME,
-                            NotificationManager.IMPORTANCE_LOW
-                    );
-
-            channel.setDescription("Service lokasi aktif untuk driver Transiva");
-            channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
-            channel.enableVibration(false);
-            channel.enableLights(false);
-
-            manager.createNotificationChannel(channel);
-
-        } catch (Exception ignored) {}
+        NotificationChannel channel = new NotificationChannel(
+                CHANNEL_ID,
+                "Lokasi Driver",
+                NotificationManager.IMPORTANCE_LOW
+        );
+        channel.setDescription("Tracking lokasi saat driver online");
+        channel.enableVibration(false);
+        manager.createNotificationChannel(channel);
     }
 
-    private void stopLocationService() {
+    @Override public void onDestroy() {
         try {
-            isRunning = false;
-
-            if (locationManager != null) {
-                try {
-                    locationManager.removeUpdates(gpsListener);
-                } catch (Exception ignored) {}
-
-                try {
-                    locationManager.removeUpdates(networkListener);
-                } catch (Exception ignored) {}
-            }
-
+            if (locationManager != null) locationManager.removeUpdates(listener);
         } catch (Exception ignored) {}
-
-        try {
-            stopForeground(true);
-        } catch (Exception ignored) {}
-
-        stopSelf();
-    }
-
-    @Override
-    public void onDestroy() {
-        stopLocationService();
+        sender.shutdownNow();
+        api.shutdown();
         super.onDestroy();
     }
 
     @Nullable
-    @Override
-    public IBinder onBind(Intent intent) {
+    @Override public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    public static void start(android.content.Context context) {
-        try {
-            Intent intent = new Intent(context, LocationService.class);
-            intent.setAction(ACTION_START);
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent);
-            } else {
-                context.startService(intent);
-            }
-        } catch (Exception ignored) {}
-    }
-
-    public static void stop(android.content.Context context) {
-        try {
-            Intent intent = new Intent(context, LocationService.class);
-            intent.setAction(ACTION_STOP);
-            context.startService(intent);
-        } catch (Exception ignored) {}
     }
 }
