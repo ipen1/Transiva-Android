@@ -538,6 +538,29 @@ public class CustomerBalanceHistoryActivity
                 ),
                 actionLp(true)
         );
+
+        /*
+         * Wajib menambahkan card Aksi Cepat ke content.
+         * Sebelumnya card hanya dibuat dan diisi, tetapi tidak pernah
+         * dimasukkan ke layout halaman sehingga seluruh tombol tidak tampil.
+         */
+        LinearLayout.LayoutParams cardLp =
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
+        cardLp.setMargins(
+                0,
+                0,
+                0,
+                dp(12)
+        );
+
+        content.addView(
+                card,
+                cardLp
+        );
     }
 
     private LinearLayout.LayoutParams actionLp(
