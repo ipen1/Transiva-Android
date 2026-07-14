@@ -54,6 +54,9 @@ public class CustomerBalanceHistoryActivity
     private static final String TRANSFER_URL =
             BASE_URL + "customer_wallet_transfer.php";
 
+    private static final String LOOKUP_USER_URL =
+            BASE_URL + "customer_wallet_lookup_user.php";
+
     private static final String WITHDRAW_URL =
             BASE_URL + "customer_wallet_withdraw.php";
 
@@ -519,7 +522,7 @@ public class CustomerBalanceHistoryActivity
         actions.addView(
                 actionItem(
                         "⇄",
-                        "Transfer",
+                        "Kirim Dana",
                         "#ECFDF5",
                         this::showTransferDialog
                 ),
@@ -1461,7 +1464,7 @@ public class CustomerBalanceHistoryActivity
 
         EditText amount =
                 input(
-                        "Nominal transfer",
+                        "Nominal kirim dana",
                         InputType.TYPE_CLASS_NUMBER
                 );
 
@@ -1479,9 +1482,9 @@ public class CustomerBalanceHistoryActivity
 
         AlertDialog dialog =
                 new AlertDialog.Builder(this)
-                        .setTitle("Transfer Dana")
+                        .setTitle("Kirim Dana")
                         .setMessage(
-                                "Transfer langsung ke sesama pengguna Transiva."
+                                "Kirim saldo ke customer Transiva melalui username."
                         )
                         .setView(form)
                         .setNegativeButton(
@@ -1489,7 +1492,7 @@ public class CustomerBalanceHistoryActivity
                                 null
                         )
                         .setPositiveButton(
-                                "Transfer",
+                                "Lanjutkan",
                                 null
                         )
                         .create();
@@ -1521,16 +1524,28 @@ public class CustomerBalanceHistoryActivity
                                         return;
                                     }
 
+                                    if (
+                                            !username.isEmpty()
+                                                    && to.equalsIgnoreCase(
+                                                    username
+                                            )
+                                    ) {
+                                        recipient.setError(
+                                                "Tidak dapat kirim ke akun sendiri"
+                                        );
+                                        return;
+                                    }
+
                                     if (value < 1000) {
                                         amount.setError(
-                                                "Minimal transfer Rp1.000"
+                                                "Minimal kirim dana Rp1.000"
                                         );
                                         return;
                                     }
 
                                     dialog.dismiss();
 
-                                    submitTransfer(
+                                    validateRecipientAndConfirm(
                                             to,
                                             value,
                                             note
@@ -1543,6 +1558,122 @@ public class CustomerBalanceHistoryActivity
         );
 
         dialog.show();
+    }
+
+    private void validateRecipientAndConfirm(
+            String recipient,
+            int amount,
+            String note
+    ) {
+        setLoading(true);
+
+        new Thread(() -> {
+            try {
+                JSONObject request =
+                        new JSONObject();
+
+                request.put(
+                        "user_id",
+                        userId
+                );
+
+                request.put(
+                        "username",
+                        username
+                );
+
+                request.put(
+                        "recipient",
+                        recipient
+                );
+
+                JSONObject response =
+                        postJson(
+                                LOOKUP_USER_URL,
+                                request
+                        );
+
+                mainHandler.post(() -> {
+                    setLoading(false);
+
+                    if (
+                            !response.optBoolean(
+                                    "success",
+                                    false
+                            )
+                    ) {
+                        showInfo(
+                                "Penerima Tidak Ditemukan",
+                                response.optString(
+                                        "message",
+                                        "Pastikan username penerima benar."
+                                )
+                        );
+
+                        return;
+                    }
+
+                    String receiverName =
+                            first(
+                                    response.optString(
+                                            "display_name"
+                                    ),
+                                    response.optString(
+                                            "username"
+                                    ),
+                                    recipient
+                            );
+
+                    new AlertDialog.Builder(this)
+                            .setTitle("Konfirmasi Kirim Dana")
+                            .setMessage(
+                                    "Penerima: "
+                                            + receiverName
+                                            + "\nUsername: "
+                                            + response.optString(
+                                            "username",
+                                            recipient
+                                    )
+                                            + "\nNominal: "
+                                            + rupiah(amount)
+                                            + (
+                                            note.isEmpty()
+                                                    ? ""
+                                                    : "\nCatatan: "
+                                                    + note
+                                    )
+                                            + "\n\nPastikan data penerima sudah benar."
+                            )
+                            .setNegativeButton(
+                                    "Periksa Lagi",
+                                    null
+                            )
+                            .setPositiveButton(
+                                    "Kirim Sekarang",
+                                    (confirmDialog, which) ->
+                                            submitTransfer(
+                                                    recipient,
+                                                    amount,
+                                                    note
+                                            )
+                            )
+                            .show();
+                });
+
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    setLoading(false);
+
+                    showInfo(
+                            "Gagal Memeriksa Penerima",
+                            first(
+                                    error.getMessage(),
+                                    "Periksa koneksi internet."
+                            )
+                    );
+                });
+            }
+        }).start();
     }
 
     private void submitTransfer(
@@ -1598,7 +1729,7 @@ public class CustomerBalanceHistoryActivity
                             )
                     ) {
                         showInfo(
-                                "Transfer Berhasil",
+                                "Kirim Dana Berhasil",
                                 response.optString(
                                         "message",
                                         "Dana berhasil ditransfer."
@@ -1609,7 +1740,7 @@ public class CustomerBalanceHistoryActivity
 
                     } else {
                         showInfo(
-                                "Transfer Gagal",
+                                "Kirim Dana Gagal",
                                 response.optString(
                                         "message",
                                         "Transfer tidak dapat diproses."
@@ -1623,7 +1754,7 @@ public class CustomerBalanceHistoryActivity
                     setLoading(false);
 
                     showInfo(
-                            "Transfer Gagal",
+                            "Kirim Dana Gagal",
                             first(
                                     error.getMessage(),
                                     "Periksa koneksi internet."
