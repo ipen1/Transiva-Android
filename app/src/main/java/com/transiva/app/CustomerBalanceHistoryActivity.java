@@ -448,7 +448,7 @@ public class CustomerBalanceHistoryActivity
                 text(
                         "  Transaksi terlindungi dan tercatat",
                         10,
-                        "#FFFFFF",
+                        "#5A3B00",
                         true
                 );
 
