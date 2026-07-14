@@ -432,7 +432,7 @@ public class CustomerBalanceHistoryActivity
                 text(
                         "✓",
                         12,
-                        "#FFFFFF",
+                        "#5A3B00",
                         true
                 );
 
@@ -442,7 +442,7 @@ public class CustomerBalanceHistoryActivity
                 text(
                         "  Transaksi terlindungi dan tercatat",
                         10,
-                        "#FFFFFF",
+                        "#5A3B00",
                         true
                 );
 
