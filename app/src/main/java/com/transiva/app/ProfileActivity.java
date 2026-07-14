@@ -2085,17 +2085,23 @@ public class ProfileActivity extends Activity {
         if (target != null) {
             item.setOnClickListener(
                     view -> {
-                        Intent intent =
-                                new Intent(
-                                        this,
-                                        target
-                                );
+                        int destinationIndex =
+                                target == CustomerDashboardActivity.class
+                                        ? CustomerPageTransition.HOME
+                                        : target == CustomerHistoryActivity.class
+                                        ? CustomerPageTransition.ACTIVITY
+                                        : target == CustomerChatActivity.class
+                                        ? CustomerPageTransition.CHAT
+                                        : target == CustomerBalanceHistoryActivity.class
+                                        ? CustomerPageTransition.WALLET
+                                        : CustomerPageTransition.PROFILE;
 
-                        intent.addFlags(
-                                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        CustomerPageTransition.open(
+                                this,
+                                target,
+                                CURRENT_PAGE_INDEX,
+                                destinationIndex
                         );
-
-                        startActivity(intent);
                     }
             );
         }
