@@ -2099,7 +2099,7 @@ public class ProfileActivity extends Activity {
                         CustomerPageTransition.open(
                                 this,
                                 target,
-                                CURRENT_PAGE_INDEX,
+                                CustomerPageTransition.PROFILE,
                                 destinationIndex
                         );
                     }

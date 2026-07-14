@@ -432,7 +432,7 @@ public class CustomerBalanceHistoryActivity
                 text(
                         "✓",
                         12,
-                        "#5A3B00",
+                        "#FFFFFF",
                         true
                 );
 
@@ -442,7 +442,7 @@ public class CustomerBalanceHistoryActivity
                 text(
                         "  Transaksi terlindungi dan tercatat",
                         10,
-                        "#5A3B00",
+                        "#FFFFFF",
                         true
                 );
 
@@ -2287,7 +2287,7 @@ public class CustomerBalanceHistoryActivity
                         CustomerPageTransition.open(
                                 this,
                                 target,
-                                CURRENT_PAGE_INDEX,
+                                CustomerPageTransition.WALLET,
                                 destinationIndex
                         );
                     }
