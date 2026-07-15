@@ -13,6 +13,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
@@ -33,13 +36,19 @@ import com.transiva.app.driver.presentation.DriverDashboardPresenter;
 import com.transiva.app.driver.ui.DriverBottomNavigation;
 
 import java.text.NumberFormat;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 public class DriverDashboardActivity extends Activity
         implements DriverDashboardContract.View {
 
     private static final int REQ_LOCATION = 8702;
     private static final long REFRESH_MS = 5000L;
+    private static final long COUNTDOWN_TICK_MS = 250L;
+    private static final long SERVER_DRIFT_TOLERANCE_MS = 2500L;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -69,6 +78,13 @@ public class DriverDashboardActivity extends Activity
     private ProgressBar loading;
     private boolean suppressSwitch;
 
+    private final Map<String, Long> offerDeadlines = new HashMap<>();
+    private final Map<String, TextView> countdownViews = new HashMap<>();
+    private final Map<String, Button> offerButtons = new HashMap<>();
+    private final Map<String, Integer> lastVibratedSecond = new HashMap<>();
+    private final Set<String> expiredRefreshRequested = new HashSet<>();
+    private Vibrator vibrator;
+
     private final Runnable refreshRunnable = new Runnable() {
         @Override public void run() {
             if (presenter != null) presenter.load(false);
@@ -76,10 +92,18 @@ public class DriverDashboardActivity extends Activity
         }
     };
 
+    private final Runnable countdownRunnable = new Runnable() {
+        @Override public void run() {
+            updateAllCountdowns();
+            handler.postDelayed(this, COUNTDOWN_TICK_MS);
+        }
+    };
+
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         session = new SessionManager(this);
+        vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
         if (!validSession()) return;
 
         presenter = new DriverDashboardPresenter(
@@ -95,12 +119,15 @@ public class DriverDashboardActivity extends Activity
         super.onResume();
         if (!validSession()) return;
         handler.removeCallbacks(refreshRunnable);
+        handler.removeCallbacks(countdownRunnable);
         handler.postDelayed(refreshRunnable, REFRESH_MS);
+        handler.post(countdownRunnable);
         if (presenter != null) presenter.load(false);
     }
 
     @Override protected void onPause() {
         handler.removeCallbacks(refreshRunnable);
+        handler.removeCallbacks(countdownRunnable);
         super.onPause();
     }
 
@@ -366,15 +393,25 @@ public class DriverDashboardActivity extends Activity
         }
 
         offerBox.removeAllViews();
+        countdownViews.clear();
+        offerButtons.clear();
         if (!state.online) {
             offerBox.addView(emptyCard(
                     "Driver OFFLINE.\nAktifkan ONLINE untuk menerima order."));
         } else if (state.offers.isEmpty()) {
             offerBox.addView(emptyCard("Belum ada tawaran order."));
         } else {
+            Set<String> activeOfferKeys = new HashSet<>();
             for (DriverOrder offer : state.offers) {
+                String key = offerKey(offer);
+                activeOfferKeys.add(key);
+                syncOfferDeadline(offer);
                 offerBox.addView(orderCard(offer, false));
             }
+            offerDeadlines.keySet().retainAll(activeOfferKeys);
+            lastVibratedSecond.keySet().retainAll(activeOfferKeys);
+            expiredRefreshRequested.retainAll(activeOfferKeys);
+            updateAllCountdowns();
         }
     }
 
@@ -417,10 +454,7 @@ public class DriverDashboardActivity extends Activity
         LinearLayout card = card();
         card.addView(text(
                 (active ? "Order Aktif" : "Tawaran") + " #" + order.id,
-                17,
-                "#0B3A78",
-                true
-        ));
+                17, "#0B3A78", true));
         add(card, text(order.serviceName, 14, "#0B7CFF", true),
                 0, dp(5), 0, 0);
         add(card, text("Pickup:\n" + order.pickupAddress,
@@ -432,27 +466,170 @@ public class DriverDashboardActivity extends Activity
         if (!clean(order.pickupDistanceText).isEmpty()) {
             meta += " • " + order.pickupDistanceText;
         }
-        if (!active && order.remainingSeconds >= 0) {
-            meta += " • " + order.remainingSeconds + " detik";
-        }
-        add(card, text(meta, 13, "#0F172A", true),
-                0, dp(8), 0, 0);
+        add(card, text(meta, 13, "#0F172A", true), 0, dp(8), 0, 0);
 
-        Button action = primaryButton(
-                active ? "Lanjutkan Trip" : "Ambil Order");
+        if (!active && order.remainingSeconds >= 0) {
+            String key = offerKey(order);
+            TextView countdown = text("Menghitung…", 14, "#16A34A", true);
+            countdown.setGravity(Gravity.CENTER);
+            countdown.setMinWidth(dp(112));
+            countdown.setPadding(dp(13), dp(7), dp(13), dp(7));
+
+            LinearLayout countdownRow = new LinearLayout(this);
+            countdownRow.setGravity(Gravity.END);
+            countdownRow.addView(countdown, new LinearLayout.LayoutParams(-2, -2));
+            add(card, countdownRow, 0, dp(10), 0, 0);
+            countdownViews.put(key, countdown);
+        }
+
+        Button action = primaryButton(active ? "Lanjutkan Trip" : "Ambil Order");
         if (active) {
             action.setOnClickListener(v -> openTrip(order));
         } else {
-            action.setOnClickListener(v ->
-                    presenter.acceptOrder(order.id));
+            String key = offerKey(order);
+            offerButtons.put(key, action);
+            action.setOnClickListener(v -> {
+                if (remainingMillis(key) <= 0L) {
+                    action.setEnabled(false);
+                    action.setText("Tawaran berakhir");
+                    showMessage("Tawaran order sudah berakhir.");
+                    return;
+                }
+                presenter.acceptOrder(order.id);
+            });
         }
         add(card, action, 0, dp(12), 0, 0);
 
-        LinearLayout.LayoutParams lp =
-                new LinearLayout.LayoutParams(-1, -2);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.setMargins(0, dp(7), 0, dp(12));
         card.setLayoutParams(lp);
         return card;
+    }
+
+    private String offerKey(DriverOrder order) {
+        return clean(order.source) + ":" + clean(order.id);
+    }
+
+    private void syncOfferDeadline(DriverOrder order) {
+        if (order == null || order.remainingSeconds < 0) return;
+        String key = offerKey(order);
+        long now = SystemClock.elapsedRealtime();
+        long candidate = now + order.remainingSeconds * 1000L;
+        Long current = offerDeadlines.get(key);
+
+        if (current == null) {
+            offerDeadlines.put(key, candidate);
+            expiredRefreshRequested.remove(key);
+            return;
+        }
+
+        if (Math.abs(candidate - current) > SERVER_DRIFT_TOLERANCE_MS) {
+            offerDeadlines.put(key, candidate);
+            if (candidate > now) expiredRefreshRequested.remove(key);
+        }
+    }
+
+    private long remainingMillis(String key) {
+        Long deadline = offerDeadlines.get(key);
+        return deadline == null
+                ? 0L
+                : Math.max(0L, deadline - SystemClock.elapsedRealtime());
+    }
+
+    private void updateAllCountdowns() {
+        if (countdownViews.isEmpty()) return;
+        Set<String> keys = new HashSet<>(countdownViews.keySet());
+
+        for (String key : keys) {
+            TextView view = countdownViews.get(key);
+            if (view == null) continue;
+
+            long remainingMs = remainingMillis(key);
+            int seconds = remainingMs <= 0L
+                    ? 0
+                    : (int) Math.ceil(remainingMs / 1000.0);
+
+            renderCountdown(view, seconds);
+            Button button = offerButtons.get(key);
+
+            if (seconds <= 0) {
+                if (button != null) {
+                    button.setEnabled(false);
+                    button.setText("Tawaran berakhir");
+                }
+                if (expiredRefreshRequested.add(key) && presenter != null) {
+                    handler.postDelayed(() -> presenter.load(false), 350L);
+                }
+            } else {
+                if (button != null) {
+                    button.setEnabled(true);
+                    button.setText("Ambil Order");
+                }
+                maybeVibrateCountdown(key, seconds);
+            }
+        }
+    }
+
+    private void renderCountdown(TextView view, int seconds) {
+        int borderColor = countdownColor(seconds);
+        int fillColor = mixWithWhite(borderColor, 0.90f);
+        view.setText(seconds > 0 ? "⏱ " + seconds + " detik" : "Waktu habis");
+        view.setTextColor(borderColor);
+        view.setBackground(roundStrokeColor(
+                fillColor, borderColor, dp(999), seconds <= 6 ? 2 : 1));
+
+        if (seconds > 0 && seconds <= 6) {
+            view.animate().cancel();
+            view.setScaleX(1.08f);
+            view.setScaleY(1.08f);
+            view.animate().scaleX(1f).scaleY(1f).setDuration(180L).start();
+        } else {
+            view.setScaleX(1f);
+            view.setScaleY(1f);
+        }
+    }
+
+    private int countdownColor(int seconds) {
+        if (seconds <= 0) return Color.parseColor("#991B1B");
+        float normalized = Math.max(0f, Math.min(1f, (seconds - 1f) / 19f));
+        float hue = 120f * normalized;
+        return Color.HSVToColor(new float[]{hue, 0.88f, 0.82f});
+    }
+
+    private int mixWithWhite(int color, float whiteRatio) {
+        float ratio = Math.max(0f, Math.min(1f, whiteRatio));
+        int red = Math.round(Color.red(color) * (1f - ratio) + 255f * ratio);
+        int green = Math.round(Color.green(color) * (1f - ratio) + 255f * ratio);
+        int blue = Math.round(Color.blue(color) * (1f - ratio) + 255f * ratio);
+        return Color.rgb(red, green, blue);
+    }
+
+    private GradientDrawable roundStrokeColor(
+            int fillColor, int strokeColor, int radius, int width) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fillColor);
+        drawable.setCornerRadius(radius);
+        drawable.setStroke(dp(width), strokeColor);
+        return drawable;
+    }
+
+    private void maybeVibrateCountdown(String key, int seconds) {
+        if (seconds < 1 || seconds > 6) return;
+        Integer last = lastVibratedSecond.get(key);
+        if (last != null && last == seconds) return;
+        lastVibratedSecond.put(key, seconds);
+
+        try {
+            if (vibrator == null || !vibrator.hasVibrator()) return;
+            long duration = seconds <= 2 ? 120L : 70L;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(
+                        duration, VibrationEffect.DEFAULT_AMPLITUDE));
+            } else {
+                vibrator.vibrate(duration);
+            }
+        } catch (SecurityException ignored) {
+        } catch (Exception ignored) {}
     }
 
     private boolean ensureLocationReady() {
