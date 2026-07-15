@@ -45,9 +45,7 @@ public final class DriverDashboardPresenter {
                     loading.set(false);
                     if (view == null) return;
                     view.showLoading(false);
-                    if (httpCode == 401 || httpCode == 403
-                            || "UNAUTHORIZED".equalsIgnoreCase(code)
-                            || "SESSION_EXPIRED".equalsIgnoreCase(code)) {
+                    if (isSessionError(httpCode, code)) {
                         view.showSessionExpired();
                     } else {
                         view.showMessage(message);
@@ -64,67 +62,102 @@ public final class DriverDashboardPresenter {
         repository.setOnline(online, driverType,
                 new DriverDashboardRepository.ActionCallback() {
                     @Override public void onSuccess(String message, DriverOrder order) {
-                        main.post(() -> {
-                            actionRunning.set(false);
-                            if (view == null) return;
-                            view.showActionLoading("status", false);
-                            view.showMessage(message);
-                            load(false);
-                        });
+                        finishAction("status", message, false, order);
                     }
 
-                    @Override public void onError(
-                            int httpCode, String code, String message) {
-                        main.post(() -> {
-                            actionRunning.set(false);
-                            if (view == null) return;
-                            view.showActionLoading("status", false);
-                            if (httpCode == 401 || httpCode == 403) {
-                                view.showSessionExpired();
-                            } else {
-                                view.showMessage(message);
-                                load(false);
-                            }
-                        });
+                    @Override public void onError(int httpCode, String code, String message) {
+                        failAction("status", httpCode, code, message);
                     }
                 });
     }
 
     public void acceptOrder(String orderId) {
         if (!actionRunning.compareAndSet(false, true)) return;
-        if (view != null) view.showActionLoading("accept:" + orderId, true);
+        String action = "accept:" + orderId;
+        if (view != null) view.showActionLoading(action, true);
 
         repository.acceptOrder(
                 orderId,
                 UUID.randomUUID().toString(),
                 new DriverDashboardRepository.ActionCallback() {
                     @Override public void onSuccess(String message, DriverOrder order) {
-                        main.post(() -> {
-                            actionRunning.set(false);
-                            if (view == null) return;
-                            view.showActionLoading("accept:" + orderId, false);
-                            view.showMessage(message);
-                            if (order != null) view.openTrip(order);
-                            else load(false);
-                        });
+                        finishAction(action, message, true, order);
                     }
 
-                    @Override public void onError(
-                            int httpCode, String code, String message) {
-                        main.post(() -> {
-                            actionRunning.set(false);
-                            if (view == null) return;
-                            view.showActionLoading("accept:" + orderId, false);
-                            if (httpCode == 401 || httpCode == 403) {
-                                view.showSessionExpired();
-                            } else {
-                                view.showMessage(message);
-                                load(false);
-                            }
-                        });
+                    @Override public void onError(int httpCode, String code, String message) {
+                        failAction(action, httpCode, code, message);
                     }
                 }
         );
+    }
+
+    public void cancelOrder(
+            String orderId,
+            String source,
+            String currentStatus,
+            String reason
+    ) {
+        if (!actionRunning.compareAndSet(false, true)) return;
+        String action = "cancel:" + orderId;
+        if (view != null) view.showActionLoading(action, true);
+
+        repository.cancelOrder(
+                orderId,
+                source,
+                currentStatus,
+                reason,
+                new DriverDashboardRepository.ActionCallback() {
+                    @Override public void onSuccess(String message, DriverOrder order) {
+                        finishAction(action, message, false, null);
+                    }
+
+                    @Override public void onError(int httpCode, String code, String message) {
+                        failAction(action, httpCode, code, message);
+                    }
+                }
+        );
+    }
+
+    private void finishAction(
+            String action,
+            String message,
+            boolean openTrip,
+            DriverOrder order
+    ) {
+        main.post(() -> {
+            actionRunning.set(false);
+            if (view == null) return;
+            view.showActionLoading(action, false);
+            view.showMessage(message);
+            if (openTrip && order != null) view.openTrip(order);
+            else load(false);
+        });
+    }
+
+    private void failAction(
+            String action,
+            int httpCode,
+            String code,
+            String message
+    ) {
+        main.post(() -> {
+            actionRunning.set(false);
+            if (view == null) return;
+            view.showActionLoading(action, false);
+            if (isSessionError(httpCode, code)) {
+                view.showSessionExpired();
+            } else {
+                view.showMessage(message);
+                load(false);
+            }
+        });
+    }
+
+    private boolean isSessionError(int httpCode, String code) {
+        return httpCode == 401
+                || httpCode == 403
+                || "UNAUTHORIZED".equalsIgnoreCase(code)
+                || "SESSION_EXPIRED".equalsIgnoreCase(code);
     }
 
     public void destroy() {
