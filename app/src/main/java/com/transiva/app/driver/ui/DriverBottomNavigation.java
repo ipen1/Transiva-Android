@@ -10,6 +10,7 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.transiva.app.DriverChatActivity;
 import com.transiva.app.DriverReceiptHistoryActivity;
 import com.transiva.app.DriverWithdrawActivity;
 import com.transiva.app.ProfileActivity;
@@ -37,17 +38,22 @@ public final class DriverBottomNavigation {
         bar.setElevation(dp(activity, 10));
 
         add(bar, item(activity, "⌂", "Beranda",
-                v -> homeAction.showHome()), 1);
-        add(bar, item(activity, "▤", "Pesanan",
-                v -> homeAction.showOrders()), 1);
+                view -> homeAction.showHome()), 1);
+
+        add(bar, item(activity, "✉", "Pesan",
+                view -> activity.startActivity(
+                        new Intent(activity, DriverChatActivity.class))), 1);
+
         add(bar, item(activity, "Rp", "Pendapatan",
-                v -> activity.startActivity(
+                view -> activity.startActivity(
                         new Intent(activity, DriverWithdrawActivity.class))), 1);
+
         add(bar, item(activity, "◷", "Riwayat",
-                v -> activity.startActivity(
+                view -> activity.startActivity(
                         new Intent(activity, DriverReceiptHistoryActivity.class))), 1);
+
         add(bar, item(activity, "●", "Profil",
-                v -> activity.startActivity(
+                view -> activity.startActivity(
                         new Intent(activity, ProfileActivity.class))), 1);
 
         return bar;
@@ -89,7 +95,7 @@ public final class DriverBottomNavigation {
     }
 
     private static int dp(Activity activity, int value) {
-        return Math.round(
-                value * activity.getResources().getDisplayMetrics().density);
+        return Math.round(value
+                * activity.getResources().getDisplayMetrics().density);
     }
 }
