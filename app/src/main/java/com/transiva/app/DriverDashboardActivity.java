@@ -483,8 +483,16 @@ public class DriverDashboardActivity extends Activity
         }
 
         Button action = primaryButton(active ? "Lanjutkan Trip" : "Ambil Order");
+
         if (active) {
             action.setOnClickListener(v -> openTrip(order));
+            add(card, action, 0, dp(12), 0, 0);
+
+            if (canDriverCancel(order.status)) {
+                Button cancel = dangerOutlineButton("Batalkan Order");
+                cancel.setOnClickListener(v -> showCancelOrderDialog(order));
+                add(card, cancel, 0, dp(9), 0, 0);
+            }
         } else {
             String key = offerKey(order);
             offerButtons.put(key, action);
@@ -497,13 +505,72 @@ public class DriverDashboardActivity extends Activity
                 }
                 presenter.acceptOrder(order.id);
             });
+            add(card, action, 0, dp(12), 0, 0);
         }
-        add(card, action, 0, dp(12), 0, 0);
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
         lp.setMargins(0, dp(7), 0, dp(12));
         card.setLayoutParams(lp);
         return card;
+    }
+
+    private boolean canDriverCancel(String status) {
+        String value = clean(status).toLowerCase(Locale.US);
+        return value.equals("taken")
+                || value.equals("driver_accepted")
+                || value.equals("accepted")
+                || value.equals("arrived_pickup");
+    }
+
+    private void showCancelOrderDialog(DriverOrder order) {
+        if (order == null || !canDriverCancel(order.status)) {
+            showMessage("Order tidak dapat dibatalkan pada status ini.");
+            return;
+        }
+
+        String[] reasons = new String[]{
+                "Kendaraan bermasalah",
+                "Kondisi darurat",
+                "Tidak dapat menemukan lokasi pickup",
+                "Customer tidak dapat dihubungi",
+                "Order tidak sesuai",
+                "Alasan lainnya"
+        };
+
+        new AlertDialog.Builder(this)
+                .setTitle("Batalkan order #" + order.id)
+                .setMessage("Pembatalan hanya diizinkan sebelum perjalanan menuju tujuan dimulai.")
+                .setItems(reasons, (dialog, index) ->
+                        confirmCancelOrder(order, reasons[index]))
+                .setNegativeButton("Kembali", null)
+                .show();
+    }
+
+    private void confirmCancelOrder(DriverOrder order, String reason) {
+        new AlertDialog.Builder(this)
+                .setTitle("Konfirmasi pembatalan")
+                .setMessage("Order akan dilepas dan ditawarkan kepada driver lain.\n\nAlasan: " + reason)
+                .setNegativeButton("Tidak", null)
+                .setPositiveButton("Ya, Batalkan", (dialog, which) ->
+                        presenter.cancelOrder(
+                                order.id,
+                                clean(order.source),
+                                clean(order.status),
+                                reason
+                        ))
+                .show();
+    }
+
+    private Button dangerOutlineButton(String label) {
+        Button button = new Button(this);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextSize(15);
+        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        button.setTextColor(Color.parseColor("#DC2626"));
+        button.setBackground(roundStroke(
+                "#FFF7F7", "#EF4444", dp(15), 1));
+        return button;
     }
 
     private String offerKey(DriverOrder order) {
