@@ -241,6 +241,7 @@ public class SessionManager {
             e.apply();
 
             clearLegacyOnlineFlags();
+            TransivaSession.logout(appContext, safe(reason));
 
         } catch (Exception ignored) {
         }

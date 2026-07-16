@@ -109,6 +109,19 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                 "general"
         ).toLowerCase();
 
+        if (type.equals("force_logout")
+                || type.equals("device_reset")
+                || type.equals("device_banned")
+                || "1".equals(data.get("force_logout"))) {
+            String reason = first(
+                    data.get("reason"),
+                    data.get("code"),
+                    type.equals("device_banned") ? "DEVICE_BANNED" : "DEVICE_RESET"
+            );
+            ForceLogoutManager.execute(this, reason);
+            return;
+        }
+
         String title = first(
                 data.get("title"),
                 "Transiva"

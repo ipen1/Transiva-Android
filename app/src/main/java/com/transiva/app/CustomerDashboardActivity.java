@@ -138,6 +138,8 @@ public class CustomerDashboardActivity extends Activity
     protected void onResume() {
         super.onResume();
 
+        SessionValidationClient.validate(this);
+
         if (presenter != null) {
             presenter.refresh(username, userId);
         }
