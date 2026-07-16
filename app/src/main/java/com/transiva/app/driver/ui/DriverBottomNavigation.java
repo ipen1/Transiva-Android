@@ -1,7 +1,6 @@
 package com.transiva.app.driver.ui;
 
 import android.app.Activity;
-import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.view.Gravity;
@@ -10,11 +9,11 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.transiva.app.DriverActivityHistoryActivity;
 import com.transiva.app.DriverChatActivity;
 import com.transiva.app.DriverDashboardActivity;
-import com.transiva.app.DriverReceiptHistoryActivity;
-import com.transiva.app.DriverWithdrawActivity;
-import com.transiva.app.ProfileActivity;
+import com.transiva.app.DriverEarningsActivity;
+import com.transiva.app.DriverProfileActivity;
 
 public final class DriverBottomNavigation {
 
@@ -22,22 +21,40 @@ public final class DriverBottomNavigation {
         HOME,
         ACTIVITY,
         CHAT,
-        WALLET,
+        EARNINGS,
         PROFILE
     }
 
-    public interface HomeAction {
-        void showHome();
-        void showOrders();
+    private DriverBottomNavigation() {
     }
-
-    private DriverBottomNavigation() {}
 
     public static View build(
             Activity activity,
             ActiveItem activeItem
     ) {
-        LinearLayout navigation = createContainer(activity);
+        LinearLayout navigation =
+                new LinearLayout(activity);
+
+        navigation.setOrientation(
+                LinearLayout.HORIZONTAL
+        );
+
+        navigation.setGravity(Gravity.CENTER);
+
+        navigation.setPadding(
+                dp(activity, 5),
+                dp(activity, 4),
+                dp(activity, 5),
+                dp(activity, 4)
+        );
+
+        navigation.setBackgroundColor(
+                Color.WHITE
+        );
+
+        navigation.setElevation(
+                dp(activity, 8)
+        );
 
         navigation.addView(
                 navItem(
@@ -58,7 +75,7 @@ public final class DriverBottomNavigation {
                         "ic_nav_activity",
                         ActiveItem.ACTIVITY,
                         activeItem,
-                        DriverReceiptHistoryActivity.class
+                        DriverActivityHistoryActivity.class
                 ),
                 itemLayoutParams()
         );
@@ -80,9 +97,9 @@ public final class DriverBottomNavigation {
                         activity,
                         "Pendapatan",
                         "ic_nav_wallet",
-                        ActiveItem.WALLET,
+                        ActiveItem.EARNINGS,
                         activeItem,
-                        DriverWithdrawActivity.class
+                        DriverEarningsActivity.class
                 ),
                 itemLayoutParams()
         );
@@ -94,100 +111,11 @@ public final class DriverBottomNavigation {
                         "ic_nav_profile",
                         ActiveItem.PROFILE,
                         activeItem,
-                        ProfileActivity.class
+                        DriverProfileActivity.class
                 ),
                 itemLayoutParams()
         );
 
-        return navigation;
-    }
-
-    public static View build(
-            Activity activity,
-            HomeAction homeAction
-    ) {
-        LinearLayout navigation = createContainer(activity);
-
-        navigation.addView(
-                navItemWithAction(
-                        activity,
-                        "Beranda",
-                        "ic_nav_home",
-                        true,
-                        view -> {
-                            if (homeAction != null) {
-                                homeAction.showHome();
-                            }
-                        }
-                ),
-                itemLayoutParams()
-        );
-
-        navigation.addView(
-                navItem(
-                        activity,
-                        "Aktivitas",
-                        "ic_nav_activity",
-                        ActiveItem.ACTIVITY,
-                        ActiveItem.HOME,
-                        DriverReceiptHistoryActivity.class
-                ),
-                itemLayoutParams()
-        );
-
-        navigation.addView(
-                navItem(
-                        activity,
-                        "Pesan",
-                        "ic_nav_chat",
-                        ActiveItem.CHAT,
-                        ActiveItem.HOME,
-                        DriverChatActivity.class
-                ),
-                itemLayoutParams()
-        );
-
-        navigation.addView(
-                navItem(
-                        activity,
-                        "Pendapatan",
-                        "ic_nav_wallet",
-                        ActiveItem.WALLET,
-                        ActiveItem.HOME,
-                        DriverWithdrawActivity.class
-                ),
-                itemLayoutParams()
-        );
-
-        navigation.addView(
-                navItem(
-                        activity,
-                        "Akun",
-                        "ic_nav_profile",
-                        ActiveItem.PROFILE,
-                        ActiveItem.HOME,
-                        ProfileActivity.class
-                ),
-                itemLayoutParams()
-        );
-
-        return navigation;
-    }
-
-    private static LinearLayout createContainer(
-            Activity activity
-    ) {
-        LinearLayout navigation = new LinearLayout(activity);
-        navigation.setOrientation(LinearLayout.HORIZONTAL);
-        navigation.setGravity(Gravity.CENTER);
-        navigation.setPadding(
-                dp(activity, 5),
-                dp(activity, 4),
-                dp(activity, 5),
-                dp(activity, 4)
-        );
-        navigation.setBackgroundColor(Color.WHITE);
-        navigation.setElevation(dp(activity, 8));
         return navigation;
     }
 
@@ -201,46 +129,28 @@ public final class DriverBottomNavigation {
     ) {
         boolean active = item == activeItem;
 
-        return navItemWithAction(
-                activity,
-                label,
-                iconName,
-                active,
-                active
-                        ? null
-                        : view -> {
-                            Intent intent = new Intent(activity, target);
-                            intent.addFlags(
-                                    Intent.FLAG_ACTIVITY_CLEAR_TOP
-                                            | Intent.FLAG_ACTIVITY_SINGLE_TOP
-                            );
-                            activity.startActivity(intent);
-                        }
+        LinearLayout root =
+                new LinearLayout(activity);
+
+        root.setOrientation(
+                LinearLayout.VERTICAL
         );
-    }
 
-    private static View navItemWithAction(
-            Activity activity,
-            String label,
-            String iconName,
-            boolean active,
-            View.OnClickListener listener
-    ) {
-        LinearLayout root = new LinearLayout(activity);
-        root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
-        root.setClickable(listener != null);
-        root.setFocusable(listener != null);
 
-        ImageView icon = new ImageView(activity);
+        root.setClickable(!active);
+        root.setFocusable(!active);
 
-        int drawableId = activity
-                .getResources()
-                .getIdentifier(
-                        iconName,
-                        "drawable",
-                        activity.getPackageName()
-                );
+        ImageView icon =
+                new ImageView(activity);
+
+        int drawableId =
+                activity.getResources()
+                        .getIdentifier(
+                                iconName,
+                                "drawable",
+                                activity.getPackageName()
+                        );
 
         if (drawableId != 0) {
             icon.setImageResource(drawableId);
@@ -250,8 +160,15 @@ public final class DriverBottomNavigation {
             );
         }
 
-        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        icon.setAlpha(active ? 1f : 0.55f);
+        icon.setScaleType(
+                ImageView.ScaleType.CENTER_INSIDE
+        );
+
+        icon.setAlpha(
+                active
+                        ? 1f
+                        : 0.58f
+        );
 
         root.addView(
                 icon,
@@ -261,15 +178,22 @@ public final class DriverBottomNavigation {
                 )
         );
 
-        TextView title = new TextView(activity);
+        TextView title =
+                new TextView(activity);
+
         title.setText(label);
         title.setTextSize(9);
         title.setGravity(Gravity.CENTER);
+        title.setIncludeFontPadding(false);
+
         title.setTextColor(
                 Color.parseColor(
-                        active ? "#0B7CFF" : "#64748B"
+                        active
+                                ? "#0B7CFF"
+                                : "#64748B"
                 )
         );
+
         title.setTypeface(
                 Typeface.DEFAULT,
                 active
@@ -278,16 +202,26 @@ public final class DriverBottomNavigation {
         );
 
         LinearLayout.LayoutParams titleParams =
-                new LinearLayout.LayoutParams(-1, -2);
+                new LinearLayout.LayoutParams(
+                        -1,
+                        -2
+                );
+
         titleParams.setMargins(
                 0,
                 dp(activity, 2),
                 0,
                 0
         );
-        root.addView(title, titleParams);
 
-        View indicator = new View(activity);
+        root.addView(
+                title,
+                titleParams
+        );
+
+        View indicator =
+                new View(activity);
+
         indicator.setBackgroundColor(
                 active
                         ? Color.parseColor("#0B7CFF")
@@ -299,19 +233,54 @@ public final class DriverBottomNavigation {
                         dp(activity, 22),
                         dp(activity, 2)
                 );
+
         indicatorParams.setMargins(
                 0,
                 dp(activity, 2),
                 0,
                 0
         );
-        root.addView(indicator, indicatorParams);
 
-        if (listener != null) {
-            root.setOnClickListener(listener);
+        root.addView(
+                indicator,
+                indicatorParams
+        );
+
+        if (!active) {
+            root.setOnClickListener(
+                    view ->
+                            DriverPageTransition.open(
+                                    activity,
+                                    target,
+                                    pageIndex(activeItem),
+                                    pageIndex(item)
+                            )
+            );
         }
 
         return root;
+    }
+
+    private static int pageIndex(
+            ActiveItem item
+    ) {
+        if (item == ActiveItem.ACTIVITY) {
+            return DriverPageTransition.ACTIVITY;
+        }
+
+        if (item == ActiveItem.CHAT) {
+            return DriverPageTransition.CHAT;
+        }
+
+        if (item == ActiveItem.EARNINGS) {
+            return DriverPageTransition.EARNINGS;
+        }
+
+        if (item == ActiveItem.PROFILE) {
+            return DriverPageTransition.PROFILE;
+        }
+
+        return DriverPageTransition.HOME;
     }
 
     private static LinearLayout.LayoutParams itemLayoutParams() {
