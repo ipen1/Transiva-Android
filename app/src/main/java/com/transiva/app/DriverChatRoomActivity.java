@@ -52,11 +52,11 @@ public class DriverChatRoomActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String GET_CHAT_URL =
-            BASE_URL + "server/getChat.php";
+            BASE_URL + "server/driver_get_chat_native.php";
     private static final String SEND_CHAT_URL =
-            BASE_URL + "server/sendChat.php";
+            BASE_URL + "server/driver_send_chat_native.php";
     private static final String UPLOAD_IMAGE_URL =
-            BASE_URL + "server/upload_chat_image.php";
+            BASE_URL + "server/driver_upload_chat_image_native.php";
 
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
@@ -83,6 +83,8 @@ public class DriverChatRoomActivity extends Activity {
     private String participantName = "Customer";
     private String orderType = "";
     private String orderStatus = "";
+    private String orderSource = "orders";
+    private SessionManager session;
 
     private boolean readOnly;
     private boolean loading;
@@ -109,6 +111,7 @@ public class DriverChatRoomActivity extends Activity {
         getWindow().setStatusBarColor(Color.parseColor("#0B7CFF"));
         getWindow().setNavigationBarColor(Color.parseColor("#071426"));
 
+        session = new SessionManager(this);
         readIntent();
         setContentView(buildScreen());
 
@@ -144,6 +147,11 @@ public class DriverChatRoomActivity extends Activity {
         orderStatus = first(
                 getIntent().getStringExtra("order_status"),
                 "");
+
+        orderSource = first(
+                getIntent().getStringExtra("order_source"),
+                "orders"
+        );
         readOnly = getIntent().getBooleanExtra("read_only", false)
                 || CustomerMessageStatus.isEnded(orderStatus);
     }
@@ -446,10 +454,12 @@ public class DriverChatRoomActivity extends Activity {
         new Thread(() -> {
             try {
                 JSONObject response =
-                        CustomerMessageApi.uploadImagePair(
+                        DriverMessageApi.uploadImagePair(
+                                session,
                                 UPLOAD_IMAGE_URL,
+                                orderId,
+                                orderSource,
                                 roomId,
-                                "driver",
                                 payload);
 
                 main.post(() -> {
@@ -511,15 +521,28 @@ public class DriverChatRoomActivity extends Activity {
         new Thread(() -> {
             try {
                 String endpoint = GET_CHAT_URL
-                        + "?room_id="
+                        + "?order_id="
                         + URLEncoder.encode(
-                        roomId, StandardCharsets.UTF_8.name());
+                        orderId,
+                        StandardCharsets.UTF_8.name()
+                )
+                        + "&source="
+                        + URLEncoder.encode(
+                        orderSource,
+                        StandardCharsets.UTF_8.name()
+                )
+                        + "&room_id="
+                        + URLEncoder.encode(
+                        roomId,
+                        StandardCharsets.UTF_8.name()
+                );
 
                 if (requestedLastId > 0) {
                     endpoint += "&last_id=" + requestedLastId;
                 }
 
-                JSONObject response = CustomerMessageApi.get(endpoint);
+                JSONObject response =
+                        DriverMessageApi.get(session, endpoint);
 
                 main.post(() -> {
                     loading = false;
@@ -764,8 +787,9 @@ public class DriverChatRoomActivity extends Activity {
         JSONObject body = new JSONObject();
 
         try {
+            body.put("order_id", orderId);
+            body.put("source", orderSource);
             body.put("room_id", roomId);
-            body.put("sender_type", "driver");
             body.put("message", message);
         } catch (Exception error) {
             sending = false;
@@ -776,7 +800,7 @@ public class DriverChatRoomActivity extends Activity {
         new Thread(() -> {
             try {
                 JSONObject response =
-                        CustomerMessageApi.post(SEND_CHAT_URL, body);
+                        DriverMessageApi.post(session, SEND_CHAT_URL, body);
 
                 main.post(() -> {
                     sending = false;

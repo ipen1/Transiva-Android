@@ -190,20 +190,10 @@ public class DriverDashboardActivity extends Activity
         buildOrderSections();
 
         shell.addView(
-                DriverBottomNavigation.build(this,
-                        new DriverBottomNavigation.HomeAction() {
-                            @Override public void showHome() {
-                                homeSections.setVisibility(View.VISIBLE);
-                                orderSections.setVisibility(View.VISIBLE);
-                                scroll.smoothScrollTo(0, 0);
-                            }
-
-                            @Override public void showOrders() {
-                                homeSections.setVisibility(View.GONE);
-                                orderSections.setVisibility(View.VISIBLE);
-                                scroll.smoothScrollTo(0, 0);
-                            }
-                        }),
+                DriverBottomNavigation.build(
+                        this,
+                        DriverBottomNavigation.ActiveItem.HOME
+                ),
                 new LinearLayout.LayoutParams(-1, dp(66))
         );
 
@@ -538,15 +528,10 @@ public class DriverDashboardActivity extends Activity
         };
 
         new AlertDialog.Builder(this)
-                .setTitle("Pilih alasan pembatalan")
-                /*
-                 * Jangan gabungkan setMessage() dan daftar pilihan.
-                 * Pada beberapa tema Android daftar alasan tidak dirender.
-                 */
-                .setSingleChoiceItems(reasons, -1, (dialog, index) -> {
-                    dialog.dismiss();
-                    confirmCancelOrder(order, reasons[index]);
-                })
+                .setTitle("Batalkan order #" + order.id)
+                .setMessage("Pembatalan hanya diizinkan sebelum perjalanan menuju tujuan dimulai.")
+                .setItems(reasons, (dialog, index) ->
+                        confirmCancelOrder(order, reasons[index]))
                 .setNegativeButton("Kembali", null)
                 .show();
     }

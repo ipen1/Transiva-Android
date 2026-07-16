@@ -20,6 +20,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.transiva.app.driver.ui.DriverBottomNavigation;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -40,7 +42,7 @@ public class DriverChatActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String CONVERSATIONS_URL =
-            BASE_URL + "server/get_driver_conversations.php";
+            BASE_URL + "server/driver_chat_conversations_native.php";
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
 
@@ -172,15 +174,13 @@ public class DriverChatActivity extends Activity {
         listLp.setMargins(0, dp(12), 0, 0);
         content.addView(listBox, listLp);
 
-        Button back = new Button(this);
-        back.setText("Kembali ke Dashboard");
-        back.setAllCaps(false);
-        back.setTextColor(Color.parseColor("#0B7CFF"));
-        back.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        back.setBackground(roundStroke(
-                "#FFFFFF", "#B9DBFF", 15, 1));
-        back.setOnClickListener(v -> finish());
-        shell.addView(back, new LinearLayout.LayoutParams(-1, dp(58)));
+        shell.addView(
+                DriverBottomNavigation.build(
+                        this,
+                        DriverBottomNavigation.ActiveItem.CHAT
+                ),
+                new LinearLayout.LayoutParams(-1, dp(66))
+        );
 
         progress = new ProgressBar(this);
         progress.setVisibility(View.GONE);
@@ -495,6 +495,10 @@ public class DriverChatActivity extends Activity {
                 "Customer"));
         intent.putExtra("order_type", item.optString("order_type", ""));
         intent.putExtra("order_status", item.optString("status", ""));
+        intent.putExtra(
+                "order_source",
+                item.optString("source", "orders")
+        );
         intent.putExtra("read_only", history);
         startActivity(intent);
     }
