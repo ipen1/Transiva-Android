@@ -377,6 +377,11 @@
             android:theme="@style/AppTheme"
             android:windowSoftInputMode="adjustResize" />
         <activity
+            android:name=".AdminCustomerManagementActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".AdminDriverManagementActivity"
             android:exported="false"
             android:screenOrientation="portrait"
