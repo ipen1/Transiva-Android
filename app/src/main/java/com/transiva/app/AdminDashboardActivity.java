@@ -165,6 +165,9 @@ public class AdminDashboardActivity extends Activity {
         Intent intent = null;
 
         switch (menuName) {
+            case "Driver":
+                intent = new Intent(this, AdminDriverManagementActivity.class);
+                break;
             case "Money":
                 intent = new Intent(this, AdminMoneyManagementActivity.class);
                 break;
