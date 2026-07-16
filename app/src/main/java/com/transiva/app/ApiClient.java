@@ -82,6 +82,12 @@ public class ApiClient {
                 conn.setRequestProperty("X-Transiva-App", "Android-Hybrid");
                 conn.setRequestProperty("X-Android-SDK", String.valueOf(Build.VERSION.SDK_INT));
 
+                String sessionToken = new SessionManager(activity).getToken().trim();
+                if (!sessionToken.isEmpty()) {
+                    conn.setRequestProperty("Authorization", "Bearer " + sessionToken);
+                    conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(activity));
+                }
+
                 if ("POST".equals(cleanMethod)) {
                     conn.setRequestMethod("POST");
                     conn.setDoOutput(true);
