@@ -538,10 +538,15 @@ public class DriverDashboardActivity extends Activity
         };
 
         new AlertDialog.Builder(this)
-                .setTitle("Batalkan order #" + order.id)
-                .setMessage("Pembatalan hanya diizinkan sebelum perjalanan menuju tujuan dimulai.")
-                .setItems(reasons, (dialog, index) ->
-                        confirmCancelOrder(order, reasons[index]))
+                .setTitle("Pilih alasan pembatalan")
+                /*
+                 * Jangan gabungkan setMessage() dan daftar pilihan.
+                 * Pada beberapa tema Android daftar alasan tidak dirender.
+                 */
+                .setSingleChoiceItems(reasons, -1, (dialog, index) -> {
+                    dialog.dismiss();
+                    confirmCancelOrder(order, reasons[index]);
+                })
                 .setNegativeButton("Kembali", null)
                 .show();
     }
