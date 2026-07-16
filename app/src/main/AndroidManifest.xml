@@ -275,6 +275,24 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".DriverActivityHistoryActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name=".DriverEarningsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name=".DriverProfileActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".DriverReceiptHistoryActivity"
             android:exported="false"
             android:screenOrientation="portrait"
