@@ -168,6 +168,9 @@ public class AdminDashboardActivity extends Activity {
             case "Driver":
                 intent = new Intent(this, AdminDriverManagementActivity.class);
                 break;
+            case "Customer":
+                intent = new Intent(this, AdminCustomerManagementActivity.class);
+                break;
             case "Money":
                 intent = new Intent(this, AdminMoneyManagementActivity.class);
                 break;
