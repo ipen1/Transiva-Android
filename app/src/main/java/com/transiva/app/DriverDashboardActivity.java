@@ -34,6 +34,7 @@ import com.transiva.app.driver.domain.DriverOrder;
 import com.transiva.app.driver.presentation.DriverDashboardContract;
 import com.transiva.app.driver.presentation.DriverDashboardPresenter;
 import com.transiva.app.driver.ui.DriverBottomNavigation;
+import com.transiva.app.driver.ui.DriverPageTransition;
 
 import java.text.NumberFormat;
 import java.util.HashMap;
@@ -281,19 +282,23 @@ public class DriverDashboardActivity extends Activity
         balanceText = text("Rp 0", 27, "#FFFFFF", true);
         add(wallet, balanceText, 0, dp(3), 0, 0);
 
-        LinearLayout moneyActions = new LinearLayout(this);
-        Button deposit = whiteButton("Deposit");
-        deposit.setOnClickListener(v ->
-                startActivity(new Intent(this, DriverTopUpActivity.class)));
-        moneyActions.addView(deposit, new LinearLayout.LayoutParams(0, dp(44), 1));
+        TextView walletHint = text(
+                "Ketuk untuk melihat pendapatan, deposit, withdraw, dan mutasi.",
+                10,
+                "#EAF5FF",
+                false
+        );
 
-        Button withdraw = whiteButton("Withdraw");
-        withdraw.setOnClickListener(v ->
-                startActivity(new Intent(this, DriverWithdrawActivity.class)));
-        LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(0, dp(44), 1);
-        wlp.setMargins(dp(8), 0, 0, 0);
-        moneyActions.addView(withdraw, wlp);
-        add(wallet, moneyActions, 0, dp(12), 0, 0);
+        add(wallet, walletHint, 0, dp(8), 0, 0);
+
+        wallet.setOnClickListener(
+                view -> DriverPageTransition.open(
+                        this,
+                        DriverEarningsActivity.class,
+                        DriverPageTransition.HOME,
+                        DriverPageTransition.EARNINGS
+                )
+        );
 
         add(homeSections, wallet, 0, dp(12), 0, 0);
 
