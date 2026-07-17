@@ -77,11 +77,18 @@ public class TransRideActivity extends Activity {
     private boolean ordering = false;
     private String mode = "pickup";
 
-    // Ukuran tunggal untuk marker jemput/tujuan, baik marker center maupun marker tersimpan.
+    // Marker tersimpan di peta tetap ringkas.
     private static final int POINT_MARKER_BOX_WIDTH_DP = 32;
     private static final int POINT_MARKER_BOX_HEIGHT_DP = 40;
     private static final int POINT_MARKER_IMAGE_WIDTH_DP = 30;
     private static final int POINT_MARKER_IMAGE_HEIGHT_DP = 38;
+
+    // Marker aktif di tengah peta dibuat lebih besar agar mudah diposisikan.
+    // Ubah empat angka ini bila ingin memperbesar atau memperkecil marker center.
+    private static final int CENTER_MARKER_BOX_WIDTH_DP = 48;
+    private static final int CENTER_MARKER_BOX_HEIGHT_DP = 60;
+    private static final int CENTER_MARKER_IMAGE_WIDTH_DP = 46;
+    private static final int CENTER_MARKER_IMAGE_HEIGHT_DP = 58;
     private String username = "";
     private String authToken = "";
     private String paymentMethod = "cash";
@@ -268,12 +275,12 @@ public class TransRideActivity extends Activity {
 
         centerMarkerBox = new FrameLayout(this);
         FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
-                dp(POINT_MARKER_BOX_WIDTH_DP),
-                dp(POINT_MARKER_BOX_HEIGHT_DP)
+                dp(CENTER_MARKER_BOX_WIDTH_DP),
+                dp(CENTER_MARKER_BOX_HEIGHT_DP)
         );
         centerLp.gravity = Gravity.CENTER;
-        // Anchor ujung pin tepat di titik tengah peta.
-        centerLp.topMargin = -dp(18);
+        // Geser ke atas supaya ujung bawah pin tetap tepat di pusat peta.
+        centerLp.topMargin = -dp(CENTER_MARKER_IMAGE_HEIGHT_DP / 2);
         mapBox.addView(centerMarkerBox, centerLp);
         updateCenterMarkerIcon();
 
@@ -1428,8 +1435,8 @@ public class TransRideActivity extends Activity {
                     pickupMode ? "Titik jemput" : "Titik tujuan"
             );
             FrameLayout.LayoutParams markerLp = new FrameLayout.LayoutParams(
-                    dp(POINT_MARKER_IMAGE_WIDTH_DP),
-                    dp(POINT_MARKER_IMAGE_HEIGHT_DP)
+                    dp(CENTER_MARKER_IMAGE_WIDTH_DP),
+                    dp(CENTER_MARKER_IMAGE_HEIGHT_DP)
             );
             markerLp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
 
