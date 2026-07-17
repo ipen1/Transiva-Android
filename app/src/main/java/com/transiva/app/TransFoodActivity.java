@@ -62,6 +62,7 @@ public class TransFoodActivity extends Activity {
     private LinearLayout homeResultsBox;
     private Runnable homeSearchRunnable;
     private int currentScreen = 0; // 0=home, 1=detail menu, 2=checkout
+    private String homeMode = "nearby";
 
     private int userId = 0;
     private String username = "User";
@@ -78,8 +79,12 @@ public class TransFoodActivity extends Activity {
         try {
             getWindow().setStatusBarColor(Color.WHITE);
             getWindow().setNavigationBarColor(Color.WHITE);
-            if (android.os.Build.VERSION.SDK_INT >= 23) {
-                getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+            int flags = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (android.os.Build.VERSION.SDK_INT >= 26) flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            getWindow().getDecorView().setSystemUiVisibility(flags);
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                getWindow().setNavigationBarContrastEnforced(false);
+                getWindow().setStatusBarContrastEnforced(false);
             }
         } catch (Exception ignored) {}
         loadSession();
@@ -126,14 +131,94 @@ public class TransFoodActivity extends Activity {
         currentScreen = 0;
         root.removeAllViews();
         activeRestaurant = null;
-        buildTopBar("Trans Food", "Pesan makanan favorit di sekitar kamu", true);
-
+        buildTopBar("Transfood", "Makanan favorit, diantar lebih cepat", true);
+        addPremiumHero();
         addHomeSearchBar();
+        addQuickMenus();
+        addHomeSectionHeader();
 
         homeResultsBox = new LinearLayout(this);
         homeResultsBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(homeResultsBox, new LinearLayout.LayoutParams(-1, -2));
         renderHomeResults();
+    }
+
+
+    private void addPremiumHero() {
+        LinearLayout hero = new LinearLayout(this);
+        hero.setOrientation(LinearLayout.VERTICAL);
+        hero.setPadding(dp(20), dp(18), dp(20), dp(18));
+        hero.setBackground(roundGradient("#087BFF", "#0754D8", dp(24)));
+        hero.setElevation(dp(5));
+
+        TextView eyebrow = text("TRANSFOOD DELIVERY", 11, "#DDEEFF", true);
+        hero.addView(eyebrow);
+        TextView title = text("Lapar? Pesan yang enak sekarang.", 22, "#FFFFFF", true);
+        title.setPadding(0, dp(5), 0, 0);
+        hero.addView(title);
+        TextView sub = text("Pilihan restoran terbaik di sekitar kamu", 13, "#EAF4FF", false);
+        sub.setPadding(0, dp(6), 0, 0);
+        hero.addView(sub);
+
+        TextView badge = text("⚡ Antar cepat  •  Promo setiap hari", 12, "#0754D8", true);
+        badge.setPadding(dp(12), dp(8), dp(12), dp(8));
+        badge.setBackground(round("#FFFFFF", dp(16)));
+        LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(-2, -2);
+        badgeLp.setMargins(0, dp(14), 0, 0);
+        hero.addView(badge, badgeLp);
+        addWithMargin(hero, 0, 0, 0, dp(14));
+    }
+
+    private void addQuickMenus() {
+        LinearLayout panel = card();
+        panel.setPadding(dp(10), dp(14), dp(10), dp(12));
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER);
+        panel.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        addQuickMenu(row, "Terdekat", "ic_food_nearby", "nearby");
+        addQuickMenu(row, "Diskon", "ic_food_discount", "discount");
+        addQuickMenu(row, "Terbaru", "ic_food_new", "newest");
+        addQuickMenu(row, "Best", "ic_food_best", "best");
+        addWithMargin(panel, 0, 0, 0, dp(18));
+    }
+
+    private void addQuickMenu(LinearLayout row, String label, String drawableName, String mode) {
+        LinearLayout item = new LinearLayout(this);
+        item.setOrientation(LinearLayout.VERTICAL);
+        item.setGravity(Gravity.CENTER);
+        item.setPadding(dp(4), dp(4), dp(4), dp(4));
+        item.setClickable(true);
+        item.setBackground(round(homeMode.equals(mode) ? "#EAF4FF" : "#FFFFFF", dp(18)));
+
+        ImageView icon = new ImageView(this);
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        int id = getResources().getIdentifier(drawableName, "drawable", getPackageName());
+        if (id != 0) icon.setImageResource(id);
+        item.addView(icon, new LinearLayout.LayoutParams(dp(58), dp(58)));
+
+        TextView name = text(label, 12, homeMode.equals(mode) ? "#087BFF" : "#183B66", true);
+        name.setGravity(Gravity.CENTER);
+        name.setPadding(0, dp(5), 0, 0);
+        item.addView(name, new LinearLayout.LayoutParams(-1, -2));
+        item.setOnClickListener(v -> {
+            homeMode = mode;
+            if ("discount".equals(mode)) homeSearchQuery = "diskon";
+            else if ("newest".equals(mode)) homeSearchQuery = "";
+            else homeSearchQuery = "";
+            showRestaurantList();
+        });
+        row.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
+    }
+
+    private void addHomeSectionHeader() {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = text("Pilihan restoran", 18, "#123B6B", true);
+        row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView tag = text("Lihat semua", 12, "#087BFF", true);
+        row.addView(tag);
+        addWithMargin(row, 0, 0, 0, dp(10));
     }
 
     private void addHomeSearchBar() {
@@ -206,6 +291,12 @@ public class TransFoodActivity extends Activity {
 
             TextView restoTitle = text("Restoran terkait", 15, "#0B3A78", true);
             addWithMarginTo(homeResultsBox, restoTitle, 0, dp(8), 0, dp(10));
+        }
+
+        if ("best".equals(homeMode)) {
+            java.util.Collections.sort(restoHits, (a, b) -> Double.compare(b.optDouble("rating", 0), a.optDouble("rating", 0)));
+        } else if ("newest".equals(homeMode)) {
+            java.util.Collections.reverse(restoHits);
         }
 
         if (restoHits.isEmpty()) {
