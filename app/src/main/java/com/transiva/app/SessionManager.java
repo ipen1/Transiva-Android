@@ -308,14 +308,18 @@ public class SessionManager {
     private void syncLegacyFlagsAfterLogin(String roleValue) {
         String role = normalizeRole(roleValue);
 
-        boolean driverOnline = role.equals("driver");
+        /*
+         * Login driver tidak boleh langsung dianggap ONLINE.
+         * Status online hanya diaktifkan dari DriverDashboardActivity
+         * setelah pengguna menekan tombol ONLINE dan izin lokasi tersedia.
+         */
         boolean merchantOnline = role.equals("merchant")
                 || role.equals("wisata");
 
         legacyPrefs.edit()
-                .putBoolean("driver_online", driverOnline)
+                .putBoolean("driver_online", false)
                 .putBoolean("merchant_online", merchantOnline)
-                .putString("driver_online_text", driverOnline ? "1" : "0")
+                .putString("driver_online_text", "0")
                 .putString("merchant_online_text", merchantOnline ? "1" : "0")
                 .apply();
     }

@@ -1,6 +1,9 @@
 package com.transiva.app;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.os.Build;
 import android.util.Log;
@@ -91,10 +94,19 @@ public final class NativeSessionGuard {
             String role = sessionManager.getRole();
 
             if ("driver".equals(role)) {
-                startLocationService(context);
-                BackgroundSyncService.start(context);
-                startDriverForegroundService(context);
-                return true;
+                /*
+                 * Jangan memulai service lokasi hanya karena driver sudah login.
+                 * Driver wajib menekan ONLINE dari dashboard terlebih dahulu.
+                 */
+                if (isDriverOnline(context) && hasLocationPermission(context)) {
+                    startLocationService(context);
+                    BackgroundSyncService.start(context);
+                    startDriverForegroundService(context);
+                    return true;
+                }
+
+                stopAllNativeServices(context);
+                return false;
             }
 
             if ("merchant".equals(role) || "admin".equals(role) || "wisata".equals(role)) {
@@ -107,6 +119,39 @@ public final class NativeSessionGuard {
         }
 
         return false;
+    }
+
+
+    private static boolean isDriverOnline(Context context) {
+        if (context == null) return false;
+
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(
+                    "transiva",
+                    Context.MODE_PRIVATE
+            );
+
+            return prefs.getBoolean("driver_online", false)
+                    || "1".equals(prefs.getString("driver_online_text", "0"));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean hasLocationPermission(Context context) {
+        if (context == null) return false;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true;
+
+        try {
+            return context.checkSelfPermission(
+                    Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+                    || context.checkSelfPermission(
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private static void startLocationService(Context context) {

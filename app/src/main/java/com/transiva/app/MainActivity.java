@@ -697,9 +697,12 @@ public class MainActivity extends Activity {
         try {
             ArrayList<String> p = new ArrayList<>();
 
+            /*
+             * Izin lokasi tidak diminta saat aplikasi baru dibuka/login.
+             * Lokasi hanya diminta oleh DriverDashboardActivity ketika
+             * driver menekan tombol ONLINE.
+             */
             p.add(Manifest.permission.CAMERA);
-            p.add(Manifest.permission.ACCESS_FINE_LOCATION);
-            p.add(Manifest.permission.ACCESS_COARSE_LOCATION);
 
             if (Build.VERSION.SDK_INT >= 33) {
                 p.add(Manifest.permission.POST_NOTIFICATIONS);
@@ -876,10 +879,55 @@ public class MainActivity extends Activity {
                 return;
             }
 
-            startLocationServiceSafe();
-            startBackgroundSyncServiceSafe();
+            String role = sessionManager.getRole();
+
+            if ("driver".equals(role)) {
+                boolean driverOnline = getSharedPreferences(
+                        PREF_NAME,
+                        MODE_PRIVATE
+                ).getBoolean("driver_online", false);
+
+                boolean hasLocationPermission =
+                        checkSelfPermissionCompat(
+                                Manifest.permission.ACCESS_FINE_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED
+                                || checkSelfPermissionCompat(
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                        ) == PackageManager.PERMISSION_GRANTED;
+
+                if (driverOnline && hasLocationPermission) {
+                    startLocationServiceSafe();
+                    startBackgroundSyncServiceSafe();
+                } else {
+                    stopAllNativeServices();
+                }
+
+                return;
+            }
+
+            /*
+             * Role non-driver tidak membutuhkan LocationService driver.
+             * Background sync tetap tersedia untuk role operasional.
+             */
+            stopLocationServiceSafe();
+
+            if ("merchant".equals(role)
+                    || "admin".equals(role)
+                    || "wisata".equals(role)) {
+                startBackgroundSyncServiceSafe();
+            } else {
+                stopBackgroundSyncServiceSafe();
+            }
 
         } catch (Exception ignored) {}
+    }
+
+    private int checkSelfPermissionCompat(String permission) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return PackageManager.PERMISSION_GRANTED;
+        }
+
+        return checkSelfPermission(permission);
     }
 
     private boolean isNativeSessionLoggedIn() {
