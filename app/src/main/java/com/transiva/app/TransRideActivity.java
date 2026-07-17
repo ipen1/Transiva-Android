@@ -78,10 +78,10 @@ public class TransRideActivity extends Activity {
     private String mode = "pickup";
 
     // Marker tersimpan di peta tetap ringkas.
-    private static final int POINT_MARKER_BOX_WIDTH_DP = 46;
-    private static final int POINT_MARKER_BOX_HEIGHT_DP = 58;
-    private static final int POINT_MARKER_IMAGE_WIDTH_DP = 44;
-    private static final int POINT_MARKER_IMAGE_HEIGHT_DP = 56;
+    private static final int POINT_MARKER_BOX_WIDTH_DP = 42;
+    private static final int POINT_MARKER_BOX_HEIGHT_DP = 54;
+    private static final int POINT_MARKER_IMAGE_WIDTH_DP = 40;
+    private static final int POINT_MARKER_IMAGE_HEIGHT_DP = 52;
 
     // Marker aktif di tengah peta dibuat lebih besar agar mudah diposisikan.
     // Ubah empat angka ini bila ingin memperbesar atau memperkecil marker center.
