@@ -53,6 +53,7 @@ public class TransRideActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String CREATE_ORDER_URL = BASE_URL + "server/createOrder.php";
+    private static final String PAYMENT_QUOTE_URL = BASE_URL + "server/ride_payment_quote.php";
     private static final String RESOLVE_MAPS_URL = BASE_URL + "server/resolve_google_maps.php";
     private static final String GET_BUSINESSES_URL = BASE_URL + "server/getBusinesses.php";
     private static final String GET_LAUNDRIES_URL = BASE_URL + "server/admin_get_laundries.php";
@@ -63,8 +64,8 @@ public class TransRideActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private WebView mapView;
-    private TextView pickupText, deliveryText, modeText, fareText;
-    private EditText googleMapInput, noteInput;
+    private TextView pickupText, deliveryText, modeText, fareText, paymentSummaryText;
+    private EditText googleMapInput, noteInput, voucherInput;
     private Button pickupBtn, deliveryBtn, gpsBtn, orderBtn, backBtn, useLinkBtn;
     private ProgressBar progressBar;
 
@@ -72,6 +73,8 @@ public class TransRideActivity extends Activity {
     private boolean ordering = false;
     private String mode = "pickup";
     private String username = "";
+    private String authToken = "";
+    private String paymentMethod = "cash";
     private int userId = 0;
 
     private double pickupLat = 0, pickupLng = 0;
@@ -102,6 +105,7 @@ public class TransRideActivity extends Activity {
         try {
             SessionManager session = new SessionManager(this);
             if (session.isLoggedIn()) {
+                authToken = session.getToken();
                 username = firstNonEmpty(
                         session.getUsername(),
                         session.getName(),
@@ -288,6 +292,62 @@ public class TransRideActivity extends Activity {
 
         fareText = text("Tarif dihitung server setelah order dibuat", 10, "#64748B", false);
         bottomBiked.addView(fareText);
+
+        TextView paymentTitle = text("Metode Pembayaran", 12, "#0B3A78", true);
+        LinearLayout.LayoutParams ptlp = new LinearLayout.LayoutParams(-1, -2);
+        ptlp.setMargins(0, dp(7), 0, dp(5));
+        bottomBiked.addView(paymentTitle, ptlp);
+
+        LinearLayout paymentRow = new LinearLayout(this);
+        paymentRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button cashButton = smallButton("Tunai", "#0B7CFF", "#FFFFFF", "#0B7CFF");
+        Button balanceButton = smallButton("Transiva Pay", "#FFFFFF", "#0B7CFF", "#9DCAFF");
+        paymentRow.addView(cashButton, new LinearLayout.LayoutParams(0, dp(42), 1));
+        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(0, dp(42), 1);
+        blp.setMargins(dp(7), 0, 0, 0);
+        paymentRow.addView(balanceButton, blp);
+        bottomBiked.addView(paymentRow);
+
+        cashButton.setOnClickListener(v -> {
+            paymentMethod = "cash";
+            cashButton.setBackground(roundStroke("#0B7CFF", "#0B7CFF", dp(12), 1));
+            cashButton.setTextColor(Color.WHITE);
+            balanceButton.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(12), 1));
+            balanceButton.setTextColor(Color.parseColor("#0B7CFF"));
+            requestPaymentQuote();
+        });
+
+        balanceButton.setOnClickListener(v -> {
+            paymentMethod = "balance";
+            balanceButton.setBackground(roundStroke("#0B7CFF", "#0B7CFF", dp(12), 1));
+            balanceButton.setTextColor(Color.WHITE);
+            cashButton.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(12), 1));
+            cashButton.setTextColor(Color.parseColor("#0B7CFF"));
+            requestPaymentQuote();
+        });
+
+        LinearLayout voucherRow = new LinearLayout(this);
+        voucherRow.setOrientation(LinearLayout.HORIZONTAL);
+        voucherInput = new EditText(this);
+        voucherInput.setSingleLine(true);
+        voucherInput.setTextSize(12);
+        voucherInput.setHint("Kode voucher, contoh RIDE10");
+        voucherInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(14), 1));
+        voucherInput.setPadding(dp(10), 0, dp(10), 0);
+        voucherRow.addView(voucherInput, new LinearLayout.LayoutParams(0, dp(42), 1));
+        Button voucherButton = smallButton("Cek", "#E8F3FF", "#0B7CFF", "#9DCAFF");
+        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(dp(72), dp(42));
+        vlp.setMargins(dp(7), 0, 0, 0);
+        voucherRow.addView(voucherButton, vlp);
+        LinearLayout.LayoutParams vrlp = new LinearLayout.LayoutParams(-1, -2);
+        vrlp.setMargins(0, dp(7), 0, 0);
+        bottomBiked.addView(voucherRow, vrlp);
+        voucherButton.setOnClickListener(v -> requestPaymentQuote());
+
+        paymentSummaryText = text("Voucher belum digunakan • Pembayaran tunai", 10, "#64748B", false);
+        LinearLayout.LayoutParams pslp = new LinearLayout.LayoutParams(-1, -2);
+        pslp.setMargins(0, dp(5), 0, 0);
+        bottomBiked.addView(paymentSummaryText, pslp);
 
         noteInput = new EditText(this);
         noteInput.setSingleLine(true);
@@ -590,6 +650,10 @@ public class TransRideActivity extends Activity {
             conn.setUseCaches(false);
             conn.setRequestProperty("User-Agent", "TransivaAndroid/1.0");
             conn.setRequestProperty("Accept", "application/json");
+            if (authToken != null && !authToken.trim().isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + authToken.trim());
+            }
+            conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
 
             String body = readStream(conn.getInputStream());
             JSONObject json = new JSONObject(body);
@@ -791,6 +855,10 @@ public class TransRideActivity extends Activity {
             conn.setReadTimeout(TIMEOUT_MS);
             conn.setUseCaches(false);
             conn.setRequestProperty("Accept", "application/json");
+            if (authToken != null && !authToken.trim().isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + authToken.trim());
+            }
+            conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
 
             String body = readStream(conn.getInputStream()).trim();
             return body.length() == 0 ? new JSONObject() : new JSONObject(body);
@@ -876,6 +944,8 @@ public class TransRideActivity extends Activity {
                 payload.put("delivery_address", firstNonEmpty(deliveryAddress, "Lokasi Tujuan"));
                 payload.put("userLocation", userLocation);
                 payload.put("note", noteInput.getText().toString().trim());
+                payload.put("payment_method", paymentMethod);
+                payload.put("voucher_code", voucherInput == null ? "" : voucherInput.getText().toString().trim().toUpperCase(Locale.US));
 
                 JSONObject res = postJson(CREATE_ORDER_URL, payload);
                 mainHandler.post(() -> handleOrderResult(res));
@@ -917,6 +987,8 @@ public class TransRideActivity extends Activity {
                 .putString("pickup_address", firstNonEmpty(pickupAddress, "Lokasi Jemput"))
                 .putString("delivery_address", firstNonEmpty(deliveryAddress, "Lokasi Tujuan"))
                 .putString("active_order_price", res.optString("price", ""))
+                .putString("active_order_payment_method", res.optString("payment_method", paymentMethod))
+                .putString("active_order_voucher", res.optString("voucher_code", ""))
                 .apply();
 
         try {
@@ -939,6 +1011,60 @@ public class TransRideActivity extends Activity {
         }
     }
 
+    private void requestPaymentQuote() {
+        if (!validCoordinate(pickupLat, pickupLng) || !validCoordinate(deliveryLat, deliveryLng)) {
+            if (paymentSummaryText != null) {
+                paymentSummaryText.setText("Pilih titik jemput dan tujuan untuk menghitung voucher");
+            }
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+                JSONObject pickup = new JSONObject();
+                pickup.put("latitude", pickupLat);
+                pickup.put("longitude", pickupLng);
+                JSONObject delivery = new JSONObject();
+                delivery.put("latitude", deliveryLat);
+                delivery.put("longitude", deliveryLng);
+                payload.put("pickup", pickup);
+                payload.put("delivery", delivery);
+                payload.put("voucher_code", voucherInput == null ? "" : voucherInput.getText().toString().trim().toUpperCase(Locale.US));
+
+                JSONObject res = postJson(PAYMENT_QUOTE_URL, payload);
+                mainHandler.post(() -> {
+                    if (!res.optBoolean("success", false)) {
+                        paymentSummaryText.setText(res.optString("message", "Voucher tidak dapat digunakan"));
+                        return;
+                    }
+                    int original = res.optInt("original_price", 0);
+                    int discount = res.optInt("discount", 0);
+                    int total = res.optInt("price", original);
+                    int balance = res.optInt("balance", 0);
+                    String label = paymentMethod.equals("balance") ? "Transiva Pay" : "Tunai";
+                    String info = "Tarif Rp" + formatMoney(total) + " • " + label;
+                    if (discount > 0) info += " • Hemat Rp" + formatMoney(discount);
+                    if (paymentMethod.equals("balance")) info += " • Saldo Rp" + formatMoney(balance);
+                    fareText.setText("Tarif server: Rp" + formatMoney(total));
+                    paymentSummaryText.setText(info);
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> paymentSummaryText.setText("Gagal menghitung pembayaran"));
+            }
+        }).start();
+    }
+
+    private String formatMoney(int value) {
+        return String.format(new Locale("id", "ID"), "%,d", Math.max(0, value)).replace(',', '.');
+    }
+
+    private boolean validCoordinate(double latitude, double longitude) {
+        return latitude >= -90.0 && latitude <= 90.0
+                && longitude >= -180.0 && longitude <= 180.0
+                && latitude != 0.0 && longitude != 0.0;
+    }
+
     private JSONObject postJson(String urlText, JSONObject payload) throws Exception {
         HttpURLConnection conn = null;
         try {
@@ -952,6 +1078,10 @@ public class TransRideActivity extends Activity {
             conn.setUseCaches(false);
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
+            if (authToken != null && !authToken.trim().isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + authToken.trim());
+            }
+            conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
             OutputStream os = conn.getOutputStream();
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
             writer.write(payload.toString()); writer.flush(); writer.close(); os.close();
