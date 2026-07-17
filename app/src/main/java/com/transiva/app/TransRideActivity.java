@@ -77,18 +77,33 @@ public class TransRideActivity extends Activity {
     private boolean ordering = false;
     private String mode = "pickup";
 
-    // Marker tersimpan di peta tetap ringkas.
-    private static final int POINT_MARKER_BOX_WIDTH_DP = 42;
-    private static final int POINT_MARKER_BOX_HEIGHT_DP = 54;
-    private static final int POINT_MARKER_IMAGE_WIDTH_DP = 40;
-    private static final int POINT_MARKER_IMAGE_HEIGHT_DP = 52;
+    /*
+     * SATU-SATUNYA PENGATURAN UKURAN MARKER JEMPUT/TUJUAN.
+     *
+     * Marker center Android dan marker tersimpan Leaflet memakai ukuran yang sama.
+     * Cukup ubah angka MARKER_WIDTH_DP untuk memperbesar atau memperkecil semuanya.
+     *
+     * Rekomendasi:
+     * 36 = kecil
+     * 40 = sedang
+     * 44 = besar
+     */
+    private static final int MARKER_WIDTH_DP = 40;
 
-    // Marker aktif di tengah peta dibuat lebih besar agar mudah diposisikan.
-    // Ubah empat angka ini bila ingin memperbesar atau memperkecil marker center.
-    private static final int CENTER_MARKER_BOX_WIDTH_DP = 48;
-    private static final int CENTER_MARKER_BOX_HEIGHT_DP = 60;
-    private static final int CENTER_MARKER_IMAGE_WIDTH_DP = 46;
-    private static final int CENTER_MARKER_IMAGE_HEIGHT_DP = 58;
+    // Rasio mengikuti file ikon asli (46 x 58).
+    private static final int MARKER_HEIGHT_DP =
+            Math.round(MARKER_WIDTH_DP * 58f / 46f);
+
+    private static final int MARKER_BOX_WIDTH_DP = MARKER_WIDTH_DP;
+    private static final int MARKER_BOX_HEIGHT_DP = MARKER_HEIGHT_DP;
+    private static final int MARKER_IMAGE_WIDTH_DP = MARKER_WIDTH_DP;
+    private static final int MARKER_IMAGE_HEIGHT_DP = MARKER_HEIGHT_DP;
+
+    private static final int MARKER_ANCHOR_X_PX =
+            MARKER_BOX_WIDTH_DP / 2;
+
+    private static final int MARKER_ANCHOR_Y_PX =
+            Math.max(1, MARKER_IMAGE_HEIGHT_DP - 2);
     private String username = "";
     private String authToken = "";
     private String paymentMethod = "cash";
@@ -275,12 +290,16 @@ public class TransRideActivity extends Activity {
 
         centerMarkerBox = new FrameLayout(this);
         FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
-                dp(CENTER_MARKER_BOX_WIDTH_DP),
-                dp(CENTER_MARKER_BOX_HEIGHT_DP)
+                dp(MARKER_BOX_WIDTH_DP),
+                dp(MARKER_BOX_HEIGHT_DP)
         );
         centerLp.gravity = Gravity.CENTER;
-        // Geser ke atas supaya ujung bawah pin tetap tepat di pusat peta.
-        centerLp.topMargin = -dp(CENTER_MARKER_BOX_HEIGHT_DP / 2);
+
+        // Ujung pin center tepat berada pada pusat koordinat peta.
+        centerLp.topMargin = -dp(
+                MARKER_ANCHOR_Y_PX
+                        - (MARKER_BOX_HEIGHT_DP / 2)
+        );
         mapBox.addView(centerMarkerBox, centerLp);
         updateCenterMarkerIcon();
 
@@ -494,7 +513,9 @@ public class TransRideActivity extends Activity {
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
                 ".leaflet-container{font-family:Arial,sans-serif;border-radius:14px;background:#eef6ff;}" +
                 ".pin{font-size:25px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.24));}" +
-                ".assetpin{display:block;width:46px;height:58px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.26));}" +
+                ".assetpin{display:block;width:" + MARKER_IMAGE_WIDTH_DP +
+                "px;height:" + MARKER_IMAGE_HEIGHT_DP +
+                "px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.26));}" +
                 ".bikepin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".placepin{width:42px;height:42px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".driverpin{width:42px;height:42px;object-fit:contain;border-radius:50%;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
@@ -512,8 +533,22 @@ public class TransRideActivity extends Activity {
                 "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
                 "setTimeout(function(){map.invalidateSize(true);var c=map.getCenter();try{AndroidBike.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
-                "function iconData(data,fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[48,60],iconAnchor:[24,58],popupAnchor:[0,-56]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[48,60],iconAnchor:[24,58],popupAnchor:[0,-56]});}" +
-                "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[48,60],iconAnchor:[24,58],popupAnchor:[0,-56]});}" +
+                "function iconData(data,fallback){" +
+                "var w=" + MARKER_BOX_WIDTH_DP + "," +
+                "h=" + MARKER_BOX_HEIGHT_DP + "," +
+                "ax=" + MARKER_ANCHOR_X_PX + "," +
+                "ay=" + MARKER_ANCHOR_Y_PX + ";" +
+                "var html=(data&&data.length>20)" +
+                "?'<img class=assetpin src=\"'+data+'\">'" +
+                ":'<div class=pin style=\"width:'+w+'px;height:'+h+'px;line-height:'+h+'px\">'+fallback+'</div>';" +
+                "return L.divIcon({" +
+                "html:html,className:''," +
+                "iconSize:[w,h]," +
+                "iconAnchor:[ax,ay]," +
+                "popupAnchor:[0,-Math.max(1,ay-2)]" +
+                "});" +
+                "}" +
+                "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[32,36],iconAnchor:[16,31],popupAnchor:[0,-29]});}" +
                 "function driverData(){if(driverIconData&&driverIconData.length>20){return L.divIcon({html:'<img class=driverpin src=\"'+driverIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-24]});}return L.divIcon({html:'<div class=pin>🏍️</div>',className:'',iconSize:[46,46],iconAnchor:[23,28],popupAnchor:[0,-28]});}" +
                 "function setPickup(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:700}).addTo(map);if(label)pickup.bindPopup('<div class=popup><b>Lokasi Jemput</b><br>'+esc(label)+'</div>');}" +
                 "function setDelivery(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:700}).addTo(map);if(label)delivery.bindPopup('<div class=popup><b>Lokasi Tujuan</b><br>'+esc(label)+'</div>');}" +
@@ -1435,8 +1470,8 @@ public class TransRideActivity extends Activity {
                     pickupMode ? "Titik jemput" : "Titik tujuan"
             );
             FrameLayout.LayoutParams markerLp = new FrameLayout.LayoutParams(
-                    dp(CENTER_MARKER_IMAGE_WIDTH_DP),
-                    dp(CENTER_MARKER_IMAGE_HEIGHT_DP)
+                    dp(MARKER_IMAGE_WIDTH_DP),
+                    dp(MARKER_IMAGE_HEIGHT_DP)
             );
             markerLp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
 
