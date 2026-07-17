@@ -65,7 +65,6 @@ public class TransRideActivity extends Activity {
 
     private WebView mapView;
     private TextView pickupText, deliveryText, modeText, fareText, paymentSummaryText;
-    private TextView originalFareText, finalFareText, distanceEstimateText;
     private EditText googleMapInput, noteInput, voucherInput;
     private Button pickupBtn, deliveryBtn, gpsBtn, orderBtn, backBtn, useLinkBtn;
     private ProgressBar progressBar;
@@ -303,7 +302,7 @@ public class TransRideActivity extends Activity {
         TextView paymentTitle = text("Metode Pembayaran", 11, "#0B3A78", true);
         paymentHeader.addView(paymentTitle, new LinearLayout.LayoutParams(0, -1, 1));
 
-        fareText = text("Menunggu tujuan", 9, "#64748B", false);
+        fareText = text("Tarif dihitung server", 9, "#64748B", false);
         fareText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         paymentHeader.addView(fareText, new LinearLayout.LayoutParams(0, -1, 1));
 
@@ -340,42 +339,6 @@ public class TransRideActivity extends Activity {
             cashButton.setTextColor(Color.parseColor("#0B7CFF"));
             requestPaymentQuote();
         });
-
-        // Panel estimasi tarif ringkas. Nilai selalu berasal dari server/database.
-        LinearLayout fareEstimateBox = new LinearLayout(this);
-        fareEstimateBox.setOrientation(LinearLayout.HORIZONTAL);
-        fareEstimateBox.setGravity(Gravity.CENTER_VERTICAL);
-        fareEstimateBox.setPadding(dp(9), dp(4), dp(9), dp(4));
-        fareEstimateBox.setBackground(roundStroke("#EDF6FF", "#C8E1FF", dp(10), 1));
-        LinearLayout.LayoutParams fareBoxLp = new LinearLayout.LayoutParams(-1, dp(43));
-        fareBoxLp.setMargins(0, dp(5), 0, 0);
-        bottomCard.addView(fareEstimateBox, fareBoxLp);
-
-        LinearLayout fareInfoColumn = new LinearLayout(this);
-        fareInfoColumn.setOrientation(LinearLayout.VERTICAL);
-        fareInfoColumn.setGravity(Gravity.CENTER_VERTICAL);
-        fareEstimateBox.addView(fareInfoColumn, new LinearLayout.LayoutParams(0, -1, 1));
-
-        TextView estimateLabel = text("Estimasi ongkir", 9, "#64748B", false);
-        fareInfoColumn.addView(estimateLabel, new LinearLayout.LayoutParams(-1, dp(17)));
-
-        distanceEstimateText = text("Pilih lokasi tujuan", 9, "#0B3A78", true);
-        fareInfoColumn.addView(distanceEstimateText, new LinearLayout.LayoutParams(-1, dp(18)));
-
-        LinearLayout priceColumn = new LinearLayout(this);
-        priceColumn.setOrientation(LinearLayout.VERTICAL);
-        priceColumn.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        fareEstimateBox.addView(priceColumn, new LinearLayout.LayoutParams(dp(145), -1));
-
-        originalFareText = text("", 9, "#94A3B8", false);
-        originalFareText.setGravity(Gravity.END);
-        originalFareText.setVisibility(View.GONE);
-        originalFareText.setPaintFlags(originalFareText.getPaintFlags() | android.graphics.Paint.STRIKE_THRU_TEXT_FLAG);
-        priceColumn.addView(originalFareText, new LinearLayout.LayoutParams(-1, dp(16)));
-
-        finalFareText = text("Rp0", 14, "#0B7CFF", true);
-        finalFareText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        priceColumn.addView(finalFareText, new LinearLayout.LayoutParams(-1, dp(21)));
 
         LinearLayout voucherRow = new LinearLayout(this);
         voucherRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -551,7 +514,6 @@ public class TransRideActivity extends Activity {
             eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'" + js(deliveryAddress) + "')");
 
             resolveAddressAsync(false, deliveryLat, deliveryLng);
-            requestPaymentQuote();
         }
 
         updateModeUI();
@@ -628,7 +590,6 @@ public class TransRideActivity extends Activity {
                     eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'" + js(deliveryAddress) + "');moveTo(" + deliveryLat + "," + deliveryLng + ",17)");
 
                     resolveAddressAsync(false, deliveryLat, deliveryLng);
-                    requestPaymentQuote();
                     mode = "delivery";
                     updateModeUI();
                 });
@@ -676,7 +637,6 @@ public class TransRideActivity extends Activity {
                     deliveryText.setText("Tujuan: " + address);
                     deliveryBtn.setText("●  Tujuan\n" + shortAddress(address));
                     eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'" + js(address) + "')");
-                    requestPaymentQuote();
                 }
             });
         }).start();
@@ -1080,18 +1040,11 @@ public class TransRideActivity extends Activity {
 
     private void requestPaymentQuote() {
         if (!validCoordinate(pickupLat, pickupLng) || !validCoordinate(deliveryLat, deliveryLng)) {
-            if (fareText != null) fareText.setText("Menunggu tujuan");
-            if (distanceEstimateText != null) distanceEstimateText.setText("Pilih lokasi tujuan");
-            if (originalFareText != null) originalFareText.setVisibility(View.GONE);
-            if (finalFareText != null) finalFareText.setText("Rp0");
             if (paymentSummaryText != null) {
-                paymentSummaryText.setText("Pilih titik jemput dan tujuan untuk menghitung ongkir");
+                paymentSummaryText.setText("Pilih titik jemput dan tujuan untuk menghitung voucher");
             }
             return;
         }
-
-        if (fareText != null) fareText.setText("Menghitung...");
-        if (distanceEstimateText != null) distanceEstimateText.setText("Mengambil tarif database...");
 
         new Thread(() -> {
             try {
@@ -1104,73 +1057,27 @@ public class TransRideActivity extends Activity {
                 delivery.put("longitude", deliveryLng);
                 payload.put("pickup", pickup);
                 payload.put("delivery", delivery);
-
-                String voucherCode = voucherInput == null
-                        ? ""
-                        : voucherInput.getText().toString().trim().toUpperCase(Locale.US);
-                payload.put("voucher_code", voucherCode);
+                payload.put("voucher_code", voucherInput == null ? "" : voucherInput.getText().toString().trim().toUpperCase(Locale.US));
 
                 JSONObject res = postJson(PAYMENT_QUOTE_URL, payload);
                 mainHandler.post(() -> {
                     if (!res.optBoolean("success", false)) {
-                        String message = res.optString("message", "Tarif tidak dapat dihitung");
-                        fareText.setText("Gagal menghitung");
-                        distanceEstimateText.setText(message);
-                        originalFareText.setVisibility(View.GONE);
-                        finalFareText.setText("Rp0");
-                        paymentSummaryText.setText(message);
+                        paymentSummaryText.setText(res.optString("message", "Voucher tidak dapat digunakan"));
                         return;
                     }
-
                     int original = res.optInt("original_price", 0);
                     int discount = res.optInt("discount", 0);
                     int total = res.optInt("price", original);
                     int balance = res.optInt("balance", 0);
-                    double distanceKm = res.optDouble("distance_km", 0.0);
-                    String appliedVoucher = res.optString("voucher_code", "");
-                    String voucherTitle = res.optString("voucher_title", "");
                     String label = paymentMethod.equals("balance") ? "Transiva Pay" : "Tunai";
-
-                    fareText.setText(String.format(
-                            new Locale("id", "ID"),
-                            "%.1f km",
-                            Math.max(0.0, distanceKm)
-                    ));
-                    distanceEstimateText.setText(
-                            String.format(new Locale("id", "ID"), "Jarak estimasi %.1f km", Math.max(0.0, distanceKm))
-                    );
-
-                    if (discount > 0 && total < original) {
-                        originalFareText.setText("Rp" + formatMoney(original));
-                        originalFareText.setVisibility(View.VISIBLE);
-                        finalFareText.setText("Rp" + formatMoney(total));
-                        finalFareText.setTextColor(Color.parseColor("#16A34A"));
-
-                        String voucherInfo = appliedVoucher.isEmpty() ? "Voucher aktif" : appliedVoucher;
-                        if (!voucherTitle.isEmpty()) voucherInfo += " - " + voucherTitle;
-                        paymentSummaryText.setText(
-                                voucherInfo + " • Hemat Rp" + formatMoney(discount) + " • " + label
-                        );
-                    } else {
-                        originalFareText.setVisibility(View.GONE);
-                        finalFareText.setText("Rp" + formatMoney(total));
-                        finalFareText.setTextColor(Color.parseColor("#0B7CFF"));
-
-                        String info = "Estimasi dari database • " + label;
-                        if (paymentMethod.equals("balance")) {
-                            info += " • Saldo Rp" + formatMoney(balance);
-                        }
-                        paymentSummaryText.setText(info);
-                    }
+                    String info = "Tarif Rp" + formatMoney(total) + " • " + label;
+                    if (discount > 0) info += " • Hemat Rp" + formatMoney(discount);
+                    if (paymentMethod.equals("balance")) info += " • Saldo Rp" + formatMoney(balance);
+                    fareText.setText("Tarif server: Rp" + formatMoney(total));
+                    paymentSummaryText.setText(info);
                 });
             } catch (Exception e) {
-                mainHandler.post(() -> {
-                    fareText.setText("Gagal menghitung");
-                    distanceEstimateText.setText("Periksa koneksi lalu coba lagi");
-                    originalFareText.setVisibility(View.GONE);
-                    finalFareText.setText("Rp0");
-                    paymentSummaryText.setText("Gagal mengambil estimasi ongkir");
-                });
+                mainHandler.post(() -> paymentSummaryText.setText("Gagal menghitung pembayaran"));
             }
         }).start();
     }
