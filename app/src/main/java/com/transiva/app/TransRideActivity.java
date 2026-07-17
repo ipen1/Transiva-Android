@@ -11,6 +11,7 @@ import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
+import android.graphics.Paint;
 import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.os.Bundle;
@@ -65,6 +66,8 @@ public class TransRideActivity extends Activity {
 
     private WebView mapView;
     private TextView pickupText, deliveryText, modeText, fareText, paymentSummaryText;
+    private TextView distanceInfoText, durationInfoText, originalPriceText, finalPriceText, discountInfoText;
+    private Button voucherChoiceBtn, noteChoiceBtn, paymentChoiceBtn;
     private EditText googleMapInput, noteInput, voucherInput;
     private Button pickupBtn, deliveryBtn, gpsBtn, orderBtn, backBtn, useLinkBtn;
     private ProgressBar progressBar;
@@ -187,6 +190,7 @@ public class TransRideActivity extends Activity {
         LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(dp(30), dp(30));
         closeLp.setMargins(dp(5), 0, 0, 0);
         titleRow.addView(close, closeLp);
+        backBtn = close;
         close.setOnClickListener(v -> finish());
 
         LinearLayout pointRow = new LinearLayout(this);
@@ -284,120 +288,98 @@ public class TransRideActivity extends Activity {
             centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
         }
 
+        gpsBtn = smallButton("⌖", "#FFFFFF", "#0B7CFF", "#9DCAFF");
+        gpsBtn.setTextSize(18);
+        FrameLayout.LayoutParams gpsMapLp = new FrameLayout.LayoutParams(dp(42), dp(42));
+        gpsMapLp.gravity = Gravity.BOTTOM | Gravity.START;
+        gpsMapLp.setMargins(dp(10), 0, 0, dp(10));
+        mapBox.addView(gpsBtn, gpsMapLp);
+
         mapView.loadDataWithBaseURL(BASE_URL, mapHtml(), "text/html", "UTF-8", null);
 
         /* =========================
-         * PAYMENT CARD COMPACT
+         * DRAIV-STYLE BOTTOM CARD
          * ========================= */
         LinearLayout bottomCard = new LinearLayout(this);
         bottomCard.setOrientation(LinearLayout.VERTICAL);
-        bottomCard.setPadding(dp(9), dp(7), dp(9), dp(7));
+        bottomCard.setPadding(dp(10), dp(9), dp(10), dp(10));
         bottomCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(14), 1));
-        root.addView(bottomCard, new LinearLayout.LayoutParams(-1, -2));
-
-        LinearLayout paymentHeader = new LinearLayout(this);
-        paymentHeader.setGravity(Gravity.CENTER_VERTICAL);
-        bottomCard.addView(paymentHeader, new LinearLayout.LayoutParams(-1, dp(22)));
-
-        TextView paymentTitle = text("Metode Pembayaran", 11, "#0B3A78", true);
-        paymentHeader.addView(paymentTitle, new LinearLayout.LayoutParams(0, -1, 1));
-
-        fareText = text("Tarif dihitung server", 9, "#64748B", false);
-        fareText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        paymentHeader.addView(fareText, new LinearLayout.LayoutParams(0, -1, 1));
-
-        LinearLayout paymentRow = new LinearLayout(this);
-        paymentRow.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams paymentRowLp = new LinearLayout.LayoutParams(-1, dp(36));
-        paymentRowLp.setMargins(0, dp(3), 0, 0);
-        bottomCard.addView(paymentRow, paymentRowLp);
-
-        Button cashButton = smallButton("Tunai", "#0B7CFF", "#FFFFFF", "#0B7CFF");
-        Button balanceButton = smallButton("Transiva Pay", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        cashButton.setTextSize(11);
-        balanceButton.setTextSize(11);
-
-        paymentRow.addView(cashButton, new LinearLayout.LayoutParams(0, -1, 1));
-        LinearLayout.LayoutParams balanceLp = new LinearLayout.LayoutParams(0, -1, 1);
-        balanceLp.setMargins(dp(5), 0, 0, 0);
-        paymentRow.addView(balanceButton, balanceLp);
-
-        cashButton.setOnClickListener(v -> {
-            paymentMethod = "cash";
-            cashButton.setBackground(roundStroke("#0B7CFF", "#0B7CFF", dp(10), 1));
-            cashButton.setTextColor(Color.WHITE);
-            balanceButton.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(10), 1));
-            balanceButton.setTextColor(Color.parseColor("#0B7CFF"));
-            requestPaymentQuote();
-        });
-
-        balanceButton.setOnClickListener(v -> {
-            paymentMethod = "balance";
-            balanceButton.setBackground(roundStroke("#0B7CFF", "#0B7CFF", dp(10), 1));
-            balanceButton.setTextColor(Color.WHITE);
-            cashButton.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(10), 1));
-            cashButton.setTextColor(Color.parseColor("#0B7CFF"));
-            requestPaymentQuote();
-        });
-
-        LinearLayout voucherRow = new LinearLayout(this);
-        voucherRow.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams voucherRowLp = new LinearLayout.LayoutParams(-1, dp(36));
-        voucherRowLp.setMargins(0, dp(5), 0, 0);
-        bottomCard.addView(voucherRow, voucherRowLp);
+        LinearLayout.LayoutParams bottomLp = new LinearLayout.LayoutParams(-1, -2);
+        bottomLp.setMargins(0, dp(6), 0, 0);
+        root.addView(bottomCard, bottomLp);
 
         voucherInput = new EditText(this);
         voucherInput.setSingleLine(true);
-        voucherInput.setTextSize(10);
-        voucherInput.setHint("Kode voucher");
-        voucherInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(11), 1));
-        voucherInput.setPadding(dp(9), 0, dp(9), 0);
-        voucherRow.addView(voucherInput, new LinearLayout.LayoutParams(0, -1, 1));
-
-        Button voucherButton = smallButton("Cek", "#E8F3FF", "#0B7CFF", "#9DCAFF");
-        voucherButton.setTextSize(10);
-        LinearLayout.LayoutParams voucherButtonLp = new LinearLayout.LayoutParams(dp(56), -1);
-        voucherButtonLp.setMargins(dp(5), 0, 0, 0);
-        voucherRow.addView(voucherButton, voucherButtonLp);
-        voucherButton.setOnClickListener(v -> requestPaymentQuote());
-
-        paymentSummaryText = text(
-                "Voucher belum digunakan • Tunai",
-                9,
-                "#64748B",
-                false
-        );
-        paymentSummaryText.setSingleLine(true);
-        LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(-1, dp(18));
-        summaryLp.setMargins(0, dp(2), 0, 0);
-        bottomCard.addView(paymentSummaryText, summaryLp);
-
         noteInput = new EditText(this);
         noteInput.setSingleLine(true);
-        noteInput.setTextSize(10);
-        noteInput.setHint("Catatan driver (opsional)");
-        noteInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(11), 1));
-        noteInput.setPadding(dp(9), 0, dp(9), 0);
-        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, dp(36));
-        noteLp.setMargins(0, dp(3), 0, dp(5));
-        bottomCard.addView(noteInput, noteLp);
 
-        LinearLayout actionRow = new LinearLayout(this);
-        actionRow.setOrientation(LinearLayout.HORIZONTAL);
-        bottomCard.addView(actionRow, new LinearLayout.LayoutParams(-1, dp(40)));
+        LinearLayout quickRow = new LinearLayout(this);
+        quickRow.setOrientation(LinearLayout.HORIZONTAL);
+        quickRow.setGravity(Gravity.CENTER_VERTICAL);
+        bottomCard.addView(quickRow, new LinearLayout.LayoutParams(-1, dp(44)));
 
-        backBtn = smallButton("← Kembali", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        gpsBtn = smallButton("⌖ GPS", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        orderBtn = smallButton("🏍 Order", "#0B7CFF", "#FFFFFF", "#0B7CFF");
-        backBtn.setTextSize(10);
-        gpsBtn.setTextSize(10);
-        orderBtn.setTextSize(11);
+        voucherChoiceBtn = smallButton("🏷 Voucher", "#0B7CFF", "#FFFFFF", "#0B7CFF");
+        noteChoiceBtn = smallButton("📝 Note", "#F59E0B", "#FFFFFF", "#F59E0B");
+        paymentChoiceBtn = smallButton("💵 Tunai", "#FFFFFF", "#0B3A78", "#C8D9EC");
+        voucherChoiceBtn.setTextSize(10);
+        noteChoiceBtn.setTextSize(10);
+        paymentChoiceBtn.setTextSize(10);
 
-        actionRow.addView(backBtn, new LinearLayout.LayoutParams(0, -1, 0.92f));
-        LinearLayout.LayoutParams gpsLp = new LinearLayout.LayoutParams(0, -1, 0.78f);
-        gpsLp.setMargins(dp(5), 0, dp(5), 0);
-        actionRow.addView(gpsBtn, gpsLp);
-        actionRow.addView(orderBtn, new LinearLayout.LayoutParams(0, -1, 1.25f));
+        quickRow.addView(voucherChoiceBtn, new LinearLayout.LayoutParams(0, -1, 0.95f));
+        LinearLayout.LayoutParams noteQuickLp = new LinearLayout.LayoutParams(0, -1, 0.82f);
+        noteQuickLp.setMargins(dp(6), 0, dp(6), 0);
+        quickRow.addView(noteChoiceBtn, noteQuickLp);
+        quickRow.addView(paymentChoiceBtn, new LinearLayout.LayoutParams(0, -1, 1.18f));
+
+        voucherChoiceBtn.setOnClickListener(v -> showVoucherDialog());
+        noteChoiceBtn.setOnClickListener(v -> showNoteDialog());
+        paymentChoiceBtn.setOnClickListener(v -> showPaymentDialog());
+
+        LinearLayout estimateRow = new LinearLayout(this);
+        estimateRow.setOrientation(LinearLayout.HORIZONTAL);
+        estimateRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams estimateLp = new LinearLayout.LayoutParams(-1, dp(66));
+        estimateLp.setMargins(dp(2), dp(6), dp(2), dp(5));
+        bottomCard.addView(estimateRow, estimateLp);
+
+        LinearLayout tripInfo = new LinearLayout(this);
+        tripInfo.setOrientation(LinearLayout.VERTICAL);
+        tripInfo.setGravity(Gravity.CENTER_VERTICAL);
+        estimateRow.addView(tripInfo, new LinearLayout.LayoutParams(0, -1, 1));
+
+        distanceInfoText = text("⌁  Jarak : -", 11, "#334155", false);
+        durationInfoText = text("◷  Waktu : -", 11, "#334155", false);
+        tripInfo.addView(distanceInfoText, new LinearLayout.LayoutParams(-1, dp(28)));
+        tripInfo.addView(durationInfoText, new LinearLayout.LayoutParams(-1, dp(28)));
+
+        LinearLayout priceBox = new LinearLayout(this);
+        priceBox.setOrientation(LinearLayout.VERTICAL);
+        priceBox.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        estimateRow.addView(priceBox, new LinearLayout.LayoutParams(0, -1, 1));
+
+        originalPriceText = text("", 10, "#94A3B8", false);
+        originalPriceText.setGravity(Gravity.END);
+        originalPriceText.setVisibility(View.GONE);
+        priceBox.addView(originalPriceText, new LinearLayout.LayoutParams(-1, dp(20)));
+
+        finalPriceText = text("Rp -", 18, "#0B3A78", true);
+        finalPriceText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        priceBox.addView(finalPriceText, new LinearLayout.LayoutParams(-1, dp(30)));
+
+        discountInfoText = text("", 9, "#16A34A", true);
+        discountInfoText.setGravity(Gravity.END);
+        discountInfoText.setVisibility(View.GONE);
+        priceBox.addView(discountInfoText, new LinearLayout.LayoutParams(-1, dp(16)));
+
+        fareText = text("Tarif dihitung dari database", 8, "#64748B", false);
+        fareText.setVisibility(View.GONE);
+        paymentSummaryText = text("", 8, "#64748B", false);
+        paymentSummaryText.setVisibility(View.GONE);
+
+        orderBtn = smallButton("🏍  PESAN SEKARANG", "#0B7CFF", "#FFFFFF", "#0B7CFF");
+        orderBtn.setTextSize(13);
+        orderBtn.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        bottomCard.addView(orderBtn, new LinearLayout.LayoutParams(-1, dp(48)));
 
         progressBar = new ProgressBar(this);
         progressBar.setVisibility(View.GONE);
@@ -408,6 +390,73 @@ public class TransRideActivity extends Activity {
         setContentView(page);
         bindActions();
         updateModeUI();
+    }
+
+    private void showVoucherDialog() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(voucherInput == null ? "" : voucherInput.getText().toString());
+        input.setHint("Masukkan kode voucher");
+        input.setPadding(dp(14), dp(8), dp(14), dp(8));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Voucher TransRide")
+                .setMessage("Masukkan kode voucher lalu tekan Gunakan.")
+                .setView(input)
+                .setNegativeButton("Hapus", (dialog, which) -> {
+                    if (voucherInput != null) voucherInput.setText("");
+                    voucherChoiceBtn.setText("🏷 Voucher");
+                    requestPaymentQuote();
+                })
+                .setNeutralButton("Batal", null)
+                .setPositiveButton("Gunakan", (dialog, which) -> {
+                    String code = input.getText().toString().trim().toUpperCase(Locale.US);
+                    if (voucherInput != null) voucherInput.setText(code);
+                    voucherChoiceBtn.setText(code.isEmpty() ? "🏷 Voucher" : "🏷 " + code);
+                    requestPaymentQuote();
+                })
+                .show();
+    }
+
+    private void showNoteDialog() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(false);
+        input.setMinLines(3);
+        input.setMaxLines(5);
+        input.setText(noteInput == null ? "" : noteInput.getText().toString());
+        input.setHint("Contoh: jemput di depan pagar");
+        input.setPadding(dp(14), dp(8), dp(14), dp(8));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Catatan untuk driver")
+                .setView(input)
+                .setNegativeButton("Hapus", (dialog, which) -> {
+                    if (noteInput != null) noteInput.setText("");
+                    noteChoiceBtn.setText("📝 Note");
+                })
+                .setNeutralButton("Batal", null)
+                .setPositiveButton("Simpan", (dialog, which) -> {
+                    String note = input.getText().toString().trim();
+                    if (noteInput != null) noteInput.setText(note);
+                    noteChoiceBtn.setText(note.isEmpty() ? "📝 Note" : "📝 Ada Note");
+                })
+                .show();
+    }
+
+    private void showPaymentDialog() {
+        String[] methods = {"Tunai", "Transiva Pay"};
+        int checked = paymentMethod.equals("balance") ? 1 : 0;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Pilih metode pembayaran")
+                .setSingleChoiceItems(methods, checked, (dialog, which) -> {
+                    paymentMethod = which == 1 ? "balance" : "cash";
+                    paymentChoiceBtn.setText(which == 1 ? "💳 Transiva Pay" : "💵 Tunai");
+                    dialog.dismiss();
+                    requestPaymentQuote();
+                })
+                .setNegativeButton("Batal", null)
+                .show();
     }
 
     private void bindActions() {
@@ -1041,8 +1090,13 @@ public class TransRideActivity extends Activity {
     private void requestPaymentQuote() {
         if (!validCoordinate(pickupLat, pickupLng) || !validCoordinate(deliveryLat, deliveryLng)) {
             if (paymentSummaryText != null) {
-                paymentSummaryText.setText("Pilih titik jemput dan tujuan untuk menghitung voucher");
+                paymentSummaryText.setText("Pilih titik jemput dan tujuan");
             }
+            if (distanceInfoText != null) distanceInfoText.setText("⌁  Jarak : -");
+            if (durationInfoText != null) durationInfoText.setText("◷  Waktu : -");
+            if (finalPriceText != null) finalPriceText.setText("Rp -");
+            if (originalPriceText != null) originalPriceText.setVisibility(View.GONE);
+            if (discountInfoText != null) discountInfoText.setVisibility(View.GONE);
             return;
         }
 
@@ -1062,22 +1116,66 @@ public class TransRideActivity extends Activity {
                 JSONObject res = postJson(PAYMENT_QUOTE_URL, payload);
                 mainHandler.post(() -> {
                     if (!res.optBoolean("success", false)) {
-                        paymentSummaryText.setText(res.optString("message", "Voucher tidak dapat digunakan"));
+                        String message = res.optString("message", "Voucher tidak dapat digunakan");
+                        paymentSummaryText.setText(message);
+                        finalPriceText.setText("Rp -");
+                        toastDialog(message);
                         return;
                     }
                     int original = res.optInt("original_price", 0);
                     int discount = res.optInt("discount", 0);
                     int total = res.optInt("price", original);
                     int balance = res.optInt("balance", 0);
+
+                    double fallbackKm = distanceMeter(pickupLat, pickupLng, deliveryLat, deliveryLng) / 1000.0;
+                    double distanceKm = res.optDouble("distance_km", fallbackKm);
+                    double durationMinutes = res.optDouble(
+                            "duration_minutes",
+                            Math.max(1.0, (distanceKm / 25.0) * 60.0)
+                    );
+
+                    distanceInfoText.setText(String.format(
+                            new Locale("id", "ID"),
+                            "⌁  Jarak : %.1f Km",
+                            distanceKm
+                    ));
+                    durationInfoText.setText(String.format(
+                            new Locale("id", "ID"),
+                            "◷  Waktu : %.0f Menit",
+                            durationMinutes
+                    ));
+                    finalPriceText.setText("Rp " + formatMoney(total));
+
+                    if (discount > 0 && original > total) {
+                        originalPriceText.setVisibility(View.VISIBLE);
+                        originalPriceText.setText("Rp " + formatMoney(original));
+                        originalPriceText.setPaintFlags(
+                                originalPriceText.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG
+                        );
+                        finalPriceText.setTextColor(Color.parseColor("#16A34A"));
+                        discountInfoText.setVisibility(View.VISIBLE);
+                        discountInfoText.setText("Hemat Rp " + formatMoney(discount));
+                    } else {
+                        originalPriceText.setVisibility(View.GONE);
+                        originalPriceText.setPaintFlags(
+                                originalPriceText.getPaintFlags() & ~Paint.STRIKE_THRU_TEXT_FLAG
+                        );
+                        finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
+                        discountInfoText.setVisibility(View.GONE);
+                    }
+
                     String label = paymentMethod.equals("balance") ? "Transiva Pay" : "Tunai";
-                    String info = "Tarif Rp" + formatMoney(total) + " • " + label;
-                    if (discount > 0) info += " • Hemat Rp" + formatMoney(discount);
+                    paymentChoiceBtn.setText(paymentMethod.equals("balance") ? "💳 Transiva Pay" : "💵 Tunai");
+                    String info = label;
                     if (paymentMethod.equals("balance")) info += " • Saldo Rp" + formatMoney(balance);
-                    fareText.setText("Tarif server: Rp" + formatMoney(total));
+                    fareText.setText("Tarif database: Rp" + formatMoney(total));
                     paymentSummaryText.setText(info);
                 });
             } catch (Exception e) {
-                mainHandler.post(() -> paymentSummaryText.setText("Gagal menghitung pembayaran"));
+                mainHandler.post(() -> {
+                    paymentSummaryText.setText("Gagal menghitung pembayaran");
+                    finalPriceText.setText("Rp -");
+                });
             }
         }).start();
     }
