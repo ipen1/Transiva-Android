@@ -20,6 +20,7 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -509,8 +510,20 @@ public class DriverDashboardActivity extends Activity
         return card;
     }
 
+    private String normalizeOrderStatus(String status) {
+        if (status == null) {
+            return "";
+        }
+
+        return status.trim()
+                .toLowerCase(Locale.US)
+                .replace('-', '_')
+                .replace(' ', '_');
+    }
+
     private boolean canDriverCancel(String status) {
-        String value = clean(status).toLowerCase(Locale.US);
+        String value = normalizeOrderStatus(status);
+
         return value.equals("taken")
                 || value.equals("driver_accepted")
                 || value.equals("accepted")
@@ -519,11 +532,14 @@ public class DriverDashboardActivity extends Activity
 
     private void showCancelOrderDialog(DriverOrder order) {
         if (order == null || !canDriverCancel(order.status)) {
-            showMessage("Order tidak dapat dibatalkan pada status ini.");
+            showMessage(
+                    "Order tidak dapat dibatalkan pada status "
+                            + normalizeOrderStatus(order == null ? "" : order.status)
+            );
             return;
         }
 
-        String[] reasons = new String[]{
+        final String[] reasons = new String[]{
                 "Kendaraan bermasalah",
                 "Kondisi darurat",
                 "Tidak dapat menemukan lokasi pickup",
@@ -532,13 +548,88 @@ public class DriverDashboardActivity extends Activity
                 "Alasan lainnya"
         };
 
-        new AlertDialog.Builder(this)
+        AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Batalkan order #" + order.id)
-                .setMessage("Pembatalan hanya diizinkan sebelum perjalanan menuju tujuan dimulai.")
-                .setItems(reasons, (dialog, index) ->
-                        confirmCancelOrder(order, reasons[index]))
+                .setSingleChoiceItems(reasons, -1, null)
                 .setNegativeButton("Kembali", null)
-                .show();
+                .setPositiveButton("Lanjutkan", null)
+                .create();
+
+        dialog.setOnShowListener(ignored -> {
+            Button continueButton = dialog.getButton(
+                    AlertDialog.BUTTON_POSITIVE
+            );
+
+            continueButton.setOnClickListener(view -> {
+                int selectedPosition = dialog.getListView()
+                        .getCheckedItemPosition();
+
+                if (selectedPosition < 0) {
+                    Toast.makeText(
+                            this,
+                            "Silakan pilih alasan pembatalan.",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                    return;
+                }
+
+                dialog.dismiss();
+
+                if (selectedPosition == reasons.length - 1) {
+                    showCustomCancelReasonDialog(order);
+                    return;
+                }
+
+                confirmCancelOrder(order, reasons[selectedPosition]);
+            });
+        });
+
+        dialog.show();
+    }
+
+    private void showCustomCancelReasonDialog(DriverOrder order) {
+        final EditText reasonInput = new EditText(this);
+        reasonInput.setHint("Tuliskan alasan pembatalan");
+        reasonInput.setSingleLine(false);
+        reasonInput.setMinLines(3);
+        reasonInput.setMaxLines(5);
+        reasonInput.setPadding(
+                dp(16),
+                dp(12),
+                dp(16),
+                dp(12)
+        );
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Alasan lainnya")
+                .setMessage("Jelaskan alasan pembatalan order.")
+                .setView(reasonInput)
+                .setNegativeButton("Kembali", null)
+                .setPositiveButton("Lanjutkan", null)
+                .create();
+
+        dialog.setOnShowListener(ignored -> {
+            Button continueButton = dialog.getButton(
+                    AlertDialog.BUTTON_POSITIVE
+            );
+
+            continueButton.setOnClickListener(view -> {
+                String reason = reasonInput.getText()
+                        .toString()
+                        .trim();
+
+                if (reason.length() < 5) {
+                    reasonInput.setError("Alasan minimal 5 karakter");
+                    reasonInput.requestFocus();
+                    return;
+                }
+
+                dialog.dismiss();
+                confirmCancelOrder(order, reason);
+            });
+        });
+
+        dialog.show();
     }
 
     private void confirmCancelOrder(DriverOrder order, String reason) {

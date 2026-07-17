@@ -257,7 +257,16 @@ public class DriverChatActivity extends Activity {
                 JSONArray array = response.optJSONArray("conversations");
                 List<JSONObject> fresh = new ArrayList<>();
 
-                if (response.optBoolean("success", false) && array != null) {
+                if (!response.optBoolean("success", false)) {
+                    throw new IllegalStateException(
+                            response.optString(
+                                    "message",
+                                    "Server gagal memuat percakapan"
+                            )
+                    );
+                }
+
+                if (array != null) {
                     for (int i = 0; i < array.length(); i++) {
                         JSONObject item = array.optJSONObject(i);
                         if (item != null) fresh.add(item);
@@ -294,35 +303,91 @@ public class DriverChatActivity extends Activity {
             connection.setConnectTimeout(20000);
             connection.setReadTimeout(20000);
             connection.setUseCaches(false);
+            connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("User-Agent", "Transiva-Android");
             connection.setRequestProperty(
                     "Authorization",
                     "Bearer " + session.getToken()
             );
 
             int status = connection.getResponseCode();
+
+            if (status >= 300 && status < 400) {
+                String location = connection.getHeaderField("Location");
+                throw new IllegalStateException(
+                        "Endpoint dialihkan ke halaman lain"
+                                + (clean(location).isEmpty()
+                                ? ""
+                                : ": " + location)
+                );
+            }
+
             InputStream input = status >= 200 && status < 400
                     ? connection.getInputStream()
                     : connection.getErrorStream();
 
             if (input == null) {
-                throw new IllegalStateException("Respons server kosong");
+                throw new IllegalStateException(
+                        "Respons server kosong. HTTP " + status
+                );
             }
 
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(input, StandardCharsets.UTF_8));
             StringBuilder raw = new StringBuilder();
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-                raw.append(line);
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(input, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    raw.append(line);
+                }
             }
 
-            JSONObject response = new JSONObject(raw.toString());
+            String body = raw.toString().trim();
+            if (body.isEmpty()) {
+                throw new IllegalStateException(
+                        "Respons server kosong. HTTP " + status
+                );
+            }
+
+            String lowerBody = body.toLowerCase(Locale.US);
+            if (lowerBody.startsWith("<!doctype")
+                    || lowerBody.startsWith("<html")
+                    || lowerBody.contains("<body")) {
+                throw new IllegalStateException(
+                        "Server mengirim HTML, bukan JSON. HTTP " + status
+                );
+            }
+
+            int firstBrace = body.indexOf('{');
+            int lastBrace = body.lastIndexOf('}');
+            if (firstBrace < 0 || lastBrace <= firstBrace) {
+                String preview = body.length() > 150
+                        ? body.substring(0, 150)
+                        : body;
+                throw new IllegalStateException(
+                        "Format respons server tidak valid: " + preview
+                );
+            }
+
+            JSONObject response;
+            try {
+                response = new JSONObject(
+                        body.substring(firstBrace, lastBrace + 1)
+                );
+            } catch (Exception parseError) {
+                throw new IllegalStateException(
+                        "JSON server tidak valid",
+                        parseError
+                );
+            }
 
             if (status < 200 || status >= 400) {
                 throw new IllegalStateException(
-                        response.optString("message", "HTTP " + status));
+                        response.optString(
+                                "message",
+                                "Kesalahan server HTTP " + status
+                        )
+                );
             }
 
             return response;
