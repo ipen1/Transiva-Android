@@ -76,6 +76,12 @@ public class TransRideActivity extends Activity {
     private boolean mapReady = false;
     private boolean ordering = false;
     private String mode = "pickup";
+
+    // Ukuran tunggal untuk marker jemput/tujuan, baik marker center maupun marker tersimpan.
+    private static final int POINT_MARKER_BOX_WIDTH_DP = 32;
+    private static final int POINT_MARKER_BOX_HEIGHT_DP = 40;
+    private static final int POINT_MARKER_IMAGE_WIDTH_DP = 30;
+    private static final int POINT_MARKER_IMAGE_HEIGHT_DP = 38;
     private String username = "";
     private String authToken = "";
     private String paymentMethod = "cash";
@@ -262,8 +268,8 @@ public class TransRideActivity extends Activity {
 
         centerMarkerBox = new FrameLayout(this);
         FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
-                dp(32),
-                dp(40)
+                dp(POINT_MARKER_BOX_WIDTH_DP),
+                dp(POINT_MARKER_BOX_HEIGHT_DP)
         );
         centerLp.gravity = Gravity.CENTER;
         // Anchor ujung pin tepat di titik tengah peta.
@@ -443,12 +449,27 @@ public class TransRideActivity extends Activity {
     }
 
     private void bindActions() {
-        pickupBtn.setOnClickListener(v -> { mode = "pickup"; updateModeUI(); setPointFromCenter(); });
-        deliveryBtn.setOnClickListener(v -> { mode = "delivery"; updateModeUI(); setPointFromCenter(); });
+        pickupBtn.setOnClickListener(v -> handlePointButtonClick("pickup"));
+        deliveryBtn.setOnClickListener(v -> handlePointButtonClick("delivery"));
         gpsBtn.setOnClickListener(v -> goToMyLocation());
         backBtn.setOnClickListener(v -> finish());
         orderBtn.setOnClickListener(v -> createOrder());
         useLinkBtn.setOnClickListener(v -> useGoogleMapLink());
+    }
+
+    /**
+     * Klik pertama pada tombol yang tidak aktif hanya mengganti mode marker center.
+     * Klik kedua pada tombol yang sudah aktif menetapkan titik di posisi tengah peta.
+     * Dengan pola ini pengguna selalu dapat kembali memilih ulang Jemput atau Tujuan.
+     */
+    private void handlePointButtonClick(String requestedMode) {
+        if (!requestedMode.equals(mode)) {
+            mode = requestedMode;
+            updateModeUI();
+            return;
+        }
+
+        setPointFromCenter();
     }
 
     private String mapHtml() {
@@ -466,7 +487,7 @@ public class TransRideActivity extends Activity {
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
                 ".leaflet-container{font-family:Arial,sans-serif;border-radius:14px;background:#eef6ff;}" +
                 ".pin{font-size:25px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.24));}" +
-                ".assetpin{width:30px;height:38px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.26));}" +
+                ".assetpin{display:block;width:30px;height:38px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.26));}" +
                 ".bikepin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".placepin{width:42px;height:42px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".driverpin{width:42px;height:42px;object-fit:contain;border-radius:50%;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
@@ -569,7 +590,13 @@ public class TransRideActivity extends Activity {
             if (best != null) {
                 centerLat = best.getLatitude(); centerLng = best.getLongitude(); pickLat = centerLat; pickLng = centerLng;
                 eval("moveTo(" + centerLat + "," + centerLng + ",17)");
-                if (!validCoord(pickupLat, pickupLng)) { mode = "pickup"; setPointFromCenter(); }
+
+                // Jangan otomatis menetapkan titik saat halaman baru dibuka.
+                // Marker center harus tetap pada mode Jemput sampai pengguna menekan Jemput.
+                if (!validCoord(pickupLat, pickupLng)) {
+                    mode = "pickup";
+                    updateModeUI();
+                }
             } else {
                 toastDialog("GPS belum mendapatkan lokasi. Aktifkan lokasi lalu tekan GPS lagi.");
             }
@@ -1400,10 +1427,13 @@ public class TransRideActivity extends Activity {
             marker.setContentDescription(
                     pickupMode ? "Titik jemput" : "Titik tujuan"
             );
-            centerMarkerBox.addView(
-                    marker,
-                    new FrameLayout.LayoutParams(-1, -1)
+            FrameLayout.LayoutParams markerLp = new FrameLayout.LayoutParams(
+                    dp(POINT_MARKER_IMAGE_WIDTH_DP),
+                    dp(POINT_MARKER_IMAGE_HEIGHT_DP)
             );
+            markerLp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
+
+            centerMarkerBox.addView(marker, markerLp);
             return;
         }
 
