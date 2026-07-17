@@ -482,8 +482,8 @@ public class TransRideActivity extends Activity {
                 "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef6ff;overflow:hidden;}" +
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
                 ".leaflet-container{font-family:Arial,sans-serif;border-radius:14px;background:#eef6ff;}" +
-                ".pin{font-size:34px;text-align:center;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28));}" +
-                ".assetpin{width:46px;height:58px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".pin{font-size:25px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.24));}" +
+                ".assetpin{width:30px;height:38px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.26));}" +
                 ".bikepin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".placepin{width:42px;height:42px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".driverpin{width:42px;height:42px;object-fit:contain;border-radius:50%;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
@@ -501,8 +501,8 @@ public class TransRideActivity extends Activity {
                 "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
                 "setTimeout(function(){map.invalidateSize(true);var c=map.getCenter();try{AndroidBike.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
-                "function iconData(data,fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[54,66],iconAnchor:[27,54],popupAnchor:[0,-52]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40],popupAnchor:[0,-38]});}" +
-                "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[46,46],iconAnchor:[23,40],popupAnchor:[0,-38]});}" +
+                "function iconData(data,fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[32,40],iconAnchor:[16,36],popupAnchor:[0,-34]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[32,36],iconAnchor:[16,31],popupAnchor:[0,-29]});}" +
+                "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[32,36],iconAnchor:[16,31],popupAnchor:[0,-29]});}" +
                 "function driverData(){if(driverIconData&&driverIconData.length>20){return L.divIcon({html:'<img class=driverpin src=\"'+driverIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-24]});}return L.divIcon({html:'<div class=pin>🏍️</div>',className:'',iconSize:[46,46],iconAnchor:[23,28],popupAnchor:[0,-28]});}" +
                 "function setPickup(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:700}).addTo(map);if(label)pickup.bindPopup('<div class=popup><b>Lokasi Jemput</b><br>'+esc(label)+'</div>');}" +
                 "function setDelivery(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:700}).addTo(map);if(label)delivery.bindPopup('<div class=popup><b>Lokasi Tujuan</b><br>'+esc(label)+'</div>');}" +
@@ -686,6 +686,12 @@ public class TransRideActivity extends Activity {
                     deliveryText.setText("Tujuan: " + address);
                     deliveryBtn.setText("●  Tujuan\n" + shortAddress(address));
                     eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'" + js(address) + "')");
+                }
+
+                // Quote harus dipanggil setelah koordinat kedua titik sudah tersimpan.
+                if (validCoordinate(pickupLat, pickupLng)
+                        && validCoordinate(deliveryLat, deliveryLng)) {
+                    requestPaymentQuote();
                 }
             });
         }).start();
@@ -1088,7 +1094,8 @@ public class TransRideActivity extends Activity {
     }
 
     private void requestPaymentQuote() {
-        if (!validCoordinate(pickupLat, pickupLng) || !validCoordinate(deliveryLat, deliveryLng)) {
+        if (!validCoordinate(pickupLat, pickupLng)
+                || !validCoordinate(deliveryLat, deliveryLng)) {
             if (paymentSummaryText != null) {
                 paymentSummaryText.setText("Pilih titik jemput dan tujuan");
             }
@@ -1100,84 +1107,214 @@ public class TransRideActivity extends Activity {
             return;
         }
 
+        final double fallbackKm = Math.max(
+                0.1,
+                distanceMeter(
+                        pickupLat,
+                        pickupLng,
+                        deliveryLat,
+                        deliveryLng
+                ) / 1000.0
+        );
+
+        // Tampilkan estimasi jarak/waktu segera, lalu harga diisi dari database.
+        final double fallbackMinutes = Math.max(
+                1.0,
+                (fallbackKm / 25.0) * 60.0
+        );
+
+        distanceInfoText.setText(String.format(
+                new Locale("id", "ID"),
+                "⌁  Jarak : %.1f km",
+                fallbackKm
+        ));
+        durationInfoText.setText(String.format(
+                new Locale("id", "ID"),
+                "◷  Waktu : %.0f menit",
+                fallbackMinutes
+        ));
+        finalPriceText.setText("Menghitung...");
+        finalPriceText.setTextColor(Color.parseColor("#64748B"));
+        paymentSummaryText.setText("Mengambil tarif dari database...");
+
         new Thread(() -> {
             try {
                 JSONObject payload = new JSONObject();
+
                 JSONObject pickup = new JSONObject();
                 pickup.put("latitude", pickupLat);
                 pickup.put("longitude", pickupLng);
+
                 JSONObject delivery = new JSONObject();
                 delivery.put("latitude", deliveryLat);
                 delivery.put("longitude", deliveryLng);
+
                 payload.put("pickup", pickup);
                 payload.put("delivery", delivery);
-                payload.put("voucher_code", voucherInput == null ? "" : voucherInput.getText().toString().trim().toUpperCase(Locale.US));
+
+                // Field datar ditambahkan untuk kompatibilitas endpoint lama/hosting cache.
+                payload.put("pickup_lat", pickupLat);
+                payload.put("pickup_lng", pickupLng);
+                payload.put("delivery_lat", deliveryLat);
+                payload.put("delivery_lng", deliveryLng);
+                payload.put("service_type", "Transbike");
+                payload.put("payment_method", paymentMethod);
+                payload.put(
+                        "voucher_code",
+                        voucherInput == null
+                                ? ""
+                                : voucherInput.getText().toString()
+                                .trim()
+                                .toUpperCase(Locale.US)
+                );
 
                 JSONObject res = postJson(PAYMENT_QUOTE_URL, payload);
+
                 mainHandler.post(() -> {
+                    if (destroyed) return;
+
                     if (!res.optBoolean("success", false)) {
-                        String message = res.optString("message", "Voucher tidak dapat digunakan");
+                        String message = firstNonEmpty(
+                                res.optString("message", ""),
+                                "Tarif belum dapat dihitung"
+                        );
                         paymentSummaryText.setText(message);
                         finalPriceText.setText("Rp -");
-                        toastDialog(message);
+                        finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
                         return;
                     }
-                    int original = res.optInt("original_price", 0);
-                    int discount = res.optInt("discount", 0);
-                    int total = res.optInt("price", original);
-                    int balance = res.optInt("balance", 0);
 
-                    double fallbackKm = distanceMeter(pickupLat, pickupLng, deliveryLat, deliveryLng) / 1000.0;
-                    double distanceKm = res.optDouble("distance_km", fallbackKm);
-                    double durationMinutes = res.optDouble(
-                            "duration_minutes",
-                            Math.max(1.0, (distanceKm / 25.0) * 60.0)
+                    int original = jsonInt(
+                            res,
+                            "original_price",
+                            jsonInt(res, "standard_price", 0)
                     );
+                    int discount = jsonInt(res, "discount", 0);
+                    int total = jsonInt(
+                            res,
+                            "price",
+                            jsonInt(res, "final_price", original)
+                    );
+                    int balance = jsonInt(res, "balance", 0);
+
+                    double distanceKm = jsonDouble(
+                            res,
+                            "distance_km",
+                            fallbackKm
+                    );
+                    double durationMinutes = jsonDouble(
+                            res,
+                            "duration_minutes",
+                            jsonDouble(res, "estimated_minutes", fallbackMinutes)
+                    );
+
+                    distanceKm = Math.max(0.1, distanceKm);
+                    durationMinutes = Math.max(1.0, durationMinutes);
 
                     distanceInfoText.setText(String.format(
                             new Locale("id", "ID"),
-                            "⌁  Jarak : %.1f Km",
+                            "⌁  Jarak : %.1f km",
                             distanceKm
                     ));
                     durationInfoText.setText(String.format(
                             new Locale("id", "ID"),
-                            "◷  Waktu : %.0f Menit",
+                            "◷  Waktu : %.0f menit",
                             durationMinutes
                     ));
+
+                    if (total <= 0) {
+                        paymentSummaryText.setText("Tarif database tidak valid");
+                        finalPriceText.setText("Rp -");
+                        finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
+                        return;
+                    }
+
                     finalPriceText.setText("Rp " + formatMoney(total));
 
                     if (discount > 0 && original > total) {
                         originalPriceText.setVisibility(View.VISIBLE);
                         originalPriceText.setText("Rp " + formatMoney(original));
                         originalPriceText.setPaintFlags(
-                                originalPriceText.getPaintFlags() | Paint.STRIKE_THRU_TEXT_FLAG
+                                originalPriceText.getPaintFlags()
+                                        | Paint.STRIKE_THRU_TEXT_FLAG
                         );
                         finalPriceText.setTextColor(Color.parseColor("#16A34A"));
                         discountInfoText.setVisibility(View.VISIBLE);
-                        discountInfoText.setText("Hemat Rp " + formatMoney(discount));
+                        discountInfoText.setText(
+                                "Hemat Rp " + formatMoney(discount)
+                        );
                     } else {
                         originalPriceText.setVisibility(View.GONE);
                         originalPriceText.setPaintFlags(
-                                originalPriceText.getPaintFlags() & ~Paint.STRIKE_THRU_TEXT_FLAG
+                                originalPriceText.getPaintFlags()
+                                        & ~Paint.STRIKE_THRU_TEXT_FLAG
                         );
                         finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
                         discountInfoText.setVisibility(View.GONE);
                     }
 
-                    String label = paymentMethod.equals("balance") ? "Transiva Pay" : "Tunai";
-                    paymentChoiceBtn.setText(paymentMethod.equals("balance") ? "💳 Transiva Pay" : "💵 Tunai");
+                    String label = paymentMethod.equals("balance")
+                            ? "Transiva Pay"
+                            : "Tunai";
+                    paymentChoiceBtn.setText(
+                            paymentMethod.equals("balance")
+                                    ? "💳 Transiva Pay"
+                                    : "💵 Tunai"
+                    );
+
                     String info = label;
-                    if (paymentMethod.equals("balance")) info += " • Saldo Rp" + formatMoney(balance);
+                    if (paymentMethod.equals("balance")) {
+                        info += " • Saldo Rp" + formatMoney(balance);
+                    }
+
                     fareText.setText("Tarif database: Rp" + formatMoney(total));
                     paymentSummaryText.setText(info);
                 });
             } catch (Exception e) {
                 mainHandler.post(() -> {
-                    paymentSummaryText.setText("Gagal menghitung pembayaran");
+                    if (destroyed) return;
+                    paymentSummaryText.setText("Gagal terhubung ke server tarif");
                     finalPriceText.setText("Rp -");
+                    finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
                 });
             }
         }).start();
+    }
+
+    private int jsonInt(JSONObject json, String key, int fallback) {
+        if (json == null || key == null) return fallback;
+        Object value = json.opt(key);
+        if (value == null || value == JSONObject.NULL) return fallback;
+        try {
+            if (value instanceof Number) {
+                return ((Number) value).intValue();
+            }
+            String clean = String.valueOf(value)
+                    .replace("Rp", "")
+                    .replace(".", "")
+                    .replace(",", "")
+                    .trim();
+            return clean.isEmpty() ? fallback : (int) Math.round(Double.parseDouble(clean));
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private double jsonDouble(JSONObject json, String key, double fallback) {
+        if (json == null || key == null) return fallback;
+        Object value = json.opt(key);
+        if (value == null || value == JSONObject.NULL) return fallback;
+        try {
+            if (value instanceof Number) {
+                return ((Number) value).doubleValue();
+            }
+            String clean = String.valueOf(value)
+                    .replace(",", ".")
+                    .trim();
+            return clean.isEmpty() ? fallback : Double.parseDouble(clean);
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     private String formatMoney(int value) {
