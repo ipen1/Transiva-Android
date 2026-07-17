@@ -160,223 +160,250 @@ public class TransRideActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(10), dp(10), dp(10), dp(10));
+        root.setPadding(dp(7), dp(7), dp(7), dp(7));
         page.addView(root, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout topBiked = new LinearLayout(this);
-        topBiked.setOrientation(LinearLayout.VERTICAL);
-        topBiked.setPadding(dp(10), dp(8), dp(10), dp(8));
-        topBiked.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
-        root.addView(topBiked, new LinearLayout.LayoutParams(-1, -2));
+        /* =========================
+         * HEADER COMPACT
+         * ========================= */
+        LinearLayout topCard = new LinearLayout(this);
+        topCard.setOrientation(LinearLayout.VERTICAL);
+        topCard.setPadding(dp(9), dp(7), dp(9), dp(7));
+        topCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(14), 1));
+        root.addView(topCard, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        topBiked.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
+        topCard.addView(titleRow, new LinearLayout.LayoutParams(-1, dp(30)));
 
-        TextView title = text("TransRide", 18, "#0B3A78", true);
-        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(34), 1));
+        TextView title = text("TransRide", 17, "#0B3A78", true);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
+
+        modeText = text("Geser peta, lalu pilih titik", 10, "#64748B", false);
+        modeText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        titleRow.addView(modeText, new LinearLayout.LayoutParams(0, -1, 1.25f));
 
         Button close = smallButton("×", "#FEE2E2", "#DC2626", "#FECACA");
-        titleRow.addView(close, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(dp(30), dp(30));
+        closeLp.setMargins(dp(5), 0, 0, 0);
+        titleRow.addView(close, closeLp);
         close.setOnClickListener(v -> finish());
-
-        modeText = text("Geser peta lalu pilih titik jemput / tujuan", 11, "#64748B", false);
-        modeText.setPadding(0, 0, 0, dp(6));
-        topBiked.addView(modeText);
 
         LinearLayout pointRow = new LinearLayout(this);
         pointRow.setOrientation(LinearLayout.HORIZONTAL);
-        topBiked.addView(pointRow, new LinearLayout.LayoutParams(-1, dp(56)));
+        LinearLayout.LayoutParams pointRowLp = new LinearLayout.LayoutParams(-1, dp(50));
+        pointRowLp.setMargins(0, dp(4), 0, 0);
+        topCard.addView(pointRow, pointRowLp);
 
-        pickupBtn = compactPointButton("●  Lokasi Jemput", "Belum dipilih", "#16A34A");
-        deliveryBtn = compactPointButton("●  Lokasi Tujuan", "Belum dipilih", "#EF4444");
+        pickupBtn = compactPointButton("●  Jemput", "Belum dipilih", "#16A34A");
+        deliveryBtn = compactPointButton("●  Tujuan", "Belum dipilih", "#EF4444");
 
         pointRow.addView(pickupBtn, new LinearLayout.LayoutParams(0, -1, 1));
+        LinearLayout.LayoutParams deliveryLp = new LinearLayout.LayoutParams(0, -1, 1);
+        deliveryLp.setMargins(dp(5), 0, 0, 0);
+        pointRow.addView(deliveryBtn, deliveryLp);
 
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(0, -1, 1);
-        dlp.setMargins(dp(6), 0, 0, 0);
-        pointRow.addView(deliveryBtn, dlp);
-
-        pickupText = text("Pickup: belum dipilih", 10, "#334155", false);
-        deliveryText = text("Tujuan: belum dipilih", 10, "#334155", false);
+        pickupText = text("Pickup: belum dipilih", 9, "#334155", false);
+        deliveryText = text("Tujuan: belum dipilih", 9, "#334155", false);
         pickupText.setVisibility(View.GONE);
         deliveryText.setVisibility(View.GONE);
 
         LinearLayout linkRow = new LinearLayout(this);
         linkRow.setOrientation(LinearLayout.HORIZONTAL);
         linkRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams linkLp = new LinearLayout.LayoutParams(-1, dp(42));
-        linkLp.setMargins(0, dp(7), 0, 0);
-        topBiked.addView(linkRow, linkLp);
+        LinearLayout.LayoutParams linkLp = new LinearLayout.LayoutParams(-1, dp(36));
+        linkLp.setMargins(0, dp(5), 0, 0);
+        topCard.addView(linkRow, linkLp);
 
         googleMapInput = new EditText(this);
         googleMapInput.setSingleLine(true);
-        googleMapInput.setTextSize(11);
-        googleMapInput.setHint("🔗 Link Google Maps tujuan...");
-        googleMapInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(14), 1));
-        googleMapInput.setPadding(dp(10), 0, dp(10), 0);
+        googleMapInput.setTextSize(10);
+        googleMapInput.setHint("Link Google Maps tujuan (opsional)");
+        googleMapInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(11), 1));
+        googleMapInput.setPadding(dp(9), 0, dp(9), 0);
         linkRow.addView(googleMapInput, new LinearLayout.LayoutParams(0, -1, 1));
 
         useLinkBtn = smallButton("Pakai", "#EAF4FF", "#0B7CFF", "#9DCAFF");
-        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(dp(70), -1);
-        ulp.setMargins(dp(7), 0, 0, 0);
-        linkRow.addView(useLinkBtn, ulp);
+        LinearLayout.LayoutParams useLinkLp = new LinearLayout.LayoutParams(dp(62), -1);
+        useLinkLp.setMargins(dp(5), 0, 0, 0);
+        linkRow.addView(useLinkBtn, useLinkLp);
 
+        /* =========================
+         * MAP - PRIORITAS RUANG UTAMA
+         * ========================= */
         FrameLayout mapBox = new FrameLayout(this);
+        mapBox.setBackground(roundStroke("#EAF4FF", "#AFCFF2", dp(14), 1));
         LinearLayout.LayoutParams mapLp = new LinearLayout.LayoutParams(-1, 0, 1);
-        mapLp.setMargins(0, dp(8), 0, dp(8));
+        mapLp.setMargins(0, dp(6), 0, dp(6));
         root.addView(mapBox, mapLp);
 
         mapView = new WebView(this);
         mapView.setBackgroundColor(Color.parseColor("#EAF4FF"));
         mapView.setWebViewClient(new WebViewClient());
-        WebSettings s = mapView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        if (android.os.Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        WebSettings settings = mapView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
         mapView.addJavascriptInterface(new MapBridge(), "AndroidBike");
-        mapBox.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
+
+        FrameLayout.LayoutParams webLp = new FrameLayout.LayoutParams(-1, -1);
+        webLp.setMargins(dp(1), dp(1), dp(1), dp(1));
+        mapBox.addView(mapView, webLp);
 
         FrameLayout centerMarkerBox = new FrameLayout(this);
+        final int CENTER_PIN_W = 46;
+        final int CENTER_PIN_H = 58;
+        FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
+                dp(CENTER_PIN_W),
+                dp(CENTER_PIN_H)
+        );
+        centerLp.gravity = Gravity.CENTER;
+        centerLp.topMargin = -dp(15);
+        centerLp.leftMargin = dp(4);
+        mapBox.addView(centerMarkerBox, centerLp);
 
-        /*
-         * Ukuran center marker dibuat sama dengan marker hijau/merah Leaflet.
-         * Jika ingin semua marker terlihat seimbang, cukup ubah CENTER_PIN_W/H
-         * dan pastikan nilainya sama dengan assetpin pada CSS mapHtml().
-         */
-        final int CENTER_PIN_W = 54;
-        final int CENTER_PIN_H = 66;
-
-        FrameLayout.LayoutParams clp =
-                new FrameLayout.LayoutParams(
-                        dp(CENTER_PIN_W),
-                        dp(CENTER_PIN_H)
-                );
-
-        clp.gravity = Gravity.CENTER;
-
-        /*
-         * Karena icon center berupa overlay native di atas WebView,
-         * topMargin mengatur posisi visual agar ujung pin berada di titik tengah map.
-         * Nilai ini dibuat lebih kecil agar icon biru tidak terlihat terlalu besar/naik.
-         */
-        clp.topMargin = -dp(18);
-        clp.leftMargin = dp(5);
-
-        mapBox.addView(centerMarkerBox, clp);
-
-        int centerPinId = getDrawableId("map_center_pin", "ic_center_pin", "center_pin", "map_destination_pin");
+        int centerPinId = getDrawableId(
+                "map_center_pin",
+                "ic_center_pin",
+                "center_pin",
+                "map_destination_pin"
+        );
         if (centerPinId > 0) {
             ImageView centerMarker = new ImageView(this);
             centerMarker.setImageResource(centerPinId);
             centerMarker.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            centerMarker.setAdjustViewBounds(false);
-            centerMarker.setPadding(0, 0, 0, 0);
             centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
         } else {
-            TextView centerMarker = text("📍", 28, "#EF4444", true);
+            TextView centerMarker = text("📍", 25, "#EF4444", true);
             centerMarker.setGravity(Gravity.CENTER);
             centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
         }
 
         mapView.loadDataWithBaseURL(BASE_URL, mapHtml(), "text/html", "UTF-8", null);
 
-        LinearLayout bottomBiked = new LinearLayout(this);
-        bottomBiked.setOrientation(LinearLayout.VERTICAL);
-        bottomBiked.setPadding(dp(10), dp(8), dp(10), dp(8));
-        bottomBiked.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
-        root.addView(bottomBiked, new LinearLayout.LayoutParams(-1, -2));
+        /* =========================
+         * PAYMENT CARD COMPACT
+         * ========================= */
+        LinearLayout bottomCard = new LinearLayout(this);
+        bottomCard.setOrientation(LinearLayout.VERTICAL);
+        bottomCard.setPadding(dp(9), dp(7), dp(9), dp(7));
+        bottomCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(14), 1));
+        root.addView(bottomCard, new LinearLayout.LayoutParams(-1, -2));
 
-        fareText = text("Tarif dihitung server setelah order dibuat", 10, "#64748B", false);
-        bottomBiked.addView(fareText);
+        LinearLayout paymentHeader = new LinearLayout(this);
+        paymentHeader.setGravity(Gravity.CENTER_VERTICAL);
+        bottomCard.addView(paymentHeader, new LinearLayout.LayoutParams(-1, dp(22)));
 
-        TextView paymentTitle = text("Metode Pembayaran", 12, "#0B3A78", true);
-        LinearLayout.LayoutParams ptlp = new LinearLayout.LayoutParams(-1, -2);
-        ptlp.setMargins(0, dp(7), 0, dp(5));
-        bottomBiked.addView(paymentTitle, ptlp);
+        TextView paymentTitle = text("Metode Pembayaran", 11, "#0B3A78", true);
+        paymentHeader.addView(paymentTitle, new LinearLayout.LayoutParams(0, -1, 1));
+
+        fareText = text("Tarif dihitung server", 9, "#64748B", false);
+        fareText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        paymentHeader.addView(fareText, new LinearLayout.LayoutParams(0, -1, 1));
 
         LinearLayout paymentRow = new LinearLayout(this);
         paymentRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams paymentRowLp = new LinearLayout.LayoutParams(-1, dp(36));
+        paymentRowLp.setMargins(0, dp(3), 0, 0);
+        bottomCard.addView(paymentRow, paymentRowLp);
+
         Button cashButton = smallButton("Tunai", "#0B7CFF", "#FFFFFF", "#0B7CFF");
         Button balanceButton = smallButton("Transiva Pay", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        paymentRow.addView(cashButton, new LinearLayout.LayoutParams(0, dp(42), 1));
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(0, dp(42), 1);
-        blp.setMargins(dp(7), 0, 0, 0);
-        paymentRow.addView(balanceButton, blp);
-        bottomBiked.addView(paymentRow);
+        cashButton.setTextSize(11);
+        balanceButton.setTextSize(11);
+
+        paymentRow.addView(cashButton, new LinearLayout.LayoutParams(0, -1, 1));
+        LinearLayout.LayoutParams balanceLp = new LinearLayout.LayoutParams(0, -1, 1);
+        balanceLp.setMargins(dp(5), 0, 0, 0);
+        paymentRow.addView(balanceButton, balanceLp);
 
         cashButton.setOnClickListener(v -> {
             paymentMethod = "cash";
-            cashButton.setBackground(roundStroke("#0B7CFF", "#0B7CFF", dp(12), 1));
+            cashButton.setBackground(roundStroke("#0B7CFF", "#0B7CFF", dp(10), 1));
             cashButton.setTextColor(Color.WHITE);
-            balanceButton.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(12), 1));
+            balanceButton.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(10), 1));
             balanceButton.setTextColor(Color.parseColor("#0B7CFF"));
             requestPaymentQuote();
         });
 
         balanceButton.setOnClickListener(v -> {
             paymentMethod = "balance";
-            balanceButton.setBackground(roundStroke("#0B7CFF", "#0B7CFF", dp(12), 1));
+            balanceButton.setBackground(roundStroke("#0B7CFF", "#0B7CFF", dp(10), 1));
             balanceButton.setTextColor(Color.WHITE);
-            cashButton.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(12), 1));
+            cashButton.setBackground(roundStroke("#FFFFFF", "#9DCAFF", dp(10), 1));
             cashButton.setTextColor(Color.parseColor("#0B7CFF"));
             requestPaymentQuote();
         });
 
         LinearLayout voucherRow = new LinearLayout(this);
         voucherRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams voucherRowLp = new LinearLayout.LayoutParams(-1, dp(36));
+        voucherRowLp.setMargins(0, dp(5), 0, 0);
+        bottomCard.addView(voucherRow, voucherRowLp);
+
         voucherInput = new EditText(this);
         voucherInput.setSingleLine(true);
-        voucherInput.setTextSize(12);
-        voucherInput.setHint("Kode voucher, contoh RIDE10");
-        voucherInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(14), 1));
-        voucherInput.setPadding(dp(10), 0, dp(10), 0);
-        voucherRow.addView(voucherInput, new LinearLayout.LayoutParams(0, dp(42), 1));
+        voucherInput.setTextSize(10);
+        voucherInput.setHint("Kode voucher");
+        voucherInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(11), 1));
+        voucherInput.setPadding(dp(9), 0, dp(9), 0);
+        voucherRow.addView(voucherInput, new LinearLayout.LayoutParams(0, -1, 1));
+
         Button voucherButton = smallButton("Cek", "#E8F3FF", "#0B7CFF", "#9DCAFF");
-        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(dp(72), dp(42));
-        vlp.setMargins(dp(7), 0, 0, 0);
-        voucherRow.addView(voucherButton, vlp);
-        LinearLayout.LayoutParams vrlp = new LinearLayout.LayoutParams(-1, -2);
-        vrlp.setMargins(0, dp(7), 0, 0);
-        bottomBiked.addView(voucherRow, vrlp);
+        voucherButton.setTextSize(10);
+        LinearLayout.LayoutParams voucherButtonLp = new LinearLayout.LayoutParams(dp(56), -1);
+        voucherButtonLp.setMargins(dp(5), 0, 0, 0);
+        voucherRow.addView(voucherButton, voucherButtonLp);
         voucherButton.setOnClickListener(v -> requestPaymentQuote());
 
-        paymentSummaryText = text("Voucher belum digunakan • Pembayaran tunai", 10, "#64748B", false);
-        LinearLayout.LayoutParams pslp = new LinearLayout.LayoutParams(-1, -2);
-        pslp.setMargins(0, dp(5), 0, 0);
-        bottomBiked.addView(paymentSummaryText, pslp);
+        paymentSummaryText = text(
+                "Voucher belum digunakan • Tunai",
+                9,
+                "#64748B",
+                false
+        );
+        paymentSummaryText.setSingleLine(true);
+        LinearLayout.LayoutParams summaryLp = new LinearLayout.LayoutParams(-1, dp(18));
+        summaryLp.setMargins(0, dp(2), 0, 0);
+        bottomCard.addView(paymentSummaryText, summaryLp);
 
         noteInput = new EditText(this);
         noteInput.setSingleLine(true);
-        noteInput.setTextSize(12);
-        noteInput.setHint("Catatan untuk driver motor...");
-        noteInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(14), 1));
-        noteInput.setPadding(dp(10), 0, dp(10), 0);
-        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-1, dp(42));
-        nlp.setMargins(0, dp(7), 0, dp(8));
-        bottomBiked.addView(noteInput, nlp);
+        noteInput.setTextSize(10);
+        noteInput.setHint("Catatan driver (opsional)");
+        noteInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(11), 1));
+        noteInput.setPadding(dp(9), 0, dp(9), 0);
+        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, dp(36));
+        noteLp.setMargins(0, dp(3), 0, dp(5));
+        bottomCard.addView(noteInput, noteLp);
 
         LinearLayout actionRow = new LinearLayout(this);
         actionRow.setOrientation(LinearLayout.HORIZONTAL);
-        bottomBiked.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+        bottomCard.addView(actionRow, new LinearLayout.LayoutParams(-1, dp(40)));
 
         backBtn = smallButton("← Kembali", "#FFFFFF", "#0B7CFF", "#9DCAFF");
         gpsBtn = smallButton("⌖ GPS", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        orderBtn = smallButton("🏍️ Order Motor", "#0B7CFF", "#FFFFFF", "#0B7CFF");
-        actionRow.addView(backBtn, new LinearLayout.LayoutParams(0, dp(44), 1));
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(0, dp(44), 1);
-        glp.setMargins(dp(7), 0, dp(7), 0);
-        actionRow.addView(gpsBtn, glp);
-        actionRow.addView(orderBtn, new LinearLayout.LayoutParams(0, dp(44), 1.45f));
+        orderBtn = smallButton("🏍 Order", "#0B7CFF", "#FFFFFF", "#0B7CFF");
+        backBtn.setTextSize(10);
+        gpsBtn.setTextSize(10);
+        orderBtn.setTextSize(11);
+
+        actionRow.addView(backBtn, new LinearLayout.LayoutParams(0, -1, 0.92f));
+        LinearLayout.LayoutParams gpsLp = new LinearLayout.LayoutParams(0, -1, 0.78f);
+        gpsLp.setMargins(dp(5), 0, dp(5), 0);
+        actionRow.addView(gpsBtn, gpsLp);
+        actionRow.addView(orderBtn, new LinearLayout.LayoutParams(0, -1, 1.25f));
 
         progressBar = new ProgressBar(this);
         progressBar.setVisibility(View.GONE);
-        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(dp(54), dp(54));
-        plp.gravity = Gravity.CENTER;
-        page.addView(progressBar, plp);
+        FrameLayout.LayoutParams progressLp = new FrameLayout.LayoutParams(dp(50), dp(50));
+        progressLp.gravity = Gravity.CENTER;
+        page.addView(progressBar, progressLp);
 
         setContentView(page);
         bindActions();
@@ -405,9 +432,9 @@ public class TransRideActivity extends Activity {
                 "<script src='" + BASE_URL + "js/leaflet.js'></script>" +
                 "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef6ff;overflow:hidden;}" +
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
-                ".leaflet-container{font-family:Arial,sans-serif;border-radius:18px;background:#eef6ff;}" +
+                ".leaflet-container{font-family:Arial,sans-serif;border-radius:14px;background:#eef6ff;}" +
                 ".pin{font-size:34px;text-align:center;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28));}" +
-                ".assetpin{width:54px;height:66px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".assetpin{width:46px;height:58px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".bikepin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".placepin{width:42px;height:42px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".driverpin{width:42px;height:42px;object-fit:contain;border-radius:50%;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
