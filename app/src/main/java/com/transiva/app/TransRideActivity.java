@@ -65,6 +65,7 @@ public class TransRideActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private WebView mapView;
+    private FrameLayout centerMarkerBox;
     private TextView pickupText, deliveryText, modeText, fareText, paymentSummaryText;
     private TextView distanceInfoText, durationInfoText, originalPriceText, finalPriceText, discountInfoText;
     private Button voucherChoiceBtn, noteChoiceBtn, paymentChoiceBtn;
@@ -259,34 +260,16 @@ public class TransRideActivity extends Activity {
         webLp.setMargins(dp(1), dp(1), dp(1), dp(1));
         mapBox.addView(mapView, webLp);
 
-        FrameLayout centerMarkerBox = new FrameLayout(this);
-        final int CENTER_PIN_W = 46;
-        final int CENTER_PIN_H = 58;
+        centerMarkerBox = new FrameLayout(this);
         FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
-                dp(CENTER_PIN_W),
-                dp(CENTER_PIN_H)
+                dp(32),
+                dp(40)
         );
         centerLp.gravity = Gravity.CENTER;
-        centerLp.topMargin = -dp(15);
-        centerLp.leftMargin = dp(4);
+        // Anchor ujung pin tepat di titik tengah peta.
+        centerLp.topMargin = -dp(18);
         mapBox.addView(centerMarkerBox, centerLp);
-
-        int centerPinId = getDrawableId(
-                "map_center_pin",
-                "ic_center_pin",
-                "center_pin",
-                "map_destination_pin"
-        );
-        if (centerPinId > 0) {
-            ImageView centerMarker = new ImageView(this);
-            centerMarker.setImageResource(centerPinId);
-            centerMarker.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
-        } else {
-            TextView centerMarker = text("📍", 25, "#EF4444", true);
-            centerMarker.setGravity(Gravity.CENTER);
-            centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
-        }
+        updateCenterMarkerIcon();
 
         gpsBtn = smallButton("⌖", "#FFFFFF", "#0B7CFF", "#9DCAFF");
         gpsBtn.setTextSize(18);
@@ -1363,10 +1346,81 @@ public class TransRideActivity extends Activity {
     }
 
     private void updateModeUI() {
-        boolean p = "pickup".equals(mode);
-        modeText.setText(p ? "Geser peta lalu tekan Jemput" : "Geser peta lalu tekan Tujuan");
-        pickupBtn.setAlpha(p ? 1f : .80f);
-        deliveryBtn.setAlpha(p ? .80f : 1f);
+        boolean pickupMode = "pickup".equals(mode);
+
+        modeText.setText(
+                pickupMode
+                        ? "Geser peta lalu tekan Jemput"
+                        : "Geser peta lalu tekan Tujuan"
+        );
+
+        pickupBtn.setAlpha(pickupMode ? 1f : .80f);
+        deliveryBtn.setAlpha(pickupMode ? .80f : 1f);
+
+        updateCenterMarkerIcon();
+    }
+
+    /**
+     * Tidak memakai marker center generik lagi.
+     * Mode pickup  -> ikon jemput berada tepat di tengah peta.
+     * Mode delivery -> ikon tujuan berada tepat di tengah peta.
+     */
+    private void updateCenterMarkerIcon() {
+        if (centerMarkerBox == null) {
+            return;
+        }
+
+        centerMarkerBox.removeAllViews();
+
+        boolean pickupMode = "pickup".equals(mode);
+
+        int markerId = pickupMode
+                ? getDrawableId(
+                        "map_pickup_pin",
+                        "ic_pickup_pin",
+                        "pickup_pin",
+                        "pickup",
+                        "point_pickup",
+                        "ic_pickup"
+                )
+                : getDrawableId(
+                        "map_destination_pin",
+                        "map_delivery_pin",
+                        "ic_delivery_pin",
+                        "delivery_pin",
+                        "delivery",
+                        "point_delivery",
+                        "ic_delivery"
+                );
+
+        if (markerId > 0) {
+            ImageView marker = new ImageView(this);
+            marker.setImageResource(markerId);
+            marker.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            marker.setContentDescription(
+                    pickupMode ? "Titik jemput" : "Titik tujuan"
+            );
+            centerMarkerBox.addView(
+                    marker,
+                    new FrameLayout.LayoutParams(-1, -1)
+            );
+            return;
+        }
+
+        TextView fallback = text(
+                pickupMode ? "●" : "●",
+                24,
+                pickupMode ? "#16A34A" : "#EF4444",
+                true
+        );
+        fallback.setGravity(Gravity.CENTER);
+        fallback.setContentDescription(
+                pickupMode ? "Titik jemput" : "Titik tujuan"
+        );
+        centerMarkerBox.addView(
+                fallback,
+                new FrameLayout.LayoutParams(-1, -1)
+        );
     }
 
     private void eval(String js) { if (mapView != null && mapReady) try { mapView.evaluateJavascript(js, null); } catch (Exception ignored) {} }
