@@ -27,7 +27,6 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -65,7 +64,6 @@ public class TransRideActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private WebView mapView;
-    private FrameLayout centerMarkerBox;
     private TextView pickupText, deliveryText, modeText, fareText, paymentSummaryText;
     private TextView distanceInfoText, durationInfoText, originalPriceText, finalPriceText, discountInfoText;
     private Button voucherChoiceBtn, noteChoiceBtn, paymentChoiceBtn;
@@ -288,21 +286,6 @@ public class TransRideActivity extends Activity {
         webLp.setMargins(dp(1), dp(1), dp(1), dp(1));
         mapBox.addView(mapView, webLp);
 
-        centerMarkerBox = new FrameLayout(this);
-        FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
-                dp(MARKER_BOX_WIDTH_DP),
-                dp(MARKER_BOX_HEIGHT_DP)
-        );
-        centerLp.gravity = Gravity.CENTER;
-
-        // Ujung pin center tepat berada pada pusat koordinat peta.
-        centerLp.topMargin = -dp(
-                MARKER_ANCHOR_Y_PX
-                        - (MARKER_BOX_HEIGHT_DP / 2)
-        );
-        mapBox.addView(centerMarkerBox, centerLp);
-        updateCenterMarkerIcon();
-
         gpsBtn = smallButton("⌖", "#FFFFFF", "#0B7CFF", "#9DCAFF");
         gpsBtn.setTextSize(18);
         FrameLayout.LayoutParams gpsMapLp = new FrameLayout.LayoutParams(dp(42), dp(42));
@@ -523,13 +506,15 @@ public class TransRideActivity extends Activity {
                 ".popup{min-width:170px;line-height:1.55;font-size:13px;color:#0f172a;}" +
                 ".popup b{font-size:15px;color:#0B3A78;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map,pickup=null,delivery=null,route=null;" +
+                "var map,pickup=null,delivery=null,centerMarker=null,route=null;" +
                 "var placeMarkers=[],driverMarkers=[];" +
                 "var pickupIconData='" + js(pickupIcon) + "',deliveryIconData='" + js(deliveryIcon) + "',bikeIconData='" + js(bikeIcon) + "',placeIconData='" + js(placeIcon) + "',driverIconData='" + js(driverIcon) + "';" +
                 "function esc(v){return String(v||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}" +
                 "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView([" + centerLat + "," + centerLng + "],17);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,attribution:''}).addTo(map);" +
-                "function notifyCenter(){var c=map.getCenter();try{AndroidBike.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
+                "setCenterMarker('pickup');" +
+                "function notifyCenter(){var c=map.getCenter();if(centerMarker)centerMarker.setLatLng(c);try{AndroidBike.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
+                "map.on('move',function(){if(centerMarker)centerMarker.setLatLng(map.getCenter());});" +
                 "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
                 "setTimeout(function(){map.invalidateSize(true);var c=map.getCenter();try{AndroidBike.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
@@ -547,6 +532,14 @@ public class TransRideActivity extends Activity {
                 "iconAnchor:[ax,ay]," +
                 "popupAnchor:[0,-Math.max(1,ay-2)]" +
                 "});" +
+                "}" +
+                "function setCenterMarker(type){" +
+                "if(!map)return;" +
+                "var isPickup=(type==='pickup');" +
+                "var icon=iconData(isPickup?pickupIconData:deliveryIconData,isPickup?'🟢':'🔴');" +
+                "var position=map.getCenter();" +
+                "if(centerMarker){centerMarker.setLatLng(position);centerMarker.setIcon(icon);}" +
+                "else{centerMarker=L.marker(position,{icon:icon,interactive:false,keyboard:false,zIndexOffset:1200}).addTo(map);}" +
                 "}" +
                 "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[32,36],iconAnchor:[16,31],popupAnchor:[0,-29]});}" +
                 "function driverData(){if(driverIconData&&driverIconData.length>20){return L.divIcon({html:'<img class=driverpin src=\"'+driverIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-24]});}return L.divIcon({html:'<div class=pin>🏍️</div>',className:'',iconSize:[46,46],iconAnchor:[23,28],popupAnchor:[0,-28]});}" +
@@ -1426,72 +1419,10 @@ public class TransRideActivity extends Activity {
         pickupBtn.setAlpha(pickupMode ? 1f : .80f);
         deliveryBtn.setAlpha(pickupMode ? .80f : 1f);
 
-        updateCenterMarkerIcon();
-    }
-
-    /**
-     * Tidak memakai marker center generik lagi.
-     * Mode pickup  -> ikon jemput berada tepat di tengah peta.
-     * Mode delivery -> ikon tujuan berada tepat di tengah peta.
-     */
-    private void updateCenterMarkerIcon() {
-        if (centerMarkerBox == null) {
-            return;
-        }
-
-        centerMarkerBox.removeAllViews();
-
-        boolean pickupMode = "pickup".equals(mode);
-
-        int markerId = pickupMode
-                ? getDrawableId(
-                        "map_pickup_pin",
-                        "ic_pickup_pin",
-                        "pickup_pin",
-                        "pickup",
-                        "point_pickup",
-                        "ic_pickup"
-                )
-                : getDrawableId(
-                        "map_destination_pin",
-                        "map_delivery_pin",
-                        "ic_delivery_pin",
-                        "delivery_pin",
-                        "delivery",
-                        "point_delivery",
-                        "ic_delivery"
-                );
-
-        if (markerId > 0) {
-            ImageView marker = new ImageView(this);
-            marker.setImageResource(markerId);
-            marker.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            marker.setContentDescription(
-                    pickupMode ? "Titik jemput" : "Titik tujuan"
-            );
-            FrameLayout.LayoutParams markerLp = new FrameLayout.LayoutParams(
-                    dp(MARKER_IMAGE_WIDTH_DP),
-                    dp(MARKER_IMAGE_HEIGHT_DP)
-            );
-            markerLp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
-
-            centerMarkerBox.addView(marker, markerLp);
-            return;
-        }
-
-        TextView fallback = text(
-                pickupMode ? "●" : "●",
-                24,
-                pickupMode ? "#16A34A" : "#EF4444",
-                true
-        );
-        fallback.setGravity(Gravity.CENTER);
-        fallback.setContentDescription(
-                pickupMode ? "Titik jemput" : "Titik tujuan"
-        );
-        centerMarkerBox.addView(
-                fallback,
-                new FrameLayout.LayoutParams(-1, -1)
+        eval(
+                "setCenterMarker('"
+                        + (pickupMode ? "pickup" : "delivery")
+                        + "')"
         );
     }
 
