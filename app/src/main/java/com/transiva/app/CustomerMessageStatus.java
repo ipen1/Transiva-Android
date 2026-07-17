@@ -31,6 +31,10 @@ public final class CustomerMessageStatus {
         String status = normalize(rawStatus);
 
         return status.equals("merchant_accepted")
+                || status.equals("driver_accepted")
+                || status.equals("accepted")
+                || status.equals("assigned")
+                || status.equals("driver_assigned")
                 || status.equals("taken")
                 || status.equals("arrived_pickup")
                 || status.equals("picked_up")
@@ -69,6 +73,13 @@ public final class CustomerMessageStatus {
 
         if (status.equals("merchant_accepted")) {
             return "Merchant Menerima";
+        }
+
+        if (status.equals("driver_accepted")
+                || status.equals("accepted")
+                || status.equals("assigned")
+                || status.equals("driver_assigned")) {
+            return "Driver Menerima";
         }
 
         if (status.equals("taken")) {

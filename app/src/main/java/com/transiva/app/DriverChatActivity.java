@@ -43,6 +43,8 @@ public class DriverChatActivity extends Activity {
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String CONVERSATIONS_URL =
             BASE_URL + "server/driver_chat_conversations_native.php";
+    private static final String FALLBACK_CONVERSATIONS_URL =
+            BASE_URL + "server/get_customer_conversations.php";
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
 
@@ -250,20 +252,38 @@ public class DriverChatActivity extends Activity {
 
         new Thread(() -> {
             try {
-                String endpoint = CONVERSATIONS_URL
-                        + "?_=" + System.currentTimeMillis();
+                JSONObject response;
 
-                JSONObject response = getAuthorized(endpoint);
+                try {
+                    String endpoint = CONVERSATIONS_URL
+                            + "?_=" + System.currentTimeMillis();
+                    response = getAuthorized(endpoint);
+                } catch (Exception primaryError) {
+                    // Hosting lama belum memiliki endpoint native driver.
+                    // Gunakan endpoint percakapan bersama dengan filter driver.
+                    String driverId = first(
+                            session.getId(),
+                            session.getUserId(),
+                            "0"
+                    );
+                    String endpoint = FALLBACK_CONVERSATIONS_URL
+                            + "?driver_id="
+                            + URLEncoder.encode(
+                            driverId,
+                            StandardCharsets.UTF_8.name()
+                    )
+                            + "&role=driver&_="
+                            + System.currentTimeMillis();
+                    response = getAuthorized(endpoint);
+                }
                 JSONArray array = response.optJSONArray("conversations");
                 List<JSONObject> fresh = new ArrayList<>();
 
                 if (!response.optBoolean("success", false)) {
-                    throw new IllegalStateException(
-                            response.optString(
-                                    "message",
-                                    "Server gagal memuat percakapan"
-                            )
-                    );
+                    throw new IllegalStateException(first(
+                            response.optString("message"),
+                            "Server gagal memuat percakapan"
+                    ));
                 }
 
                 if (array != null) {
@@ -303,91 +323,56 @@ public class DriverChatActivity extends Activity {
             connection.setConnectTimeout(20000);
             connection.setReadTimeout(20000);
             connection.setUseCaches(false);
-            connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("User-Agent", "Transiva-Android");
             connection.setRequestProperty(
                     "Authorization",
                     "Bearer " + session.getToken()
             );
 
             int status = connection.getResponseCode();
-
-            if (status >= 300 && status < 400) {
-                String location = connection.getHeaderField("Location");
-                throw new IllegalStateException(
-                        "Endpoint dialihkan ke halaman lain"
-                                + (clean(location).isEmpty()
-                                ? ""
-                                : ": " + location)
-                );
-            }
-
             InputStream input = status >= 200 && status < 400
                     ? connection.getInputStream()
                     : connection.getErrorStream();
 
             if (input == null) {
-                throw new IllegalStateException(
-                        "Respons server kosong. HTTP " + status
-                );
+                throw new IllegalStateException("Respons server kosong");
             }
 
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(input, StandardCharsets.UTF_8));
             StringBuilder raw = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(input, StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    raw.append(line);
-                }
+            String line;
+
+            while ((line = reader.readLine()) != null) {
+                raw.append(line);
             }
 
             String body = raw.toString().trim();
+
             if (body.isEmpty()) {
-                throw new IllegalStateException(
-                        "Respons server kosong. HTTP " + status
-                );
+                throw new IllegalStateException("Respons server kosong. HTTP " + status);
             }
 
-            String lowerBody = body.toLowerCase(Locale.US);
-            if (lowerBody.startsWith("<!doctype")
-                    || lowerBody.startsWith("<html")
-                    || lowerBody.contains("<body")) {
+            String lower = body.toLowerCase(Locale.US);
+            if (lower.startsWith("<!doctype") || lower.startsWith("<html")) {
                 throw new IllegalStateException(
-                        "Server mengirim HTML, bukan JSON. HTTP " + status
+                        "Endpoint chat tidak tersedia. HTTP " + status
                 );
             }
 
             int firstBrace = body.indexOf('{');
             int lastBrace = body.lastIndexOf('}');
             if (firstBrace < 0 || lastBrace <= firstBrace) {
-                String preview = body.length() > 150
-                        ? body.substring(0, 150)
-                        : body;
-                throw new IllegalStateException(
-                        "Format respons server tidak valid: " + preview
-                );
+                throw new IllegalStateException("Respons server bukan JSON. HTTP " + status);
             }
 
-            JSONObject response;
-            try {
-                response = new JSONObject(
-                        body.substring(firstBrace, lastBrace + 1)
-                );
-            } catch (Exception parseError) {
-                throw new IllegalStateException(
-                        "JSON server tidak valid",
-                        parseError
-                );
-            }
+            JSONObject response = new JSONObject(
+                    body.substring(firstBrace, lastBrace + 1)
+            );
 
             if (status < 200 || status >= 400) {
                 throw new IllegalStateException(
-                        response.optString(
-                                "message",
-                                "Kesalahan server HTTP " + status
-                        )
-                );
+                        response.optString("message", "HTTP " + status));
             }
 
             return response;

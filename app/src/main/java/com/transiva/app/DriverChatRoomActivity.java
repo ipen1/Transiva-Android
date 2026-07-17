@@ -52,11 +52,11 @@ public class DriverChatRoomActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String GET_CHAT_URL =
-            BASE_URL + "server/driver_get_chat_native.php";
+            BASE_URL + "server/getChat.php";
     private static final String SEND_CHAT_URL =
-            BASE_URL + "server/driver_send_chat_native.php";
+            BASE_URL + "server/sendChat.php";
     private static final String UPLOAD_IMAGE_URL =
-            BASE_URL + "server/driver_upload_chat_image_native.php";
+            BASE_URL + "server/upload_chat_image.php";
 
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
@@ -454,12 +454,10 @@ public class DriverChatRoomActivity extends Activity {
         new Thread(() -> {
             try {
                 JSONObject response =
-                        DriverMessageApi.uploadImagePair(
-                                session,
+                        CustomerMessageApi.uploadImagePair(
                                 UPLOAD_IMAGE_URL,
-                                orderId,
-                                orderSource,
                                 roomId,
+                                "driver",
                                 payload);
 
                 main.post(() -> {
@@ -790,6 +788,7 @@ public class DriverChatRoomActivity extends Activity {
             body.put("order_id", orderId);
             body.put("source", orderSource);
             body.put("room_id", roomId);
+            body.put("sender_type", "driver");
             body.put("message", message);
         } catch (Exception error) {
             sending = false;
