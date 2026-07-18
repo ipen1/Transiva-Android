@@ -768,7 +768,12 @@ public class LoginActivity extends Activity {
         }
 
         Intent intent = new Intent(this, target);
-        intent.putExtra("native_role", normalizeRole(role));
+        String normalizedRole = normalizeRole(role);
+        intent.putExtra("native_role", normalizedRole);
+        if ("driver".equals(normalizedRole)) {
+            // Dashboard akan meminta GPS aktif setelah login dan kembali otomatis ke app.
+            intent.putExtra("request_gps_after_login", true);
+        }
         intent.addFlags(
                 Intent.FLAG_ACTIVITY_NEW_TASK
                         | Intent.FLAG_ACTIVITY_CLEAR_TASK

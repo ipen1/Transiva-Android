@@ -386,9 +386,14 @@ public class SessionManager {
             out.put("phone", "");
         }
 
-        if (!out.has("token")) {
-            out.put("token", "");
-        }
+        String token = firstNonEmpty(
+                out.optString("token", ""),
+                out.optString("access_token", ""),
+                out.optString("auth_token", ""),
+                out.optString("api_token", ""),
+                out.optString("session_token", "")
+        );
+        out.put("token", token);
 
         if (!out.has("restaurant_id")) {
             out.put("restaurant_id", "");
@@ -530,7 +535,54 @@ public class SessionManager {
     }
 
     public String getToken() {
-        return prefs.getString("token", "");
+        String token = firstNonEmpty(
+                prefs.getString("token", ""),
+                prefs.getString("access_token", ""),
+                prefs.getString("auth_token", ""),
+                prefs.getString("api_token", ""),
+                prefs.getString("session_token", "")
+        );
+
+        if (token.isEmpty()) {
+            token = tokenFromJson(prefs.getString("raw_user", ""));
+        }
+        if (token.isEmpty()) {
+            token = tokenFromJson(prefs.getString("raw_session", ""));
+        }
+        if (token.isEmpty()) {
+            token = firstNonEmpty(
+                    legacyPrefs.getString("token", ""),
+                    legacyPrefs.getString("access_token", ""),
+                    legacyPrefs.getString("auth_token", ""),
+                    legacyPrefs.getString("api_token", ""),
+                    legacyPrefs.getString("session_token", "")
+            );
+        }
+        if (token.isEmpty()) {
+            token = tokenFromJson(legacyPrefs.getString("user_json", ""));
+        }
+
+        if (!token.isEmpty() && !token.equals(prefs.getString("token", ""))) {
+            prefs.edit().putString("token", token).apply();
+        }
+        return token;
+    }
+
+    private String tokenFromJson(String json) {
+        if (json == null || json.trim().isEmpty()) return "";
+        try {
+            JSONObject obj = new JSONObject(json);
+            if (obj.optJSONObject("user") != null) obj = obj.optJSONObject("user");
+            return firstNonEmpty(
+                    obj.optString("token", ""),
+                    obj.optString("access_token", ""),
+                    obj.optString("auth_token", ""),
+                    obj.optString("api_token", ""),
+                    obj.optString("session_token", "")
+            );
+        } catch (Exception ignored) {
+            return "";
+        }
     }
 
     public String getRestaurantId() {

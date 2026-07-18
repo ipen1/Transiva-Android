@@ -77,6 +77,9 @@ public class DriverDashboardActivity extends Activity
     private TextView lastUpdateText;
 
     private Switch onlineSwitch;
+    private boolean pendingOnlineAfterGps = false;
+    private boolean requestGpsAfterLogin = false;
+    private boolean gpsPromptShown = false;
     private ProgressBar loading;
     private boolean suppressSwitch;
 
@@ -105,6 +108,8 @@ public class DriverDashboardActivity extends Activity
         super.onCreate(savedInstanceState);
 
         session = new SessionManager(this);
+        requestGpsAfterLogin = getIntent() != null
+                && getIntent().getBooleanExtra("request_gps_after_login", false);
         vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
         if (!validSession()) return;
 
@@ -125,6 +130,22 @@ public class DriverDashboardActivity extends Activity
         handler.postDelayed(refreshRunnable, REFRESH_MS);
         handler.post(countdownRunnable);
         if (presenter != null) presenter.load(false);
+
+        // Kembali dari halaman pengaturan GPS tanpa perlu menutup/membuka ulang APK.
+        if (pendingOnlineAfterGps && hasLocationPermission() && isLocationProviderEnabled()) {
+            pendingOnlineAfterGps = false;
+            setSwitch(true);
+            if (presenter != null) {
+                presenter.setOnline(true, normalizeDriverType(session.getDriverType()));
+            }
+            showMessage("GPS aktif. Driver sedang diaktifkan ONLINE.");
+        } else if (requestGpsAfterLogin && !gpsPromptShown) {
+            gpsPromptShown = true;
+            requestGpsAfterLogin = false;
+            if (!isLocationProviderEnabled()) {
+                showGpsEnableDialog(false);
+            }
+        }
     }
 
     @Override protected void onPause() {
@@ -787,6 +808,7 @@ public class DriverDashboardActivity extends Activity
 
     private boolean ensureLocationReady() {
         if (!hasLocationPermission()) {
+            pendingOnlineAfterGps = true;
             if (Build.VERSION.SDK_INT >= 23) {
                 requestPermissions(new String[]{
                         Manifest.permission.ACCESS_FINE_LOCATION,
@@ -797,27 +819,46 @@ public class DriverDashboardActivity extends Activity
             return false;
         }
 
-        LocationManager manager =
-                (LocationManager) getSystemService(LOCATION_SERVICE);
-        boolean enabled = false;
-        try {
-            enabled = manager != null
-                    && (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-                    || manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER));
-        } catch (Exception ignored) {}
-
-        if (!enabled) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Aktifkan lokasi")
-                    .setMessage("GPS/lokasi wajib aktif sebelum driver online.")
-                    .setPositiveButton("Buka Pengaturan", (dialog, which) ->
-                            startActivity(new Intent(
-                                    Settings.ACTION_LOCATION_SOURCE_SETTINGS)))
-                    .setNegativeButton("Batal", null)
-                    .show();
+        if (!isLocationProviderEnabled()) {
+            pendingOnlineAfterGps = true;
+            showGpsEnableDialog(true);
             return false;
         }
+        pendingOnlineAfterGps = false;
         return true;
+    }
+
+    private boolean isLocationProviderEnabled() {
+        try {
+            LocationManager manager =
+                    (LocationManager) getSystemService(LOCATION_SERVICE);
+            return manager != null
+                    && (manager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                    || manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private void showGpsEnableDialog(boolean continueOnlineAfterReturn) {
+        if (isFinishing()) return;
+        pendingOnlineAfterGps = continueOnlineAfterReturn;
+        new AlertDialog.Builder(this)
+                .setTitle("Aktifkan lokasi")
+                .setMessage(continueOnlineAfterReturn
+                        ? "GPS/lokasi wajib aktif sebelum driver online. Aktifkan GPS, lalu kembali ke Transiva. Driver akan melanjutkan ONLINE otomatis."
+                        : "Aktifkan GPS/lokasi agar Transiva dapat menerima posisi driver. Setelah aktif, tekan Kembali untuk kembali ke aplikasi.")
+                .setPositiveButton("Aktifkan GPS", (dialog, which) -> {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                    } catch (Exception error) {
+                        startActivity(new Intent(Settings.ACTION_SETTINGS));
+                    }
+                })
+                .setNegativeButton("Nanti", (dialog, which) -> {
+                    if (continueOnlineAfterReturn) pendingOnlineAfterGps = false;
+                })
+                .show();
     }
 
     @Override public void onRequestPermissionsResult(
@@ -828,7 +869,18 @@ public class DriverDashboardActivity extends Activity
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQ_LOCATION) {
             if (hasLocationPermission()) {
-                showMessage("Izin lokasi diberikan. Aktifkan ONLINE kembali.");
+                if (!isLocationProviderEnabled()) {
+                    showGpsEnableDialog(pendingOnlineAfterGps);
+                } else if (pendingOnlineAfterGps) {
+                    pendingOnlineAfterGps = false;
+                    setSwitch(true);
+                    if (presenter != null) {
+                        presenter.setOnline(true, normalizeDriverType(session.getDriverType()));
+                    }
+                    showMessage("Izin lokasi diberikan. Driver sedang diaktifkan ONLINE.");
+                } else {
+                    showMessage("Izin lokasi diberikan.");
+                }
             } else {
                 setSwitch(false);
                 showMessage("Driver tidak dapat online tanpa izin lokasi.");

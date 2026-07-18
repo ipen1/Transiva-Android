@@ -134,8 +134,10 @@ public class TransRideActivity extends Activity {
 
         try {
             SessionManager session = new SessionManager(this);
+            // Token dibaca terpisah dari status session agar session lama yang masih valid
+            // tetap dapat dimigrasikan oleh SessionManager.getToken().
+            authToken = session.getToken();
             if (session.isLoggedIn()) {
-                authToken = session.getToken();
                 username = firstNonEmpty(
                         session.getUsername(),
                         session.getName(),
@@ -777,8 +779,9 @@ public class TransRideActivity extends Activity {
             conn.setUseCaches(false);
             conn.setRequestProperty("User-Agent", "TransivaAndroid/1.0");
             conn.setRequestProperty("Accept", "application/json");
-            if (authToken != null && !authToken.trim().isEmpty()) {
-                conn.setRequestProperty("Authorization", "Bearer " + authToken.trim());
+            String requestToken = refreshAuthToken();
+            if (!requestToken.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + requestToken);
             }
             conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
 
@@ -982,8 +985,9 @@ public class TransRideActivity extends Activity {
             conn.setReadTimeout(TIMEOUT_MS);
             conn.setUseCaches(false);
             conn.setRequestProperty("Accept", "application/json");
-            if (authToken != null && !authToken.trim().isEmpty()) {
-                conn.setRequestProperty("Authorization", "Bearer " + authToken.trim());
+            String requestToken = refreshAuthToken();
+            if (!requestToken.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + requestToken);
             }
             conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
 
@@ -1010,6 +1014,22 @@ public class TransRideActivity extends Activity {
         return earth * c;
     }
 
+    private String refreshAuthToken() {
+        try {
+            String latest = new SessionManager(this).getToken();
+            if (latest != null && !latest.trim().isEmpty()) {
+                authToken = latest.trim();
+            }
+        } catch (Exception ignored) {}
+        return authToken == null ? "" : authToken.trim();
+    }
+
+    private boolean ensureAuthTokenForOrder() {
+        if (!refreshAuthToken().isEmpty()) return true;
+        toastDialog("Sesi login tidak memiliki token autentikasi. Silakan login ulang sekali untuk memperbarui sesi.");
+        return false;
+    }
+
     private void createOrder() {
         if (ordering) return;
 
@@ -1019,6 +1039,10 @@ public class TransRideActivity extends Activity {
 
         if (userId <= 0) {
             toastDialog("User ID tidak ditemukan. Silakan login ulang.");
+            return;
+        }
+
+        if (!ensureAuthTokenForOrder()) {
             return;
         }
 
@@ -1385,8 +1409,9 @@ public class TransRideActivity extends Activity {
             conn.setUseCaches(false);
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
-            if (authToken != null && !authToken.trim().isEmpty()) {
-                conn.setRequestProperty("Authorization", "Bearer " + authToken.trim());
+            String requestToken = refreshAuthToken();
+            if (!requestToken.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + requestToken);
             }
             conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
             OutputStream os = conn.getOutputStream();
