@@ -47,6 +47,7 @@ public class CustomerDashboardActivity extends Activity
     private static final long PROMO_INTERVAL_MS = 4500L;
     private static final int PROMO_CARD_WIDTH_DP = 275;
     private static final int PROMO_CARD_GAP_DP = 9;
+    private static final String PREF_SMART_USAGE = "transiva_smart_usage";
 
     private final Handler uiHandler =
             new Handler(Looper.getMainLooper());
@@ -336,8 +337,8 @@ public class CustomerDashboardActivity extends Activity
         actions.setGravity(Gravity.CENTER_VERTICAL);
         topRow.addView(actions, new LinearLayout.LayoutParams(-2, -2));
 
-        actions.addView(headerAction("🔔", "Notifikasi", () ->
-                startActivity(new Intent(this, CustomerHistoryActivity.class))));
+        actions.addView(headerIconAction("ic_notification_bell", "Pemberitahuan", () ->
+                startActivity(new Intent(this, CustomerNotificationActivity.class))));
 
         LinearLayout.LayoutParams chatLp = new LinearLayout.LayoutParams(dp(44), dp(44));
         chatLp.setMargins(dp(8), 0, 0, 0);
@@ -385,6 +386,24 @@ public class CustomerDashboardActivity extends Activity
         button.setContentDescription(description);
         button.setBackground(Shape.roundStroke("#1AFFFFFF", "#55FFFFFF", dp(14), 1));
         button.setOnClickListener(view -> action.run());
+        button.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(44)));
+        return button;
+    }
+
+    private View headerIconAction(String iconName, String description, Runnable action) {
+        ImageView button = new ImageView(this);
+        button.setImageResource(drawable(iconName));
+        button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        button.setPadding(dp(11), dp(11), dp(11), dp(11));
+        button.setContentDescription(description);
+        button.setBackground(Shape.roundStroke("#1AFFFFFF", "#55FFFFFF", dp(14), 1));
+        button.setOnClickListener(view -> {
+            view.animate().scaleX(0.90f).scaleY(0.90f).setDuration(80L)
+                    .withEndAction(() -> {
+                        view.animate().scaleX(1f).scaleY(1f).setDuration(110L).start();
+                        action.run();
+                    }).start();
+        });
         button.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(44)));
         return button;
     }
@@ -463,27 +482,36 @@ public class CustomerDashboardActivity extends Activity
             title = "Ide untuk akhir pekan";
             message = "Jelajahi destinasi menarik dari " + first(currentLocation, "lokasi Anda") + " bersama TransTour.";
             button = "Jelajahi ›";
-            action = () -> startActivity(new Intent(this, TranstourActivity.class));
+            action = () -> openTrackedService("TransTour");
         } else if (hour >= 10 && hour < 14) {
             title = "Waktunya makan siang 🍜";
             message = "Temukan menu favorit dan merchant terdekat lewat TransFood.";
             button = "Pesan ›";
-            action = () -> startActivity(new Intent(this, TransFoodActivity.class));
+            action = () -> openTrackedService("TransFood");
         } else if (hour >= 17 && hour < 21) {
             title = "Perjalanan pulang lebih mudah";
             message = "Pesan TransRide dari " + first(currentLocation, "lokasi Anda") + " tanpa perlu menunggu lama.";
             button = "Ride ›";
-            action = () -> startActivity(new Intent(this, TransRideActivity.class));
+            action = () -> openTrackedService("TransRide");
         } else if (hour >= 21 || hour < 5) {
             title = "Perjalanan malam yang praktis 🌙";
             message = "Gunakan TransCar untuk perjalanan yang lebih nyaman malam ini.";
             button = "TransCar ›";
-            action = () -> startActivity(new Intent(this, PassengerCarActivity.class));
+            action = () -> openTrackedService("TransCar");
         } else {
-            title = "Mulai hari bersama Transiva ☀️";
-            message = "Butuh kendaraan dari " + first(currentLocation, "lokasi Anda") + "? Driver TransRide siap membantu.";
-            button = "Pesan ›";
-            action = () -> startActivity(new Intent(this, TransRideActivity.class));
+            String favorite = favoriteServiceKey();
+            if (!favorite.isEmpty()) {
+                title = "Pilihan favorit Anda ✦";
+                message = "Anda cukup sering menggunakan " + favorite + ". Buka lagi layanan favorit Anda dari "
+                        + first(currentLocation, "lokasi Anda") + ".";
+                button = "Buka ›";
+                action = () -> openTrackedService(favorite);
+            } else {
+                title = "Mulai hari bersama Transiva ☀️";
+                message = "Butuh kendaraan dari " + first(currentLocation, "lokasi Anda") + "? Driver TransRide siap membantu.";
+                button = "Pesan ›";
+                action = () -> openTrackedService("TransRide");
+            }
         }
 
         aiTitleText.setText(title);
@@ -724,6 +752,16 @@ public class CustomerDashboardActivity extends Activity
                 promoHeader,
                 new LinearLayout.LayoutParams(-1, -2)
         );
+
+        TextView promoHint = text(
+                "Geser untuk melihat penawaran terbaik",
+                10,
+                "#7B8DA3",
+                false
+        );
+        LinearLayout.LayoutParams promoHintLp = new LinearLayout.LayoutParams(-1, -2);
+        promoHintLp.setMargins(0, dp(3), 0, 0);
+        promoSection.addView(promoHint, promoHintLp);
 
         promoEmptyText = text(
                 "Belum ada promo hari ini",
@@ -1073,6 +1111,14 @@ public class CustomerDashboardActivity extends Activity
         );
 
         card.setLayoutParams(cardLp);
+        card.setOnClickListener(view -> {
+            view.animate().scaleX(0.97f).scaleY(0.97f).setDuration(80L)
+                    .withEndAction(() -> view.animate().scaleX(1f).scaleY(1f).setDuration(120L).start())
+                    .start();
+            if (promo.code != null && !promo.code.trim().isEmpty()) {
+                Toast.makeText(this, "Kode promo: " + promo.code, Toast.LENGTH_SHORT).show();
+            }
+        });
 
         return card;
     }
@@ -1134,6 +1180,16 @@ public class CustomerDashboardActivity extends Activity
                 header,
                 new LinearLayout.LayoutParams(-1, -2)
         );
+
+        TextView serviceHint = text(
+                "Pilih layanan yang Anda butuhkan",
+                10,
+                "#7B8DA3",
+                false
+        );
+        LinearLayout.LayoutParams serviceHintLp = new LinearLayout.LayoutParams(-1, -2);
+        serviceHintLp.setMargins(0, dp(3), 0, 0);
+        content.addView(serviceHint, serviceHintLp);
 
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
@@ -1271,77 +1327,102 @@ public class CustomerDashboardActivity extends Activity
             String icon,
             Runnable action
     ) {
-        LinearLayout card =
-                new LinearLayout(this);
-
-        card.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER);
-
-        card.setPadding(
-                dp(4),
-                dp(5),
-                dp(4),
-                dp(5)
-        );
-
+        card.setPadding(dp(4), dp(7), dp(4), dp(6));
         card.setBackground(
                 Shape.roundStroke(
                         "#FFFFFF",
-                        "#EDF2F7",
-                        dp(15),
+                        "#DDEBFA",
+                        dp(18),
                         1
                 )
         );
+        card.setElevation(dp(2));
 
-        card.setElevation(dp(1));
+        FrameLayout iconHolder = new FrameLayout(this);
+        iconHolder.setBackground(Shape.round("#EEF6FF", dp(17)));
+        card.addView(iconHolder, new LinearLayout.LayoutParams(dp(46), dp(46)));
 
         ImageView image = new ImageView(this);
-        image.setImageResource(
-                drawable(icon)
-        );
+        image.setImageResource(drawable(icon));
+        image.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        image.setPadding(dp(5), dp(5), dp(5), dp(5));
+        FrameLayout.LayoutParams imageLp = new FrameLayout.LayoutParams(dp(38), dp(38));
+        imageLp.gravity = Gravity.CENTER;
+        iconHolder.addView(image, imageLp);
 
-        image.setScaleType(
-                ImageView.ScaleType.CENTER_INSIDE
-        );
-
-        card.addView(
-                image,
-                new LinearLayout.LayoutParams(
-                        dp(38),
-                        dp(38)
-                )
-        );
-
-        TextView label = text(
-                title,
-                9,
-                "#0B3A78",
-                true
-        );
-
+        TextView label = text(title, 9, "#0B3A78", true);
         label.setGravity(Gravity.CENTER);
         label.setSingleLine(true);
-
-        LinearLayout.LayoutParams labelLp =
-                new LinearLayout.LayoutParams(-1, -2);
-
-        labelLp.setMargins(
-                0,
-                dp(4),
-                0,
-                0
-        );
-
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(-1, -2);
+        labelLp.setMargins(0, dp(5), 0, 0);
         card.addView(label, labelLp);
 
-        card.setOnClickListener(
-                view -> action.run()
-        );
+        card.setOnClickListener(view -> {
+            view.animate().scaleX(0.94f).scaleY(0.94f).setDuration(75L)
+                    .withEndAction(() -> view.animate().scaleX(1f).scaleY(1f).setDuration(110L).start())
+                    .start();
+            recordServiceUsage(title);
+            action.run();
+        });
 
         return card;
+    }
+
+    private void recordServiceUsage(String serviceName) {
+        if (serviceName == null || serviceName.trim().isEmpty()
+                || "Lainnya".equalsIgnoreCase(serviceName)) {
+            return;
+        }
+        SharedPreferences prefs = getSharedPreferences(PREF_SMART_USAGE, MODE_PRIVATE);
+        String key = "count_" + serviceName.toLowerCase(Locale.ROOT);
+        int count = prefs.getInt(key, 0) + 1;
+        prefs.edit()
+                .putInt(key, count)
+                .putString("last_service", serviceName)
+                .putLong("last_used_at", System.currentTimeMillis())
+                .apply();
+    }
+
+    private String favoriteServiceKey() {
+        SharedPreferences prefs = getSharedPreferences(PREF_SMART_USAGE, MODE_PRIVATE);
+        String[] services = {"TransRide", "TransCar", "TransFood", "TransTour", "Laundry", "Pickup", "TransMart"};
+        String favorite = "";
+        int best = 0;
+        for (String service : services) {
+            int count = prefs.getInt("count_" + service.toLowerCase(Locale.ROOT), 0);
+            if (count > best) {
+                best = count;
+                favorite = service;
+            }
+        }
+        if (best <= 0) {
+            return first(prefs.getString("last_service", ""), "");
+        }
+        return favorite;
+    }
+
+    private void openTrackedService(String serviceName) {
+        recordServiceUsage(serviceName);
+        if ("TransRide".equalsIgnoreCase(serviceName)) {
+            startActivity(new Intent(this, TransRideActivity.class));
+        } else if ("TransCar".equalsIgnoreCase(serviceName)) {
+            startActivity(new Intent(this, PassengerCarActivity.class));
+        } else if ("TransFood".equalsIgnoreCase(serviceName)) {
+            startActivity(new Intent(this, TransFoodActivity.class));
+        } else if ("TransTour".equalsIgnoreCase(serviceName)) {
+            startActivity(new Intent(this, TranstourActivity.class));
+        } else if ("Laundry".equalsIgnoreCase(serviceName)) {
+            startActivity(new Intent(this, TransLaundryActivity.class));
+        } else if ("Pickup".equalsIgnoreCase(serviceName)) {
+            startActivity(new Intent(this, TransPickupActivity.class));
+        } else if ("TransMart".equalsIgnoreCase(serviceName)) {
+            Toast.makeText(this, "TransMart segera tersedia", Toast.LENGTH_SHORT).show();
+        } else {
+            startActivity(new Intent(this, TransRideActivity.class));
+        }
     }
 
     private void buildOrderSection() {
@@ -1582,6 +1663,10 @@ public class CustomerDashboardActivity extends Activity
         );
 
         item.setGravity(Gravity.CENTER);
+        item.setPadding(dp(4), dp(4), dp(4), dp(4));
+        if (active) {
+            item.setBackground(Shape.round("#EAF4FF", dp(18)));
+        }
 
         ImageView image = new ImageView(this);
         image.setImageResource(drawable(icon));
@@ -1622,9 +1707,13 @@ public class CustomerDashboardActivity extends Activity
         item.addView(title, titleLp);
 
         if (action != null) {
-            item.setOnClickListener(
-                    view -> action.run()
-            );
+            item.setOnClickListener(view -> {
+                view.animate().scaleX(0.92f).scaleY(0.92f).setDuration(70L)
+                        .withEndAction(() -> {
+                            view.animate().scaleX(1f).scaleY(1f).setDuration(100L).start();
+                            action.run();
+                        }).start();
+            });
         }
 
         return item;

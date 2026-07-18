@@ -172,6 +172,16 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
             String url,
             Map<String, String> data
     ) {
+        TransivaNotificationStore.add(
+                this,
+                type,
+                title,
+                body,
+                orderId,
+                roomId,
+                url
+        );
+
         String channelId = channelForType(type);
 
         Intent intent = buildOpenIntent(
