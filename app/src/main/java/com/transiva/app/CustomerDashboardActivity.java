@@ -36,6 +36,7 @@ import com.transiva.app.customer.presentation.CustomerDashboardPresenter;
 import org.json.JSONObject;
 
 import java.text.NumberFormat;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Locale;
 
@@ -58,6 +59,15 @@ public class CustomerDashboardActivity extends Activity
     private TextView orderText;
     private TextView orderHint;
     private TextView verificationText;
+    private TextView greetingText;
+    private TextView aiTitleText;
+    private TextView aiMessageText;
+    private TextView aiActionText;
+    private LinearLayout aiCard;
+    private Runnable aiAction;
+    private double currentBalance;
+    private String currentOrderText = "Belum ada pesanan aktif";
+    private String currentLocation = "Lokasi saya";
 
     private LinearLayout promoSection;
     private TextView promoHeader;
@@ -149,6 +159,11 @@ public class CustomerDashboardActivity extends Activity
         if (recommendationController != null) {
             recommendationController.refresh();
         }
+
+        if (greetingText != null) {
+            greetingText.setText(timeGreeting());
+        }
+        refreshSmartRecommendation();
     }
 
     @Override
@@ -235,6 +250,7 @@ public class CustomerDashboardActivity extends Activity
         );
 
         buildHeader();
+        buildSmartRecommendation();
         buildWalletCard();
         buildPromoSection();
         buildServiceSection();
@@ -262,164 +278,243 @@ public class CustomerDashboardActivity extends Activity
     }
 
     private void buildHeader() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        content.addView(
-                row,
-                new LinearLayout.LayoutParams(-1, -2)
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setPadding(dp(16), dp(15), dp(16), dp(14));
+        header.setBackground(
+                Shape.gradient("#075EF4", "#22A4FF", dp(24))
         );
+        header.setElevation(dp(4));
 
-        LinearLayout left = new LinearLayout(this);
-        left.setOrientation(LinearLayout.VERTICAL);
-
-        row.addView(
-                left,
-                new LinearLayout.LayoutParams(0, -2, 1)
-        );
-
-        left.addView(
-                text(
-                        "Selamat datang 👋",
-                        12,
-                        "#64748B",
-                        false
-                )
-        );
-
-        TextView name = text(
-                username.toLowerCase(Locale.getDefault()),
-                23,
-                "#0B3A78",
-                true
-        );
-
-        LinearLayout.LayoutParams nameLp =
+        LinearLayout.LayoutParams headerLp =
                 new LinearLayout.LayoutParams(-1, -2);
+        headerLp.setMargins(0, 0, 0, dp(12));
+        content.addView(header, headerLp);
 
-        nameLp.setMargins(
-                0,
-                dp(1),
-                0,
-                dp(4)
-        );
+        LinearLayout topRow = new LinearLayout(this);
+        topRow.setOrientation(LinearLayout.HORIZONTAL);
+        topRow.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(topRow, new LinearLayout.LayoutParams(-1, -2));
 
-        left.addView(name, nameLp);
+        LinearLayout identity = new LinearLayout(this);
+        identity.setOrientation(LinearLayout.VERTICAL);
+        topRow.addView(identity, new LinearLayout.LayoutParams(0, -2, 1));
+
+        greetingText = text(timeGreeting(), 12, "#EAF4FF", false);
+        identity.addView(greetingText);
+
+        TextView name = text(formatDisplayName(username) + " 👋", 22, "#FFFFFF", true);
+        LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(-1, -2);
+        nameLp.setMargins(0, dp(2), 0, dp(6));
+        identity.addView(name, nameLp);
 
         boolean verified = isVerifiedUser();
-
         verificationText = text(
-                verified
-                        ? "✓ Terverifikasi"
-                        : "• Belum Terverifikasi",
+                verified ? "✓ Akun terverifikasi" : "• Verifikasi akun",
                 10,
-                verified
-                        ? "#0E9F4B"
-                        : "#D97706",
+                "#FFFFFF",
                 true
         );
-
-        verificationText.setPadding(
-                dp(8),
-                dp(4),
-                dp(8),
-                dp(4)
-        );
-
+        verificationText.setPadding(dp(9), dp(5), dp(9), dp(5));
         verificationText.setBackground(
-                Shape.round(
-                        verified
-                                ? "#EAFBF1"
-                                : "#FFF7E6",
-                        dp(12)
-                )
-        );
-
-        left.addView(
-                verificationText,
-                new LinearLayout.LayoutParams(-2, -2)
-        );
-
-        LinearLayout locationCard =
-                new LinearLayout(this);
-
-        locationCard.setOrientation(
-                LinearLayout.HORIZONTAL
-        );
-
-        locationCard.setGravity(
-                Gravity.CENTER_VERTICAL
-        );
-
-        locationCard.setPadding(
-                dp(7),
-                dp(6),
-                dp(8),
-                dp(6)
-        );
-
-        locationCard.setBackground(
                 Shape.roundStroke(
-                        "#FFFFFF",
-                        "#DFEAF6",
-                        dp(16),
+                        verified ? "#1AFFFFFF" : "#26FFF4D6",
+                        verified ? "#70FFFFFF" : "#FFFFD166",
+                        dp(13),
                         1
                 )
         );
+        verificationText.setOnClickListener(view -> {
+            if (!verified) {
+                Toast.makeText(this, "Lengkapi verifikasi melalui menu Akun", Toast.LENGTH_SHORT).show();
+            }
+        });
+        identity.addView(verificationText, new LinearLayout.LayoutParams(-2, -2));
 
-        locationCard.setElevation(dp(2));
-        locationCard.setOnClickListener(
-                view -> loadLocation()
-        );
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        topRow.addView(actions, new LinearLayout.LayoutParams(-2, -2));
+
+        actions.addView(headerAction("🔔", "Notifikasi", () ->
+                startActivity(new Intent(this, CustomerHistoryActivity.class))));
+
+        LinearLayout.LayoutParams chatLp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        chatLp.setMargins(dp(8), 0, 0, 0);
+        View chat = headerAction("💬", "Chat", () ->
+                startActivity(new Intent(this, CustomerChatActivity.class)));
+        actions.addView(chat, chatLp);
+
+        View divider = new View(this);
+        divider.setBackgroundColor(Color.parseColor("#3DFFFFFF"));
+        LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(-1, dp(1));
+        dividerLp.setMargins(0, dp(14), 0, dp(12));
+        header.addView(divider, dividerLp);
+
+        LinearLayout locationCard = new LinearLayout(this);
+        locationCard.setOrientation(LinearLayout.HORIZONTAL);
+        locationCard.setGravity(Gravity.CENTER_VERTICAL);
+        locationCard.setPadding(dp(10), dp(9), dp(10), dp(9));
+        locationCard.setBackground(Shape.round("#20FFFFFF", dp(16)));
+        locationCard.setOnClickListener(view -> loadLocation());
 
         ImageView pin = new ImageView(this);
-        pin.setImageResource(
-                drawable("ic_location_pin")
-        );
+        pin.setImageResource(drawable("ic_location_pin"));
+        pin.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        locationCard.addView(pin, new LinearLayout.LayoutParams(dp(30), dp(30)));
 
-        pin.setScaleType(
-                ImageView.ScaleType.CENTER_INSIDE
-        );
+        LinearLayout locationTexts = new LinearLayout(this);
+        locationTexts.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams locationTextsLp = new LinearLayout.LayoutParams(0, -2, 1);
+        locationTextsLp.setMargins(dp(7), 0, dp(6), 0);
+        locationCard.addView(locationTexts, locationTextsLp);
 
-        locationCard.addView(
-                pin,
-                new LinearLayout.LayoutParams(
-                        dp(28),
-                        dp(28)
-                )
-        );
-
-        locationText = text(
-                "Memuat...",
-                10,
-                "#0B3A78",
-                true
-        );
-
+        locationTexts.addView(text("Lokasi Anda", 9, "#D9EDFF", false));
+        locationText = text("Memuat lokasi...", 12, "#FFFFFF", true);
         locationText.setSingleLine(true);
-        locationText.setPadding(
-                dp(4),
-                0,
-                0,
-                0
-        );
+        locationTexts.addView(locationText);
 
-        locationCard.addView(
-                locationText,
-                new LinearLayout.LayoutParams(
-                        dp(70),
-                        -2
-                )
-        );
+        TextView change = text("Perbarui ›", 10, "#FFFFFF", true);
+        locationCard.addView(change, new LinearLayout.LayoutParams(-2, -2));
+        header.addView(locationCard, new LinearLayout.LayoutParams(-1, -2));
+    }
 
-        row.addView(
-                locationCard,
-                new LinearLayout.LayoutParams(
-                        dp(110),
-                        dp(48)
-                )
-        );
+    private View headerAction(String symbol, String description, Runnable action) {
+        TextView button = text(symbol, 19, "#FFFFFF", false);
+        button.setGravity(Gravity.CENTER);
+        button.setContentDescription(description);
+        button.setBackground(Shape.roundStroke("#1AFFFFFF", "#55FFFFFF", dp(14), 1));
+        button.setOnClickListener(view -> action.run());
+        button.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(44)));
+        return button;
+    }
+
+    private void buildSmartRecommendation() {
+        aiCard = new LinearLayout(this);
+        aiCard.setOrientation(LinearLayout.HORIZONTAL);
+        aiCard.setGravity(Gravity.CENTER_VERTICAL);
+        aiCard.setPadding(dp(13), dp(12), dp(12), dp(12));
+        aiCard.setBackground(Shape.roundStroke("#FFFFFF", "#D9E9FF", dp(19), 1));
+        aiCard.setElevation(dp(2));
+
+        LinearLayout.LayoutParams cardLp = new LinearLayout.LayoutParams(-1, -2);
+        cardLp.setMargins(0, 0, 0, dp(13));
+        content.addView(aiCard, cardLp);
+
+        TextView icon = text("✦", 23, "#0B7CFF", true);
+        icon.setGravity(Gravity.CENTER);
+        icon.setBackground(Shape.round("#EAF4FF", dp(18)));
+        aiCard.addView(icon, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(0, -2, 1);
+        copyLp.setMargins(dp(11), 0, dp(8), 0);
+        aiCard.addView(copy, copyLp);
+
+        aiTitleText = text("Transiva AI", 12, "#0B3A78", true);
+        copy.addView(aiTitleText);
+
+        aiMessageText = text("Menyiapkan rekomendasi terbaik untuk Anda...", 11, "#64748B", false);
+        aiMessageText.setMaxLines(2);
+        LinearLayout.LayoutParams messageLp = new LinearLayout.LayoutParams(-1, -2);
+        messageLp.setMargins(0, dp(3), 0, 0);
+        copy.addView(aiMessageText, messageLp);
+
+        aiActionText = text("Lihat ›", 10, "#FFFFFF", true);
+        aiActionText.setGravity(Gravity.CENTER);
+        aiActionText.setPadding(dp(10), dp(8), dp(10), dp(8));
+        aiActionText.setBackground(Shape.round("#0B7CFF", dp(13)));
+        aiCard.addView(aiActionText, new LinearLayout.LayoutParams(-2, -2));
+
+        View.OnClickListener listener = view -> {
+            if (aiAction != null) aiAction.run();
+        };
+        aiCard.setOnClickListener(listener);
+        aiActionText.setOnClickListener(listener);
+        refreshSmartRecommendation();
+    }
+
+    private void refreshSmartRecommendation() {
+        if (aiMessageText == null) return;
+
+        Calendar calendar = Calendar.getInstance();
+        int hour = calendar.get(Calendar.HOUR_OF_DAY);
+        int day = calendar.get(Calendar.DAY_OF_WEEK);
+        boolean weekend = day == Calendar.SATURDAY || day == Calendar.SUNDAY;
+        boolean activeOrder = isActiveOrderText(currentOrderText);
+
+        String title;
+        String message;
+        String button;
+        Runnable action;
+
+        if (activeOrder) {
+            title = "Pesanan sedang berjalan";
+            message = currentOrderText + ". Pantau aktivitas terbaru pesanan Anda.";
+            button = "Pantau ›";
+            action = () -> startActivity(new Intent(this, CustomerHistoryActivity.class));
+        } else if (currentBalance > 0 && currentBalance < 20000) {
+            title = "Saldo Transiva Pay menipis";
+            message = "Isi saldo sekarang agar pembayaran layanan berikutnya tetap lancar.";
+            button = "Top Up ›";
+            action = () -> startActivity(new Intent(this, CustomerTopUpActivity.class));
+        } else if (weekend && hour >= 8 && hour < 18) {
+            title = "Ide untuk akhir pekan";
+            message = "Jelajahi destinasi menarik dari " + first(currentLocation, "lokasi Anda") + " bersama TransTour.";
+            button = "Jelajahi ›";
+            action = () -> startActivity(new Intent(this, TranstourActivity.class));
+        } else if (hour >= 10 && hour < 14) {
+            title = "Waktunya makan siang 🍜";
+            message = "Temukan menu favorit dan merchant terdekat lewat TransFood.";
+            button = "Pesan ›";
+            action = () -> startActivity(new Intent(this, TransFoodActivity.class));
+        } else if (hour >= 17 && hour < 21) {
+            title = "Perjalanan pulang lebih mudah";
+            message = "Pesan TransRide dari " + first(currentLocation, "lokasi Anda") + " tanpa perlu menunggu lama.";
+            button = "Ride ›";
+            action = () -> startActivity(new Intent(this, TransRideActivity.class));
+        } else if (hour >= 21 || hour < 5) {
+            title = "Perjalanan malam yang praktis 🌙";
+            message = "Gunakan TransCar untuk perjalanan yang lebih nyaman malam ini.";
+            button = "TransCar ›";
+            action = () -> startActivity(new Intent(this, PassengerCarActivity.class));
+        } else {
+            title = "Mulai hari bersama Transiva ☀️";
+            message = "Butuh kendaraan dari " + first(currentLocation, "lokasi Anda") + "? Driver TransRide siap membantu.";
+            button = "Pesan ›";
+            action = () -> startActivity(new Intent(this, TransRideActivity.class));
+        }
+
+        aiTitleText.setText(title);
+        aiMessageText.setText(message);
+        aiActionText.setText(button);
+        aiAction = action;
+
+        aiCard.setAlpha(0f);
+        aiCard.animate().alpha(1f).setDuration(280L).start();
+    }
+
+    private String timeGreeting() {
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        if (hour < 11) return "Selamat pagi";
+        if (hour < 15) return "Selamat siang";
+        if (hour < 18) return "Selamat sore";
+        return "Selamat malam";
+    }
+
+    private String formatDisplayName(String value) {
+        String clean = first(value, "User");
+        if (clean.isEmpty()) return "User";
+        String[] words = clean.toLowerCase(new Locale("id", "ID")).split("\\s+");
+        StringBuilder output = new StringBuilder();
+        for (String word : words) {
+            if (word.isEmpty()) continue;
+            if (output.length() > 0) output.append(' ');
+            output.append(Character.toUpperCase(word.charAt(0)));
+            if (word.length() > 1) output.append(word.substring(1));
+        }
+        return output.length() == 0 ? "User" : output.toString();
     }
 
     private boolean isVerifiedUser() {
@@ -1687,9 +1782,11 @@ public class CustomerDashboardActivity extends Activity
                     String finalResult = result;
 
                     runOnUiThread(
-                            () -> locationText.setText(
-                                    finalResult
-                            )
+                            () -> {
+                                currentLocation = finalResult;
+                                locationText.setText(finalResult);
+                                refreshSmartRecommendation();
+                            }
                     );
                 }
         ).start();
@@ -1714,6 +1811,7 @@ public class CustomerDashboardActivity extends Activity
             return;
         }
 
+        currentBalance = state.balance;
         balanceText.setText(
                 rupiah(state.balance)
         );
@@ -1724,6 +1822,7 @@ public class CustomerDashboardActivity extends Activity
                         "Belum ada pesanan aktif"
                 );
 
+        currentOrderText = activeOrderText;
         orderText.setText(activeOrderText);
 
         boolean hasActiveOrder =
@@ -1738,6 +1837,7 @@ public class CustomerDashboardActivity extends Activity
         }
 
         renderPromos(state.promos);
+        refreshSmartRecommendation();
     }
 
     @Override
