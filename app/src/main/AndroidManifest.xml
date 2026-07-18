@@ -161,6 +161,12 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".CustomerNotificationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".CustomerChatActivity"
             android:exported="false"
             android:screenOrientation="portrait"
