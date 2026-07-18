@@ -76,10 +76,24 @@ public class LocationService extends Service {
             return START_NOT_STICKY;
         }
 
-        startForeground(NOTIFICATION_ID,
-                notification("Menyiapkan lokasi driver…"));
-
+        // Jangan masuk foreground-location mode bila syarat tracking belum
+        // terpenuhi. Ini penting di Android 12-14+: memulai foreground service
+        // lokasi tanpa kondisi/izin yang siap dapat melempar SecurityException
+        // dan menutup proses aplikasi saat driver baru login.
         if (!canTrack()) {
+            stopTracking();
+            return START_NOT_STICKY;
+        }
+
+        try {
+            startForeground(NOTIFICATION_ID,
+                    notification("Menyiapkan lokasi driver…"));
+        } catch (SecurityException error) {
+            Log.e(TAG, "Foreground location service ditolak; dashboard tetap berjalan", error);
+            stopTracking();
+            return START_NOT_STICKY;
+        } catch (Exception error) {
+            Log.e(TAG, "Gagal memulai foreground location service", error);
             stopTracking();
             return START_NOT_STICKY;
         }
@@ -92,7 +106,19 @@ public class LocationService extends Service {
         return session.isLoggedIn()
                 && "driver".equals(session.normalizeRole(session.getRole()))
                 && "1".equals(session.get("driver_server_online"))
-                && hasPermission();
+                && hasPermission()
+                && isLocationProviderEnabled();
+    }
+
+    private boolean isLocationProviderEnabled() {
+        if (locationManager == null) return false;
+        try {
+            return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                    || locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+        } catch (Exception error) {
+            Log.w(TAG, "Tidak dapat membaca status provider lokasi", error);
+            return false;
+        }
     }
 
     private void requestUpdates() {

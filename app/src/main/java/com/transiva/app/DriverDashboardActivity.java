@@ -386,7 +386,12 @@ public class DriverDashboardActivity extends Activity
 
         session.put("driver_server_online", state.online ? "1" : "0");
 
-        if (state.online) {
+        // Status ONLINE dari server tidak boleh membuat aplikasi crash ketika
+        // driver login kembali saat GPS/lokasi sedang mati. Driver tetap boleh
+        // masuk ke dashboard; tracking baru dijalankan setelah izin + provider
+        // lokasi benar-benar tersedia. Status ONLINE server tetap dipertahankan.
+        boolean locationReady = hasLocationPermission() && isLocationProviderEnabled();
+        if (state.online && locationReady) {
             DriverServiceController.start(this);
         } else {
             DriverServiceController.stop(this);
@@ -394,7 +399,9 @@ public class DriverDashboardActivity extends Activity
 
         readinessText.setText(
                 state.online
-                        ? "Online • lokasi driver dijaga oleh foreground service."
+                        ? (locationReady
+                            ? "Online • lokasi driver dijaga oleh foreground service."
+                            : "Online • GPS/lokasi mati. Login tetap aktif, tetapi pengiriman lokasi dijeda sampai GPS dinyalakan.")
                         : "Offline • lokasi tidak dikirim dan order tidak ditawarkan."
         );
 
