@@ -51,7 +51,8 @@ public class SplashActivity extends Activity {
         if (!session.isLoggedIn()) {
             intent = new Intent(this, LoginActivity.class);
         } else {
-            intent = dashboardIntent(session.getRole());
+            intent = new Intent(this, PinActivity.class);
+            intent.putExtra("native_role", session.getRole());
         }
 
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);

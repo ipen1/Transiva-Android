@@ -375,7 +375,7 @@ public class LoginActivity extends Activity {
                 String finalRole = role;
 
                 mainHandler.postDelayed(
-                        () -> openRolePage(finalRole),
+                        () -> openPinPage(finalRole),
                         500
                 );
             });
@@ -739,6 +739,18 @@ public class LoginActivity extends Activity {
             new SessionManager(this)
                     .saveFcmToken(cleanToken);
         } catch (Exception ignored) {}
+    }
+
+    private void openPinPage(String role) {
+        Intent intent = new Intent(this, PinActivity.class);
+        intent.putExtra("native_role", normalizeRole(role));
+        intent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+        );
+        startActivity(intent);
+        finish();
     }
 
     private void openRolePage(String role) {
