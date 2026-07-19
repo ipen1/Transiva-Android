@@ -878,6 +878,25 @@ public class ProfileActivity extends Activity {
                 fieldLp()
         );
 
+        Button changePinButton =
+                outlineButton(
+                        "Ubah PIN"
+                );
+
+        changePinButton.setOnClickListener(
+                view -> startActivity(
+                        new Intent(
+                                ProfileActivity.this,
+                                ChangePinActivity.class
+                        )
+                )
+        );
+
+        card.addView(
+                changePinButton,
+                buttonLp()
+        );
+
         Button appSettings =
                 outlineButton(
                         "Buka Pengaturan Aplikasi"
