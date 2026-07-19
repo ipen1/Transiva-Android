@@ -50,6 +50,7 @@ public class PinActivity extends Activity {
     private TextView actionHintText;
     private ProgressBar progressBar;
     private LinearLayout keypadContainer;
+    private LinearLayout pinContentRoot;
 
     private boolean loading;
     private boolean setupMode;
@@ -96,6 +97,8 @@ public class PinActivity extends Activity {
         page.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout root = new LinearLayout(this);
+        pinContentRoot = root;
+        root.setVisibility(View.INVISIBLE);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         root.setPadding(dp(22), dp(28), dp(22), dp(30));
@@ -305,6 +308,9 @@ public class PinActivity extends Activity {
         new Thread(() -> {
             ApiResult result = request(STATUS_URL, null);
             mainHandler.post(() -> {
+                if (pinContentRoot != null) {
+                    pinContentRoot.setVisibility(View.VISIBLE);
+                }
                 setLoading(false);
 
                 if (!result.success) {
@@ -351,6 +357,9 @@ public class PinActivity extends Activity {
         new Thread(() -> {
             ApiResult result = request(SET_URL, body);
             mainHandler.post(() -> {
+                if (pinContentRoot != null) {
+                    pinContentRoot.setVisibility(View.VISIBLE);
+                }
                 setLoading(false);
 
                 if (!result.success) {
@@ -386,6 +395,9 @@ public class PinActivity extends Activity {
         new Thread(() -> {
             ApiResult result = request(VERIFY_URL, body);
             mainHandler.post(() -> {
+                if (pinContentRoot != null) {
+                    pinContentRoot.setVisibility(View.VISIBLE);
+                }
                 setLoading(false);
 
                 if (!result.success) {
@@ -472,7 +484,10 @@ public class PinActivity extends Activity {
                             : "Permintaan PIN gagal."
             );
 
-            if (status == 401 || status == 403 || ForceLogoutManager.isForceLogoutCode(code)) {
+            // Jangan logout hanya karena HTTP 401/403 generik.
+            // Endpoint PIN dapat memakai status tersebut untuk error PIN;
+            // logout hanya untuk kode sesi/perangkat yang memang final.
+            if (ForceLogoutManager.isForceLogoutCode(code)) {
                 mainHandler.post(() ->
                         ForceLogoutManager.execute(
                                 PinActivity.this,
