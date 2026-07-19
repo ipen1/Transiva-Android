@@ -141,6 +141,13 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".ChangePinActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".LoginActivity"
             android:exported="false"
             android:screenOrientation="portrait"
