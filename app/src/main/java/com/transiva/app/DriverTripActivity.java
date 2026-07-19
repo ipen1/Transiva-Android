@@ -191,8 +191,12 @@ public class DriverTripActivity extends Activity {
     }
     private void renderOrder(){
         root.removeAllViews(); top("Driver Trip", "Status perjalanan order native");
-        addHeaderCard(); addLocationCard("📍 Lokasi Pickup", pickupAddress(), true); addLocationCard("🏁 Lokasi Delivery", deliveryAddress(), false);
-        addMapCard(); addFoodOrNoteCard(); addActions();
+        addHeaderCard();
+        // Aksi utama ditempatkan langsung setelah ringkasan agar selalu terlihat tanpa harus scroll ke bawah.
+        addActions();
+        addLocationCard("📍 Lokasi Pickup", pickupAddress(), true);
+        addLocationCard("🏁 Lokasi Delivery", deliveryAddress(), false);
+        addMapCard(); addFoodOrNoteCard();
     }
     private void top(String title, String sub){
         LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0,0,0,dp(14));
@@ -334,14 +338,22 @@ public class DriverTripActivity extends Activity {
         r.addView(text(l, 14, "#64748B", false), new LinearLayout.LayoutParams(0,-2,1)); r.addView(text(v, 14, "#111827", true)); p.addView(r);
     }
     private void addActions(){
-        LinearLayout c = card(); c.setPadding(dp(16), dp(16), dp(16), dp(16)); c.addView(text("⚡ Aksi Perjalanan", 18, "#0B3A78", true));
-        Button chat = primary("💬 Chat Customer"); chat.setOnClickListener(v -> openChat()); c.addView(chat, btnLp(12));
-        arrivedPickupBtn = green("📍 Tiba di Lokasi Pickup"); arrivedPickupBtn.setOnClickListener(v -> confirm("Tiba di lokasi pickup?", "arrived_pickup")); c.addView(arrivedPickupBtn, btnLp(10));
-        startDeliveryBtn = green(orderKind.equals("pickup") ? "📦 Paket Sudah Diambil" : vehicleEmoji() + " Lanjutkan Perjalanan"); startDeliveryBtn.setOnClickListener(v -> confirm("Mulai perjalanan ke lokasi delivery?", "on_delivery")); c.addView(startDeliveryBtn, btnLp(10));
-        arrivedDeliveryBtn = green("🏁 Tiba di Lokasi Delivery"); arrivedDeliveryBtn.setOnClickListener(v -> confirm("Tiba di lokasi delivery?", "arrived_delivery")); c.addView(arrivedDeliveryBtn, btnLp(10));
-        finishBtn = green("✅ Selesaikan Order"); finishBtn.setOnClickListener(v -> confirm("Selesaikan order ini sekarang?", "finished")); c.addView(finishBtn, btnLp(10));
-        Button back = outline("← Kembali ke Dashboard"); back.setOnClickListener(v -> finish()); c.addView(back, btnLp(10));
-        add(c,0,0,0,dp(18));
+        LinearLayout c = card(); c.setPadding(dp(16), dp(16), dp(16), dp(16));
+        c.addView(text("⚡ Aksi Perjalanan", 18, "#0B3A78", true));
+        TextView guide = text("Tombol hijau menunjukkan aksi berikutnya. Aksi tiba tetap terlihat dan akan aktif otomatis saat driver mendekati titik tujuan.", 12, "#64748B", false);
+        guide.setPadding(0, dp(5), 0, dp(2)); c.addView(guide);
+
+        arrivedPickupBtn = green("📍 Tiba di Lokasi Pickup"); arrivedPickupBtn.setOnClickListener(v -> confirm("Konfirmasi bahwa Anda sudah tiba di lokasi pickup?", "arrived_pickup")); c.addView(arrivedPickupBtn, btnLp(10));
+        startDeliveryBtn = green(orderKind.equals("pickup") ? "📦 Paket Sudah Diambil • Mulai Antar" : vehicleEmoji() + " Mulai Perjalanan ke Tujuan"); startDeliveryBtn.setOnClickListener(v -> confirm("Pesanan sudah siap dan mulai perjalanan ke lokasi pengantaran?", "on_delivery")); c.addView(startDeliveryBtn, btnLp(10));
+        arrivedDeliveryBtn = green("🏁 Tiba di Lokasi Pengantaran"); arrivedDeliveryBtn.setOnClickListener(v -> confirm("Konfirmasi bahwa Anda sudah tiba di lokasi pengantaran?", "arrived_delivery")); c.addView(arrivedDeliveryBtn, btnLp(10));
+        finishBtn = green("✅ Pesanan Diterima • Selesaikan Order"); finishBtn.setOnClickListener(v -> confirm("Pastikan pesanan sudah diterima customer. Selesaikan order sekarang?", "finished")); c.addView(finishBtn, btnLp(10));
+
+        LinearLayout quick = new LinearLayout(this); quick.setOrientation(LinearLayout.HORIZONTAL);
+        Button chat = primary("💬 Chat"); chat.setOnClickListener(v -> openChat()); quick.addView(chat, new LinearLayout.LayoutParams(0, dp(50), 1));
+        Button nav = outline("➤ Navigasi"); nav.setOnClickListener(v -> openLeafletNavigation(!isDeliveryPhase(status())));
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(0, dp(50), 1); np.setMargins(dp(8),0,0,0); quick.addView(nav, np);
+        LinearLayout.LayoutParams qp = new LinearLayout.LayoutParams(-1,-2); qp.setMargins(0,dp(10),0,0); c.addView(quick, qp);
+        add(c,0,0,0,dp(12));
     }
     private void startLocationWatch(){
         if(order == null) return;
@@ -449,13 +461,89 @@ public class DriverTripActivity extends Activity {
         }catch(Exception ignored){}
     }
     private void refreshButtons(){
-        if(arrivedPickupBtn==null) return; String st = status(); arrivedPickupBtn.setVisibility(View.GONE); startDeliveryBtn.setVisibility(View.GONE); arrivedDeliveryBtn.setVisibility(View.GONE); finishBtn.setVisibility(View.GONE); if(statusBadge != null) statusBadge.setText(statusLabel(st));
-        if(st.equals("taken")){ float pd = distanceTo(coord("pickup_lat","user_lat"), coord("pickup_lng","user_lng")); if(pd >= 0){ distanceInfo.setText("📍 Jarak ke pickup: " + meter(pd)); distanceHint.setText(pd <= ARRIVE_RADIUS_METER ? "✓ Kamu sudah dekat pickup. Tombol tiba pickup aktif." : "Tombol tiba pickup aktif saat jarak ≤ " + (int)ARRIVE_RADIUS_METER + " meter."); if(pd <= ARRIVE_RADIUS_METER) arrivedPickupBtn.setVisibility(View.VISIBLE); } else { distanceInfo.setText("📡 Menunggu GPS untuk mengukur jarak pickup..."); distanceHint.setText("Pastikan GPS aktif dan izin lokasi diberikan."); arrivedPickupBtn.setVisibility(View.VISIBLE); } return; }
-        if(st.equals("arrived_pickup")){ distanceInfo.setText("✅ Driver sudah tiba di pickup."); distanceHint.setText("Lanjutkan perjalanan setelah pesanan siap."); startDeliveryBtn.setVisibility(View.VISIBLE); return; }
-        if(st.equals("on_delivery")){ float dd = distanceTo(coord("delivery_lat","destination_lat"), coord("delivery_lng","destination_lng")); if(dd >= 0){ distanceInfo.setText("🏁 Jarak ke delivery: " + meter(dd)); distanceHint.setText(dd <= ARRIVE_RADIUS_METER ? "✓ Kamu sudah dekat delivery. Tombol tiba delivery aktif." : "Tombol tiba delivery aktif saat jarak ≤ " + (int)ARRIVE_RADIUS_METER + " meter."); if(dd <= ARRIVE_RADIUS_METER) arrivedDeliveryBtn.setVisibility(View.VISIBLE); } else { distanceInfo.setText("📡 Menunggu GPS untuk mengukur jarak delivery..."); distanceHint.setText("Pastikan GPS aktif."); arrivedDeliveryBtn.setVisibility(View.VISIBLE); } return; }
-        if(st.equals("arrived_delivery")){ distanceInfo.setText("🏁 Driver sudah tiba di delivery."); distanceHint.setText("Selesaikan order setelah pesanan diterima customer."); finishBtn.setVisibility(View.VISIBLE); return; }
-        if(st.equals("finished")||st.equals("completed")){ distanceInfo.setText("✅ Order selesai."); distanceHint.setText("Terima kasih."); }
+        if(arrivedPickupBtn == null) return;
+        String st = status();
+
+        hideAction(arrivedPickupBtn);
+        hideAction(startDeliveryBtn);
+        hideAction(arrivedDeliveryBtn);
+        hideAction(finishBtn);
+        if(statusBadge != null) statusBadge.setText(statusLabel(st));
+
+        if(st.equals("taken")){
+            showAction(arrivedPickupBtn, false);
+            float pd = distanceTo(coord("pickup_lat","user_lat"), coord("pickup_lng","user_lng"));
+            if(pd >= 0){
+                boolean near = pd <= ARRIVE_RADIUS_METER;
+                showAction(arrivedPickupBtn, near);
+                distanceInfo.setText("📍 Jarak ke pickup: " + meter(pd));
+                distanceHint.setText(near ? "✓ Anda sudah berada di area pickup. Tekan tombol Tiba di Lokasi Pickup." : "Menuju pickup • tombol akan aktif dalam radius " + (int)ARRIVE_RADIUS_METER + " meter.");
+            }else{
+                // Jangan menghilangkan aksi ketika GPS belum mendapatkan fix. Driver tetap melihat tahap berikutnya.
+                showAction(arrivedPickupBtn, true);
+                distanceInfo.setText("📡 GPS belum mendapatkan posisi akurat.");
+                distanceHint.setText("Tombol tiba tersedia sebagai konfirmasi manual. Pastikan Anda benar-benar sudah berada di lokasi pickup.");
+            }
+            return;
+        }
+        if(st.equals("arrived_pickup")){
+            showAction(startDeliveryBtn, true);
+            distanceInfo.setText("✅ Anda sudah tiba di lokasi pickup.");
+            distanceHint.setText(orderKind.equals("pickup") ? "Ambil paket, lalu tekan Mulai Antar." : "Pastikan pesanan sudah siap, lalu mulai perjalanan ke tujuan.");
+            return;
+        }
+        if(st.equals("on_delivery")){
+            showAction(arrivedDeliveryBtn, false);
+            float dd = distanceTo(coord("delivery_lat","destination_lat"), coord("delivery_lng","destination_lng"));
+            if(dd >= 0){
+                boolean near = dd <= ARRIVE_RADIUS_METER;
+                showAction(arrivedDeliveryBtn, near);
+                distanceInfo.setText("🏁 Jarak ke pengantaran: " + meter(dd));
+                distanceHint.setText(near ? "✓ Anda sudah berada di area pengantaran. Tekan tombol Tiba di Lokasi Pengantaran." : "Menuju pengantaran • tombol akan aktif dalam radius " + (int)ARRIVE_RADIUS_METER + " meter.");
+            }else{
+                showAction(arrivedDeliveryBtn, true);
+                distanceInfo.setText("📡 GPS belum mendapatkan posisi akurat.");
+                distanceHint.setText("Tombol tiba tersedia sebagai konfirmasi manual. Pastikan Anda benar-benar sudah sampai di tujuan.");
+            }
+            return;
+        }
+        if(st.equals("arrived_delivery")){
+            showAction(finishBtn, true);
+            distanceInfo.setText("🏁 Anda sudah tiba di lokasi pengantaran.");
+            distanceHint.setText("Serahkan pesanan ke customer. Setelah diterima, tekan Selesaikan Order.");
+            return;
+        }
+        if(st.equals("finished") || st.equals("completed")){
+            distanceInfo.setText("✅ Order selesai.");
+            distanceHint.setText("Perjalanan telah diselesaikan.");
+            return;
+        }
+
+        // Fallback aman: status server yang belum dikenali tidak boleh membuat halaman tanpa tombol aksi.
+        showAction(arrivedPickupBtn, true);
+        distanceInfo.setText("ℹ Status perjalanan: " + statusLabel(st));
+        distanceHint.setText("Status server belum dikenali penuh. Gunakan tombol tiba pickup bila order memang sedang menuju pickup.");
     }
+
+    private void hideAction(Button b){
+        if(b == null) return;
+        b.setVisibility(View.GONE);
+        b.setEnabled(false);
+        b.setAlpha(1f);
+    }
+
+    private void showAction(Button b, boolean enabled){
+        if(b == null) return;
+        b.setVisibility(View.VISIBLE);
+        b.setEnabled(enabled && !updatingStatus);
+        b.setAlpha(enabled ? 1f : 0.48f);
+    }
+
+    private boolean isDeliveryPhase(String st){
+        String n = normalizeStatus(st);
+        return n.equals("arrived_pickup") || n.equals("on_delivery") || n.equals("arrived_delivery") || n.equals("finished") || n.equals("completed");
+    }
+
     private void confirm(String msg, String next){ if(updatingStatus)return; new AlertDialog.Builder(this).setTitle("Konfirmasi").setMessage(msg).setNegativeButton("Batal",null).setPositiveButton("Ya",(d,w)->updateStatus(next)).show(); }
     private void updateStatus(String next){
         updatingStatus = true; setLoading(true);
@@ -549,7 +637,16 @@ public class DriverTripActivity extends Activity {
     private JSONObject postJson(String urlText, JSONObject payload)throws Exception{ HttpURLConnection c=(HttpURLConnection)new URL(urlText).openConnection(); c.setConnectTimeout(TIMEOUT_MS); c.setReadTimeout(TIMEOUT_MS); c.setRequestMethod("POST"); c.setRequestProperty("Content-Type","application/json; charset=utf-8"); c.setRequestProperty("Accept","application/json"); c.setDoOutput(true); OutputStream os=c.getOutputStream(); os.write(payload.toString().getBytes(StandardCharsets.UTF_8)); os.flush(); os.close(); InputStream is=c.getResponseCode()>=400?c.getErrorStream():c.getInputStream(); BufferedReader br=new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8)); StringBuilder sb=new StringBuilder(); String line; while((line=br.readLine())!=null) sb.append(line); br.close(); c.disconnect(); String body=sb.toString().trim(); return body.isEmpty()?new JSONObject():new JSONObject(body); }
     private void saveActiveOrder(){ if(order==null)return; getSharedPreferences(PREF_NAME,MODE_PRIVATE).edit().putString("driver_active_order_json", order.toString()).putString("driver_active_order_id", orderId()).putString("driver_active_order_kind", orderKind).putString("driver_active_order_status", status()).putString("driver_active_pickup_address", pickupAddress()).putString("driver_active_delivery_address", deliveryAddress()).putString("driver_active_pickup_lat", String.valueOf(coord("pickup_lat","user_lat"))).putString("driver_active_pickup_lng", String.valueOf(coord("pickup_lng","user_lng"))).putString("driver_active_delivery_lat", String.valueOf(coord("delivery_lat","destination_lat"))).putString("driver_active_delivery_lng", String.valueOf(coord("delivery_lng","destination_lng"))).putString("driver_active_price", String.valueOf(optDouble("price","fare","total"))).putString("driver_type", resolveDriverTypeFromOrder()).putString("active_driver_type", resolveDriverTypeFromOrder()).apply(); }
     private void clearActiveOrder(){ getSharedPreferences(PREF_NAME,MODE_PRIVATE).edit().remove("driver_active_order_json").remove("driver_active_order_id").remove("driver_active_order_kind").remove("driver_active_order_status").apply(); }
-    private String orderId(){ return first(order.optString("order_id"), order.optString("id"), "-"); } private String internalId(){ return first(order.optString("id"), order.optString("order_id"), ""); } private String status(){ return first(order.optString("status"), "taken").toLowerCase(Locale.US).trim(); }
+    private String orderId(){ return first(order.optString("order_id"), order.optString("id"), "-"); } private String internalId(){ return first(order.optString("id"), order.optString("order_id"), ""); } private String status(){ return normalizeStatus(first(order.optString("status"), "taken")); }
+    private String normalizeStatus(String raw){
+        String s = first(raw, "taken").toLowerCase(Locale.US).trim().replace('-', '_').replace(' ', '_');
+        if(s.equals("accepted") || s.equals("driver_accepted") || s.equals("driver_assigned") || s.equals("assigned") || s.equals("merchant_accepted") || s.equals("processing") || s.equals("confirmed")) return "taken";
+        if(s.equals("arrived") || s.equals("at_pickup") || s.equals("pickup_arrived") || s.equals("arrive_pickup")) return "arrived_pickup";
+        if(s.equals("picked_up") || s.equals("pickedup") || s.equals("start_delivery") || s.equals("delivering") || s.equals("in_delivery") || s.equals("otw_delivery")) return "on_delivery";
+        if(s.equals("at_delivery") || s.equals("delivery_arrived") || s.equals("arrive_delivery")) return "arrived_delivery";
+        if(s.equals("finish") || s.equals("done") || s.equals("success")) return "finished";
+        return s;
+    }
     private String pickupAddress(){ return first(order.optString("pickup_address"), order.optString("pickup"), order.optString("sender_address"), "-"); } private String deliveryAddress(){ return first(order.optString("delivery_address"), order.optString("destination_address"), order.optString("destination"), order.optString("receiver_address"), "-"); }
     private String cleanServiceLabel(){ String s=first(order.optString("service_name"), order.optString("order_type"), orderKind.equals("pickup") ? "TransPickup" : "Food Delivery"); return s.trim(); }
     private double coord(String a, String b){ try{return Double.parseDouble(first(order.optString(a), order.optString(b), "0"));}catch(Exception e){return 0;} } private double optDouble(String... keys){ for(String k: keys){ try{ if(order.has(k)) return Double.parseDouble(order.optString(k,"0")); }catch(Exception ignored){} } return 0; }
