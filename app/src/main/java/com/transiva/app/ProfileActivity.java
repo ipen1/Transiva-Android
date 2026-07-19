@@ -61,6 +61,9 @@ public class ProfileActivity extends Activity {
     private static final String UPDATE_URL =
             BASE_URL + "update_customer_profile.php";
 
+    private static final String DEVICE_URL =
+            BASE_URL + "customer_device_native.php";
+
     private static final int REQUEST_GALLERY = 5101;
     private static final int REQUEST_LOCATION = 5102;
     private static final int TIMEOUT_MS = 30000;
@@ -87,6 +90,10 @@ public class ProfileActivity extends Activity {
     private Button locationButton;
     private Button saveButton;
     private Button logoutButton;
+    private Button disconnectDeviceButton;
+    private TextView deviceNameView;
+    private TextView deviceDetailView;
+    private TextView deviceStatusView;
     private ProgressBar progress;
 
     private String userId = "";
@@ -97,6 +104,7 @@ public class ProfileActivity extends Activity {
     private String photoUrl = "";
     private boolean emailVerified;
     private boolean loading;
+    private boolean deviceLoading;
 
     private byte[] pendingPhotoWebp;
     private double deliveryLat;
@@ -119,6 +127,7 @@ public class ProfileActivity extends Activity {
         readSession();
         setContentView(buildScreen());
         loadProfile();
+        loadConnectedDevice();
     }
 
     @Override
@@ -130,6 +139,7 @@ public class ProfileActivity extends Activity {
                         && !loading
         ) {
             loadProfile();
+            loadConnectedDevice();
         }
     }
 
@@ -252,6 +262,7 @@ public class ProfileActivity extends Activity {
         buildHeader(root);
         buildIdentityCard(root);
         buildFormCard(root);
+        buildDeviceCard(root);
         buildSecurityCard(root);
 
         shell.addView(
@@ -759,6 +770,78 @@ public class ProfileActivity extends Activity {
         );
     }
 
+    private void buildDeviceCard(
+            LinearLayout root
+    ) {
+        LinearLayout card = whiteCard();
+        card.setPadding(dp(16), dp(16), dp(16), dp(16));
+
+        card.addView(
+                sectionTitle(
+                        "Perangkat Terhubung",
+                        "Kelola perangkat yang saat ini terhubung dengan akun Anda"
+                )
+        );
+
+        LinearLayout deviceBox = new LinearLayout(this);
+        deviceBox.setOrientation(LinearLayout.VERTICAL);
+        deviceBox.setPadding(dp(14), dp(13), dp(14), dp(13));
+        deviceBox.setBackground(
+                roundStroke(
+                        "#F4F9FF",
+                        "#D9E9FA",
+                        16,
+                        1
+                )
+        );
+
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView icon = text("▣", 25, "#0B7CFF", true);
+        icon.setGravity(Gravity.CENTER);
+        titleRow.addView(icon, new LinearLayout.LayoutParams(dp(38), dp(38)));
+
+        LinearLayout identity = new LinearLayout(this);
+        identity.setOrientation(LinearLayout.VERTICAL);
+
+        deviceNameView = text("Memeriksa perangkat...", 15, "#0B3A78", true);
+        deviceDetailView = text("", 11, "#64748B", false);
+        deviceDetailView.setPadding(0, dp(2), 0, 0);
+
+        identity.addView(deviceNameView);
+        identity.addView(deviceDetailView);
+
+        LinearLayout.LayoutParams identityLp = new LinearLayout.LayoutParams(0, -2, 1);
+        identityLp.setMargins(dp(8), 0, 0, 0);
+        titleRow.addView(identity, identityLp);
+
+        deviceStatusView = badge("MEMERIKSA", "#EAF4FF", "#0B7CFF");
+        titleRow.addView(deviceStatusView);
+
+        deviceBox.addView(titleRow);
+        card.addView(deviceBox);
+
+        TextView hint = text(
+                "Putuskan perangkat jika Anda ingin memindahkan akun Transiva ke HP lain. Setelah diputuskan, Anda akan keluar dari akun ini dan dapat login di perangkat baru.",
+                11,
+                "#64748B",
+                false
+        );
+        hint.setLineSpacing(0, 1.12f);
+        LinearLayout.LayoutParams hintLp = new LinearLayout.LayoutParams(-1, -2);
+        hintLp.setMargins(0, dp(11), 0, 0);
+        card.addView(hint, hintLp);
+
+        disconnectDeviceButton = dangerButton("Putuskan Perangkat");
+        disconnectDeviceButton.setEnabled(false);
+        disconnectDeviceButton.setAlpha(0.55f);
+        disconnectDeviceButton.setOnClickListener(view -> confirmDisconnectDevice());
+        card.addView(disconnectDeviceButton, buttonLp());
+
+        root.addView(card, sectionLp());
+    }
+
     private void buildSecurityCard(
             LinearLayout root
     ) {
@@ -842,6 +925,219 @@ public class ProfileActivity extends Activity {
                 card,
                 sectionLp()
         );
+    }
+
+    private void loadConnectedDevice() {
+        if (deviceLoading || session == null || !session.isLoggedIn()) {
+            return;
+        }
+
+        String token = first(session.getToken());
+        if (token.isEmpty()) {
+            applyDeviceUnavailable("Sesi tidak tersedia");
+            return;
+        }
+
+        deviceLoading = true;
+        updateDeviceButton(false, "Memeriksa...");
+
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(DEVICE_URL).openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(TIMEOUT_MS);
+                connection.setReadTimeout(TIMEOUT_MS);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Accept", "application/json");
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+                connection.setRequestProperty(
+                        "X-Installation-UUID",
+                        DeviceIdentityManager.getInstallationUuid(this)
+                );
+
+                int code = connection.getResponseCode();
+                InputStream stream = code >= 200 && code < 300
+                        ? connection.getInputStream()
+                        : connection.getErrorStream();
+                String body = readStream(stream);
+                JSONObject response = new JSONObject(body);
+
+                if (!response.optBoolean("success", false)) {
+                    throw new IllegalStateException(
+                            response.optString("message", "Data perangkat tidak dapat dimuat.")
+                    );
+                }
+
+                JSONObject device = response.optJSONObject("device");
+                mainHandler.post(() -> {
+                    deviceLoading = false;
+                    applyDeviceInfo(device);
+                });
+
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    deviceLoading = false;
+                    applyDeviceUnavailable(error.getMessage());
+                });
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }).start();
+    }
+
+    private void applyDeviceInfo(JSONObject device) {
+        if (deviceNameView == null) return;
+
+        if (device == null || device.optInt("id", 0) <= 0) {
+            deviceNameView.setText("Belum ada perangkat terhubung");
+            deviceDetailView.setText("Login kembali untuk menghubungkan perangkat ini.");
+            setDeviceStatus("TIDAK TERHUBUNG", "#F1F5F9", "#64748B");
+            updateDeviceButton(false, "Putuskan Perangkat");
+            return;
+        }
+
+        String manufacturer = first(device.optString("manufacturer"));
+        String model = first(device.optString("model"));
+        String deviceName = first(
+                (manufacturer + " " + model).trim(),
+                device.optString("device_name"),
+                "Perangkat Android"
+        );
+
+        String androidVersion = first(device.optString("android_version"), "-");
+        String lastSeen = first(device.optString("last_seen_at"), "-");
+        String status = first(device.optString("status"), "active").toLowerCase(Locale.US);
+
+        deviceNameView.setText(deviceName);
+        deviceDetailView.setText("Android " + androidVersion + "  •  Terakhir aktif " + lastSeen);
+
+        if ("active".equals(status)) {
+            setDeviceStatus("TERHUBUNG", "#E7FFF2", "#0A8F4C");
+            updateDeviceButton(true, "Putuskan Perangkat");
+        } else if ("banned".equals(status)) {
+            setDeviceStatus("DIBLOKIR", "#FEE2E2", "#B91C1C");
+            updateDeviceButton(false, "Perangkat Diblokir");
+        } else {
+            setDeviceStatus("TERPUTUS", "#F1F5F9", "#64748B");
+            updateDeviceButton(false, "Putuskan Perangkat");
+        }
+    }
+
+    private void applyDeviceUnavailable(String message) {
+        if (deviceNameView == null) return;
+        deviceNameView.setText("Perangkat tidak dapat diperiksa");
+        deviceDetailView.setText(first(message, "Coba muat ulang halaman profil."));
+        setDeviceStatus("GAGAL", "#FFF4E5", "#C96A05");
+        updateDeviceButton(false, "Putuskan Perangkat");
+    }
+
+    private void setDeviceStatus(String text, String background, String foreground) {
+        if (deviceStatusView == null) return;
+        deviceStatusView.setText(text);
+        deviceStatusView.setTextColor(Color.parseColor(foreground));
+        deviceStatusView.setBackground(roundStroke(background, background, 12, 1));
+    }
+
+    private void updateDeviceButton(boolean enabled, String text) {
+        if (disconnectDeviceButton == null) return;
+        disconnectDeviceButton.setEnabled(enabled && !deviceLoading);
+        disconnectDeviceButton.setAlpha(disconnectDeviceButton.isEnabled() ? 1f : 0.55f);
+        disconnectDeviceButton.setText(text);
+    }
+
+    private void confirmDisconnectDevice() {
+        new AlertDialog.Builder(this)
+                .setTitle("Putuskan perangkat?")
+                .setMessage(
+                        "Perangkat ini akan dilepas dari akun Transiva dan sesi Anda akan diakhiri. "
+                                + "Setelah itu akun dapat digunakan untuk login di perangkat lain."
+                )
+                .setNegativeButton("Batal", null)
+                .setPositiveButton("Putuskan", (dialog, which) -> disconnectConnectedDevice())
+                .show();
+    }
+
+    private void disconnectConnectedDevice() {
+        if (deviceLoading) return;
+
+        String token = first(session.getToken());
+        if (token.isEmpty()) {
+            Toast.makeText(this, "Sesi tidak tersedia.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        deviceLoading = true;
+        updateDeviceButton(false, "Memutuskan...");
+
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(DEVICE_URL).openConnection();
+                connection.setRequestMethod("POST");
+                connection.setConnectTimeout(TIMEOUT_MS);
+                connection.setReadTimeout(TIMEOUT_MS);
+                connection.setUseCaches(false);
+                connection.setDoOutput(true);
+                connection.setRequestProperty("Accept", "application/json");
+                connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+                connection.setRequestProperty("Authorization", "Bearer " + token);
+                connection.setRequestProperty(
+                        "X-Installation-UUID",
+                        DeviceIdentityManager.getInstallationUuid(this)
+                );
+
+                JSONObject payload = new JSONObject();
+                payload.put("action", "disconnect_device");
+                payload.put("installation_uuid", DeviceIdentityManager.getInstallationUuid(this));
+
+                byte[] bytes = payload.toString().getBytes(StandardCharsets.UTF_8);
+                try (OutputStream output = connection.getOutputStream()) {
+                    output.write(bytes);
+                }
+
+                int code = connection.getResponseCode();
+                InputStream stream = code >= 200 && code < 300
+                        ? connection.getInputStream()
+                        : connection.getErrorStream();
+                JSONObject response = new JSONObject(readStream(stream));
+
+                if (!response.optBoolean("success", false)) {
+                    throw new IllegalStateException(
+                            response.optString("message", "Perangkat gagal diputuskan.")
+                    );
+                }
+
+                mainHandler.post(() -> {
+                    deviceLoading = false;
+                    Toast.makeText(
+                            this,
+                            "Perangkat berhasil diputuskan. Silakan login di perangkat lain.",
+                            Toast.LENGTH_LONG
+                    ).show();
+                    session.forceLogout("customer_device_disconnected");
+                    Intent intent = new Intent(this, LoginActivity.class);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivity(intent);
+                    finish();
+                });
+
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    deviceLoading = false;
+                    updateDeviceButton(true, "Putuskan Perangkat");
+                    Toast.makeText(
+                            this,
+                            first(error.getMessage(), "Perangkat gagal diputuskan."),
+                            Toast.LENGTH_LONG
+                    ).show();
+                });
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }).start();
     }
 
     private void requestCurrentLocation() {
