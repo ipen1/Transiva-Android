@@ -518,6 +518,9 @@ public class DriverChatActivity extends Activity {
                 item.optString("order_id"),
                 item.optString("id")));
         intent.putExtra("room_id", item.optString("room_id", ""));
+        intent.putExtra("order_db_id", first(
+                item.optString("order_db_id"),
+                item.optString("id")));
         intent.putExtra("participant_name", first(
                 item.optString("participant_name"),
                 item.optString("customer_name"),

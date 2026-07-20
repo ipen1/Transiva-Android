@@ -79,6 +79,7 @@ public class DriverChatRoomActivity extends Activity {
     private LinearLayout inputCard;
 
     private String orderId = "";
+    private String orderDbId = "";
     private String roomId = "";
     private String participantName = "Customer";
     private String orderType = "";
@@ -133,6 +134,10 @@ public class DriverChatRoomActivity extends Activity {
     private void readIntent() {
         orderId = first(
                 getIntent().getStringExtra("order_id"),
+                "");
+        orderDbId = first(
+                getIntent().getStringExtra("order_db_id"),
+                getIntent().getStringExtra("id"),
                 "");
         roomId = normalizeRoom(first(
                 getIntent().getStringExtra("room_id"),
@@ -786,6 +791,7 @@ public class DriverChatRoomActivity extends Activity {
 
         try {
             body.put("order_id", orderId);
+            body.put("order_db_id", orderDbId);
             body.put("source", orderSource);
             body.put("room_id", roomId);
             body.put("sender_type", "driver");
