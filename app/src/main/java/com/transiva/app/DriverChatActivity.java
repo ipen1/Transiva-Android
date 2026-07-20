@@ -27,7 +27,6 @@ import org.json.JSONObject;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -42,9 +41,7 @@ public class DriverChatActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String CONVERSATIONS_URL =
-            BASE_URL + "server/driver_chat_conversations_native.php";
-    private static final String FALLBACK_CONVERSATIONS_URL =
-            BASE_URL + "server/get_customer_conversations.php";
+            BASE_URL + "server/get_driver_conversations.php";
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
 
@@ -252,30 +249,13 @@ public class DriverChatActivity extends Activity {
 
         new Thread(() -> {
             try {
-                JSONObject response;
-
-                try {
-                    String endpoint = CONVERSATIONS_URL
-                            + "?_=" + System.currentTimeMillis();
-                    response = getAuthorized(endpoint);
-                } catch (Exception primaryError) {
-                    // Hosting lama belum memiliki endpoint native driver.
-                    // Gunakan endpoint percakapan bersama dengan filter driver.
-                    String driverId = first(
-                            session.getId(),
-                            session.getUserId(),
-                            "0"
-                    );
-                    String endpoint = FALLBACK_CONVERSATIONS_URL
-                            + "?driver_id="
-                            + URLEncoder.encode(
-                            driverId,
-                            StandardCharsets.UTF_8.name()
-                    )
-                            + "&role=driver&_="
-                            + System.currentTimeMillis();
-                    response = getAuthorized(endpoint);
-                }
+                // Endpoint ini melakukan autentikasi driver dari Bearer token.
+                // Jangan memakai endpoint customer dengan driver_id karena endpoint
+                // tersebut mengharuskan user_id customer dan memunculkan
+                // "User ID tidak valid" pada menu Pesan driver.
+                String endpoint = CONVERSATIONS_URL
+                        + "?_=" + System.currentTimeMillis();
+                JSONObject response = getAuthorized(endpoint);
                 JSONArray array = response.optJSONArray("conversations");
                 List<JSONObject> fresh = new ArrayList<>();
 

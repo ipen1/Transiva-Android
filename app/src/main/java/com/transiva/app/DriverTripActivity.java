@@ -168,7 +168,7 @@ public class DriverTripActivity extends Activity {
             }
         }
         if(order != null){
-            orderKind = first(getIntent().getStringExtra("order_kind"), order.optString("order_kind"), order.optString("source_table"), order.optString("type"), pref("driver_active_order_kind"), "order").toLowerCase(Locale.US);
+            orderKind = first(getIntent().getStringExtra("order_kind"), order.optString("order_kind"), order.optString("source"), order.optString("source_table"), order.optString("type"), pref("driver_active_order_kind"), "orders").toLowerCase(Locale.US);
             orderKind = orderKind.contains("pickup") ? "pickup" : "order";
             driverType = resolveDriverTypeFromOrder();
             saveActiveOrder();
@@ -548,12 +548,35 @@ public class DriverTripActivity extends Activity {
     private void updateStatus(String next){
         updatingStatus = true; setLoading(true);
         new Thread(() -> { try{
-            JSONObject p = new JSONObject(); p.put("id", internalId()); p.put("order_id", orderId()); p.put("driver", driverUsername); p.put("order_kind", orderKind); p.put("status", next);
-            String endpoint = endpoint(next); JSONObject r = postJson(BASE_URL + endpoint, p); boolean ok = r.optBoolean("success", false); String m = first(r.optString("message"), ok ? "Status berhasil diperbarui." : "Gagal update status.");
+            JSONObject p = new JSONObject();
+            p.put("id", internalId());
+            p.put("order_id", orderId());
+            p.put("driver", driverUsername);
+            p.put("driver_username", driverUsername);
+            p.put("order_kind", orderKind);
+            p.put("source", isPickupOrder() ? "pickup_orders" : "orders");
+            p.put("status", next);
+            String endpoint = endpoint(next);
+            JSONObject r = postJson(BASE_URL + endpoint, p);
+            boolean ok = r.optBoolean("success", false);
+            String m = first(r.optString("message"), ok ? "Status berhasil diperbarui." : "Gagal update status.");
             mainHandler.post(() -> { updatingStatus=false; setLoading(false); if(ok){ try{ order.put("status", next); }catch(Exception ignored){} saveActiveOrder(); refreshButtons(); mainHandler.postDelayed(() -> updateMap(), 250); info("Berhasil", m); if(next.equals("finished") || next.equals("completed")){ clearActiveOrder(); finish(); } } else info("Gagal", m); });
         }catch(Exception e){ mainHandler.post(() -> { updatingStatus=false; setLoading(false); info("Koneksi gagal", "Tidak bisa update status ke server."); }); }}).start();
     }
-    private String endpoint(String n){ if(n.equals("arrived_pickup"))return "driverArrivedPickup.php"; if(n.equals("on_delivery"))return "driverStartDelivery.php"; if(n.equals("arrived_delivery"))return "driverArrivedDelivery.php"; if(n.equals("finished")||n.equals("completed"))return "finishOrder.php"; return "driver_update_unified_status.php"; }
+    private String endpoint(String n){
+        // pickup_orders memakai endpoint unified karena endpoint lama hanya membaca tabel orders.
+        if(isPickupOrder() && !(n.equals("finished") || n.equals("completed"))) return "driver_update_unified_status.php";
+        if(n.equals("arrived_pickup"))return "driverArrivedPickup.php";
+        if(n.equals("on_delivery"))return "driverStartDelivery.php";
+        if(n.equals("arrived_delivery"))return "driverArrivedDelivery.php";
+        if(n.equals("finished")||n.equals("completed"))return "finishOrder.php";
+        return "driver_update_unified_status.php";
+    }
+    private boolean isPickupOrder(){
+        String source = first(order == null ? "" : order.optString("source"),
+                order == null ? "" : order.optString("source_table"), orderKind).toLowerCase(Locale.US);
+        return source.equals("pickup_orders") || source.contains("pickup");
+    }
     private void postDriverLocation(double lat, double lng, boolean force){
         if(!valid(lat, lng) || driverUsername.length() == 0) return;
 
