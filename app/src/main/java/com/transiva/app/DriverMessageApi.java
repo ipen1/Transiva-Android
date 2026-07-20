@@ -72,6 +72,7 @@ public final class DriverMessageApi {
                 writeField(output, boundary, "order_id", orderId);
                 writeField(output, boundary, "source", orderSource);
                 writeField(output, boundary, "room_id", roomId);
+                writeField(output, boundary, "sender_type", "driver");
 
                 writeFile(
                         output,
