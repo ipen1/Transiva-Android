@@ -456,7 +456,9 @@ public class DriverChatRoomActivity extends Activity {
 
         uploading = true;
         setSendingEnabled(false);
-        addLocalImageBubble(payload.previewWebp);
+
+        final PendingPhotoBubble pendingBubble =
+                addPendingPhotoBubble(payload);
         scrollBottom();
 
         new Thread(() -> {
@@ -473,13 +475,17 @@ public class DriverChatRoomActivity extends Activity {
                     setSendingEnabled(true);
 
                     if (response.optBoolean("success", false)) {
+                        pendingBubble.markSuccess();
                         main.postDelayed(() -> {
+                            if (pendingBubble.root.getParent() != null) {
+                                messagesBox.removeView(pendingBubble.root);
+                            }
                             firstLoad = true;
                             lastId = 0;
                             loadMessages(false);
-                        }, 500L);
+                        }, 450L);
                     } else {
-                        toast(first(
+                        pendingBubble.markFailed(first(
                                 response.optString("message"),
                                 "Foto gagal dikirim"));
                     }
@@ -489,32 +495,94 @@ public class DriverChatRoomActivity extends Activity {
                 main.post(() -> {
                     uploading = false;
                     setSendingEnabled(true);
-                    toast(first(error.getMessage(),
+                    pendingBubble.markFailed(first(
+                            error.getMessage(),
                             "Foto gagal dikirim"));
                 });
             }
         }).start();
     }
 
-    private void addLocalImageBubble(byte[] previewBytes) {
+    private PendingPhotoBubble addPendingPhotoBubble(
+            ChatImageProcessor.ImagePayload payload
+    ) {
         LinearLayout wrapper = messageWrapper(true);
 
-        ImageView image = new ImageView(this);
-        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        image.setBackground(round("#EAF1FA", 16));
+        FrameLayout imageFrame = new FrameLayout(this);
+        imageFrame.setBackground(round("#EAF1FA", 16));
+
+        ImageView preview = new ImageView(this);
+        preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
 
         Bitmap bitmap = BitmapFactory.decodeByteArray(
-                previewBytes, 0, previewBytes.length);
-        if (bitmap != null) image.setImageBitmap(bitmap);
+                payload.previewWebp,
+                0,
+                payload.previewWebp.length);
+        if (bitmap != null) preview.setImageBitmap(bitmap);
+
+        imageFrame.addView(
+                preview,
+                new FrameLayout.LayoutParams(-1, -1));
+
+        FrameLayout loadingLayer = new FrameLayout(this);
+        loadingLayer.setBackgroundColor(Color.argb(72, 0, 0, 0));
+
+        ProgressBar spinner = new ProgressBar(this);
+        spinner.setIndeterminate(true);
+        FrameLayout.LayoutParams spinnerLp =
+                new FrameLayout.LayoutParams(dp(42), dp(42));
+        spinnerLp.gravity = Gravity.CENTER;
+        loadingLayer.addView(spinner, spinnerLp);
+
+        imageFrame.addView(
+                loadingLayer,
+                new FrameLayout.LayoutParams(-1, -1));
 
         wrapper.addView(
-                image,
+                imageFrame,
                 new LinearLayout.LayoutParams(dp(220), dp(165)));
-        wrapper.addView(text(
+
+        TextView state = text(
                 "Mengirim foto…",
                 9,
                 "#64748B",
-                true));
+                true);
+        state.setGravity(Gravity.RIGHT);
+        state.setPadding(dp(7), dp(3), dp(7), 0);
+        wrapper.addView(
+                state,
+                new LinearLayout.LayoutParams(-2, -2));
+
+        return new PendingPhotoBubble(wrapper, loadingLayer, state);
+    }
+
+    private final class PendingPhotoBubble {
+        final LinearLayout root;
+        final FrameLayout loadingLayer;
+        final TextView state;
+
+        PendingPhotoBubble(
+                LinearLayout root,
+                FrameLayout loadingLayer,
+                TextView state
+        ) {
+            this.root = root;
+            this.loadingLayer = loadingLayer;
+            this.state = state;
+        }
+
+        void markSuccess() {
+            loadingLayer.setVisibility(View.GONE);
+            state.setText("Terkirim • memuat chat…");
+            state.setTextColor(Color.parseColor("#0B7CFF"));
+        }
+
+        void markFailed(String message) {
+            loadingLayer.setVisibility(View.GONE);
+            state.setText("Gagal dikirim");
+            state.setTextColor(Color.parseColor("#DC2626"));
+            toast(first(message, "Foto gagal dikirim"));
+        }
     }
 
     private void loadMessages(boolean showLoading) {
@@ -661,16 +729,18 @@ public class DriverChatRoomActivity extends Activity {
             image.setPadding(dp(2), dp(2), dp(2), dp(2));
             wrapper.addView(
                     image,
-                    new LinearLayout.LayoutParams(dp(260), dp(195)));
+                    new LinearLayout.LayoutParams(dp(220), dp(165)));
 
             loadRemoteImage(image, previewUrl);
 
             TextView hint = text(
-                    "Ketuk foto untuk melihat ukuran penuh",
+                    "Ketuk untuk lihat HD",
                     9,
-                    "#64748B",
-                    false);
-            wrapper.addView(hint);
+                    "#0B7CFF",
+                    true);
+            wrapper.addView(
+                    hint,
+                    new LinearLayout.LayoutParams(-2, -2));
 
             image.setOnClickListener(v -> showHdImage(hdUrl));
             hint.setOnClickListener(v -> showHdImage(hdUrl));
@@ -681,15 +751,17 @@ public class DriverChatRoomActivity extends Activity {
                     13,
                     mine ? "#FFFFFF" : "#0F172A",
                     false);
-            bubble.setPadding(dp(14), dp(10), dp(14), dp(10));
+            bubble.setPadding(dp(13), dp(9), dp(13), dp(9));
             bubble.setMaxWidth((int)(
-                    getResources().getDisplayMetrics().widthPixels * 0.74));
+                    getResources().getDisplayMetrics().widthPixels * 0.75));
             bubble.setBackground(
                     mine
-                            ? gradient("#086BFF", "#2EA2FF", 18)
+                            ? gradient("#086BFF", "#2EA2FF", 17)
                             : roundStroke(
-                            "#FFFFFF", "#D7E6F8", 18, 1));
-            wrapper.addView(bubble);
+                            "#FFFFFF", "#D7E6F8", 17, 1));
+            wrapper.addView(
+                    bubble,
+                    new LinearLayout.LayoutParams(-2, -2));
         }
 
         String time = formatTime(
@@ -697,7 +769,9 @@ public class DriverChatRoomActivity extends Activity {
         if (!time.isEmpty()) {
             TextView view = text(time, 9, "#94A3B8", false);
             view.setPadding(dp(7), dp(3), dp(7), 0);
-            wrapper.addView(view);
+            wrapper.addView(
+                    view,
+                    new LinearLayout.LayoutParams(-2, -2));
         }
     }
 
