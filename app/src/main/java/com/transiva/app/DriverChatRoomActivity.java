@@ -115,6 +115,9 @@ public class DriverChatRoomActivity extends Activity {
         session = new SessionManager(this);
         readIntent();
         setContentView(buildScreen());
+        DriverChatNotificationPoller.requestPermission(this);
+        DriverChatNotificationPoller.start(this);
+        DriverChatNotificationPoller.setOpenRoom(roomId);
 
         if (roomId.isEmpty()) {
             showMessage(
@@ -654,18 +657,19 @@ public class DriverChatRoomActivity extends Activity {
 
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            image.setBackground(round("#EAF1FA", 16));
+            image.setBackground(roundStroke("#FFFFFF", "#D7E6F8", 16, 1));
+            image.setPadding(dp(2), dp(2), dp(2), dp(2));
             wrapper.addView(
                     image,
-                    new LinearLayout.LayoutParams(dp(220), dp(165)));
+                    new LinearLayout.LayoutParams(dp(260), dp(195)));
 
             loadRemoteImage(image, previewUrl);
 
             TextView hint = text(
-                    "Ketuk untuk lihat HD",
+                    "Ketuk foto untuk melihat ukuran penuh",
                     9,
-                    "#0B7CFF",
-                    true);
+                    "#64748B",
+                    false);
             wrapper.addView(hint);
 
             image.setOnClickListener(v -> showHdImage(hdUrl));
@@ -1010,8 +1014,21 @@ public class DriverChatRoomActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        DriverChatNotificationPoller.setOpenRoom(roomId);
+    }
+
+    @Override
+    protected void onPause() {
+        DriverChatNotificationPoller.clearOpenRoom(roomId);
+        super.onPause();
+    }
+
+    @Override
     protected void onDestroy() {
         destroyed = true;
+        DriverChatNotificationPoller.clearOpenRoom(roomId);
         main.removeCallbacksAndMessages(null);
         super.onDestroy();
     }

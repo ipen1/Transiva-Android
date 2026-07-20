@@ -274,11 +274,13 @@ public final class ChatImageProcessor {
 
         byte[] previewBytes = compress(
                 preview,
+                Bitmap.CompressFormat.WEBP,
                 PREVIEW_QUALITY
         );
 
         byte[] hdBytes = compress(
                 hd,
+                Bitmap.CompressFormat.JPEG,
                 HD_QUALITY
         );
 
@@ -374,13 +376,14 @@ public final class ChatImageProcessor {
 
     private static byte[] compress(
             Bitmap bitmap,
+            Bitmap.CompressFormat format,
             int quality
     ) throws Exception {
         ByteArrayOutputStream output =
                 new ByteArrayOutputStream();
 
         boolean success = bitmap.compress(
-                Bitmap.CompressFormat.WEBP,
+                format,
                 quality,
                 output
         );
