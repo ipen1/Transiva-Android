@@ -43,6 +43,8 @@ public final class CustomerAppSettings {
 
     private static final WeakHashMap<View, ViewTreeObserver.OnGlobalLayoutListener>
             INSTALLED_WATCHERS = new WeakHashMap<>();
+    private static final WeakHashMap<Activity, Boolean> APPLIED_ACTIVITY_THEMES =
+            new WeakHashMap<>();
 
     private CustomerAppSettings() {}
 
@@ -71,6 +73,19 @@ public final class CustomerAppSettings {
     public static void apply(Activity activity) {
         final boolean dark = isDarkMode(activity);
 
+        // Activity customer yang masih berada di back stack telah memiliki warna yang
+        // dimutasi langsung. Saat pilihan tema berubah, view lama harus dibuat ulang
+        // supaya warna asli mode terang dibangun kembali tanpa menutup aplikasi.
+        synchronized (APPLIED_ACTIVITY_THEMES) {
+            Boolean previouslyApplied = APPLIED_ACTIVITY_THEMES.get(activity);
+            if (previouslyApplied != null && previouslyApplied != dark) {
+                APPLIED_ACTIVITY_THEMES.put(activity, dark);
+                activity.getWindow().getDecorView().post(activity::recreate);
+                return;
+            }
+            APPLIED_ACTIVITY_THEMES.put(activity, dark);
+        }
+
         activity.getWindow().setStatusBarColor(
                 dark ? Color.rgb(5, 16, 29) : Color.parseColor("#0B7CFF")
         );
@@ -93,9 +108,17 @@ public final class CustomerAppSettings {
             applyRecursive(content, true, 0);
             installDynamicViewWatcher(content);
             // Menangkap card/promo/chat yang dibuat sesudah request API selesai.
-            content.post(() -> applyRecursive(content, true, 0));
-            content.postDelayed(() -> applyRecursive(content, true, 0), 250L);
-            content.postDelayed(() -> applyRecursive(content, true, 0), 900L);
+            content.post(() -> {
+                if (isDarkMode(activity)) applyRecursive(content, true, 0);
+            });
+            content.postDelayed(() -> {
+                if (isDarkMode(activity)) applyRecursive(content, true, 0);
+            }, 250L);
+            content.postDelayed(() -> {
+                if (isDarkMode(activity)) applyRecursive(content, true, 0);
+            }, 900L);
+        } else {
+            removeDynamicViewWatcher(content);
         }
     }
 
@@ -110,10 +133,29 @@ public final class CustomerAppSettings {
         synchronized (INSTALLED_WATCHERS) {
             if (INSTALLED_WATCHERS.containsKey(root)) return;
 
-            ViewTreeObserver.OnGlobalLayoutListener listener =
-                    () -> applyRecursive(root, true, 0);
+            ViewTreeObserver.OnGlobalLayoutListener listener = () -> {
+                Context context = root.getContext();
+                if (context != null && isDarkMode(context)) {
+                    applyRecursive(root, true, 0);
+                }
+            };
             root.getViewTreeObserver().addOnGlobalLayoutListener(listener);
             INSTALLED_WATCHERS.put(root, listener);
+        }
+    }
+
+    private static void removeDynamicViewWatcher(final View root) {
+        synchronized (INSTALLED_WATCHERS) {
+            ViewTreeObserver.OnGlobalLayoutListener listener = INSTALLED_WATCHERS.remove(root);
+            if (listener == null) return;
+            ViewTreeObserver observer = root.getViewTreeObserver();
+            if (!observer.isAlive()) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                observer.removeOnGlobalLayoutListener(listener);
+            } else {
+                //noinspection deprecation
+                observer.removeGlobalOnLayoutListener(listener);
+            }
         }
     }
 
