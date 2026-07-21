@@ -98,6 +98,7 @@ public class CustomerHistoryActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        CustomerAppSettings.apply(this);
 
         if (!loading && listBox != null) {
             loadHistory();

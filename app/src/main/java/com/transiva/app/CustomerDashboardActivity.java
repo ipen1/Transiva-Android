@@ -150,6 +150,10 @@ public class CustomerDashboardActivity extends Activity
     protected void onResume() {
         super.onResume();
 
+        // Terapkan ulang agar perubahan tema dari menu Pengaturan langsung
+        // terlihat saat kembali ke Dashboard.
+        CustomerAppSettings.apply(this);
+
         SessionValidationClient.validate(this);
 
         if (presenter != null) {

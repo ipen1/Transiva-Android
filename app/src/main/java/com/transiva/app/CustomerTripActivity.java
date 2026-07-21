@@ -851,6 +851,7 @@ public class CustomerTripActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        CustomerAppSettings.apply(this);
         if (trackingStarted && !finishedCountdownStarted) {
             fetchDriverPosition();
             mainHandler.postDelayed(trackingRunnable, TRACKING_MS);

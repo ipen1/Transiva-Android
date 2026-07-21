@@ -110,6 +110,7 @@ public class CustomerBalanceHistoryActivity
     @Override
     protected void onResume() {
         super.onResume();
+        CustomerAppSettings.apply(this);
 
         if (
                 content != null

@@ -2285,6 +2285,7 @@ public class CustomerChatRoomActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        CustomerAppSettings.apply(this);
 
         CustomerChatNotificationPoller.setOpenRoom(
                 roomId

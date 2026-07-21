@@ -93,6 +93,7 @@ public class CustomerChatActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        CustomerAppSettings.apply(this);
 
         if (!loading && listBox != null) {
             loadConversations();

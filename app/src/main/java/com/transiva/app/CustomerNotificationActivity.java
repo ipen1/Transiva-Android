@@ -38,6 +38,7 @@ public class CustomerNotificationActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        CustomerAppSettings.apply(this);
         renderNotifications();
         TransivaNotificationStore.markAllRead(this);
     }

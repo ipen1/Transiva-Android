@@ -3,65 +3,279 @@ package com.transiva.app;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
+import android.widget.Switch;
 import android.widget.TextView;
 
+import java.util.WeakHashMap;
+
+/**
+ * Pusat pengaturan tampilan customer.
+ *
+ * Seluruh halaman customer tetap memakai UI Java programatik yang sudah ada.
+ * Class ini mengubah warna halaman, card, divider, input, bottom navigation,
+ * dan tulisan secara otomatis ketika mode gelap aktif, termasuk view yang
+ * ditambahkan belakangan dari response API.
+ */
 public final class CustomerAppSettings {
     private static final String PREF = "customer_app_settings";
     private static final String KEY_DARK = "dark_mode";
     private static final String KEY_VIBRATE = "vibration_enabled";
 
+    public static final int DARK_PAGE = Color.rgb(9, 22, 37);       // #091625
+    public static final int DARK_CARD = Color.rgb(18, 34, 53);      // #122235
+    public static final int DARK_CARD_SOFT = Color.rgb(23, 43, 66); // #172B42
+    public static final int DARK_BORDER = Color.rgb(45, 67, 92);    // #2D435C
+    public static final int DARK_TEXT = Color.rgb(238, 245, 255);   // #EEF5FF
+    public static final int DARK_MUTED = Color.rgb(169, 184, 204);  // #A9B8CC
+
+    private static final WeakHashMap<View, ViewTreeObserver.OnGlobalLayoutListener>
+            INSTALLED_WATCHERS = new WeakHashMap<>();
+
     private CustomerAppSettings() {}
 
     private static SharedPreferences prefs(Context context) {
-        return context.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        return context.getApplicationContext()
+                .getSharedPreferences(PREF, Context.MODE_PRIVATE);
     }
 
-    public static boolean isDarkMode(Context context) { return prefs(context).getBoolean(KEY_DARK, false); }
-    public static void setDarkMode(Context context, boolean enabled) { prefs(context).edit().putBoolean(KEY_DARK, enabled).apply(); }
-    public static boolean isVibrationEnabled(Context context) { return prefs(context).getBoolean(KEY_VIBRATE, true); }
-    public static void setVibrationEnabled(Context context, boolean enabled) { prefs(context).edit().putBoolean(KEY_VIBRATE, enabled).apply(); }
+    public static boolean isDarkMode(Context context) {
+        return prefs(context).getBoolean(KEY_DARK, false);
+    }
 
+    public static void setDarkMode(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean(KEY_DARK, enabled).apply();
+    }
+
+    public static boolean isVibrationEnabled(Context context) {
+        return prefs(context).getBoolean(KEY_VIBRATE, true);
+    }
+
+    public static void setVibrationEnabled(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean(KEY_VIBRATE, enabled).apply();
+    }
+
+    /** Terapkan tema ke activity sesudah setContentView(). */
     public static void apply(Activity activity) {
-        boolean dark = isDarkMode(activity);
-        activity.getWindow().setStatusBarColor(Color.parseColor(dark ? "#071426" : "#0B7CFF"));
-        activity.getWindow().setNavigationBarColor(Color.parseColor("#071426"));
+        final boolean dark = isDarkMode(activity);
+
+        activity.getWindow().setStatusBarColor(
+                dark ? Color.rgb(5, 16, 29) : Color.parseColor("#0B7CFF")
+        );
+        activity.getWindow().setNavigationBarColor(Color.rgb(5, 16, 29));
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            activity.getWindow().getDecorView().setSystemUiVisibility(dark ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+            int flags = activity.getWindow().getDecorView().getSystemUiVisibility();
+            if (dark) {
+                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            } else {
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            }
+            activity.getWindow().getDecorView().setSystemUiVisibility(flags);
         }
-        View root = activity.findViewById(android.R.id.content);
-        if (root != null) applyRecursive(root, dark);
+
+        View content = activity.findViewById(android.R.id.content);
+        if (content == null) return;
+
+        if (dark) {
+            applyRecursive(content, true, 0);
+            installDynamicViewWatcher(content);
+            // Menangkap card/promo/chat yang dibuat sesudah request API selesai.
+            content.post(() -> applyRecursive(content, true, 0));
+            content.postDelayed(() -> applyRecursive(content, true, 0), 250L);
+            content.postDelayed(() -> applyRecursive(content, true, 0), 900L);
+        }
     }
 
-    private static void applyRecursive(View view, boolean dark) {
-        if (!dark) return;
-        if (view.getBackground() instanceof ColorDrawable) {
-            int c = ((ColorDrawable) view.getBackground()).getColor();
-            if (isLight(c)) view.setBackgroundColor(Color.parseColor("#101C2B"));
+    /** Bisa dipanggil setelah sebuah dialog atau card dinamis baru dibuat. */
+    public static void applyToView(Context context, View view) {
+        if (view != null && isDarkMode(context)) {
+            applyRecursive(view, true, 1);
         }
-        if (view instanceof TextView) {
-            TextView text = (TextView) view;
-            int c = text.getCurrentTextColor();
-            if (isDark(c)) text.setTextColor(Color.parseColor("#EAF2FF"));
-            else if (isMuted(c)) text.setTextColor(Color.parseColor("#A9B8CC"));
+    }
+
+    private static void installDynamicViewWatcher(final View root) {
+        synchronized (INSTALLED_WATCHERS) {
+            if (INSTALLED_WATCHERS.containsKey(root)) return;
+
+            ViewTreeObserver.OnGlobalLayoutListener listener =
+                    () -> applyRecursive(root, true, 0);
+            root.getViewTreeObserver().addOnGlobalLayoutListener(listener);
+            INSTALLED_WATCHERS.put(root, listener);
         }
+    }
+
+    private static void applyRecursive(View view, boolean dark, int depth) {
+        if (!dark || view == null) return;
+
+        transformBackground(view, depth);
+        transformText(view);
+        transformControls(view);
+
         if (view instanceof ViewGroup) {
             ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) applyRecursive(group.getChildAt(i), true);
+            for (int i = 0; i < group.getChildCount(); i++) {
+                applyRecursive(group.getChildAt(i), true, depth + 1);
+            }
         }
     }
 
-    private static boolean isLight(int c) {
-        return Color.alpha(c) > 180 && Color.red(c) > 225 && Color.green(c) > 225 && Color.blue(c) > 225;
+    private static void transformBackground(View view, int depth) {
+        Drawable background = view.getBackground();
+        if (background == null) return;
+
+        if (background instanceof ColorDrawable) {
+            int original = ((ColorDrawable) background).getColor();
+            Integer mapped = mapLightBackground(original, depth);
+            if (mapped != null && mapped != original) {
+                view.setBackgroundColor(mapped);
+            }
+            return;
+        }
+
+        if (background instanceof GradientDrawable && Build.VERSION.SDK_INT >= 24) {
+            GradientDrawable shape = (GradientDrawable) background.mutate();
+            int[] colors = shape.getColors();
+
+            if (colors != null && colors.length > 0) {
+                boolean allLight = true;
+                for (int color : colors) {
+                    if (!isLightSurface(color)) {
+                        allLight = false;
+                        break;
+                    }
+                }
+                // Gradient biru utama tidak disentuh. Hanya gradient putih/pucat.
+                if (allLight) {
+                    shape.setColors(new int[]{DARK_CARD_SOFT, DARK_CARD});
+                    view.setBackground(shape);
+                }
+            } else if (shape.getColor() != null) {
+                int original = shape.getColor().getDefaultColor();
+                Integer mapped = mapLightBackground(original, depth);
+                if (mapped != null && mapped != original) {
+                    shape.setColor(mapped);
+                    view.setBackground(shape);
+                }
+            }
+        }
     }
-    private static boolean isDark(int c) {
-        return Color.alpha(c) > 180 && Color.red(c) < 75 && Color.green(c) < 100 && Color.blue(c) < 135;
+
+    private static Integer mapLightBackground(int color, int depth) {
+        if (Color.alpha(color) < 100) return null;
+
+        // Putih murni adalah card. Warna halaman #F5F8FD/#F7FAFF dibuat lebih gelap.
+        if (isAlmostWhite(color)) {
+            return depth <= 2 ? DARK_PAGE : DARK_CARD;
+        }
+        // Card aktif, input, chip dan panel berwarna biru/abu sangat muda.
+        if (isLightSurface(color)) {
+            return depth <= 2 ? DARK_PAGE : DARK_CARD_SOFT;
+        }
+        // Divider dan border abu terang.
+        if (isLightGray(color)) {
+            return DARK_BORDER;
+        }
+        return null;
     }
-    private static boolean isMuted(int c) {
-        return Color.alpha(c) > 180 && Color.red(c) < 155 && Color.green(c) < 170 && Color.blue(c) < 190;
+
+    private static void transformText(View view) {
+        if (!(view instanceof TextView)) return;
+
+        TextView text = (TextView) view;
+        int current = text.getCurrentTextColor();
+
+        // Tulisan putih di atas kartu biru tetap putih.
+        if (isNearWhite(current)) return;
+
+        if (isDarkText(current)) {
+            text.setTextColor(DARK_TEXT);
+        } else if (isMutedText(current)) {
+            text.setTextColor(DARK_MUTED);
+        }
+
+        if (text instanceof EditText) {
+            EditText edit = (EditText) text;
+            edit.setHintTextColor(Color.rgb(132, 153, 178));
+        }
+    }
+
+    private static void transformControls(View view) {
+        if (view instanceof Switch && Build.VERSION.SDK_INT >= 23) {
+            Switch toggle = (Switch) view;
+            int[][] states = new int[][]{
+                    new int[]{android.R.attr.state_checked},
+                    new int[]{}
+            };
+            toggle.setThumbTintList(new ColorStateList(
+                    states,
+                    new int[]{Color.WHITE, Color.rgb(192, 205, 220)}
+            ));
+            toggle.setTrackTintList(new ColorStateList(
+                    states,
+                    new int[]{Color.parseColor("#0B7CFF"), Color.rgb(64, 84, 108)}
+            ));
+        } else if (view instanceof ProgressBar && Build.VERSION.SDK_INT >= 21) {
+            ((ProgressBar) view).setIndeterminateTintList(
+                    ColorStateList.valueOf(Color.parseColor("#2494FF"))
+            );
+        } else if (view instanceof ImageView) {
+            // Tidak memberi tint global agar logo/foto/ikon berwarna tidak rusak.
+        } else if (view instanceof Button) {
+            // Warna tombol aksi dipertahankan; teksnya sudah ditangani di atas.
+        }
+    }
+
+    private static boolean isAlmostWhite(int c) {
+        return Color.alpha(c) > 180
+                && Color.red(c) >= 245
+                && Color.green(c) >= 245
+                && Color.blue(c) >= 245;
+    }
+
+    private static boolean isLightSurface(int c) {
+        return Color.alpha(c) > 180
+                && Color.red(c) >= 218
+                && Color.green(c) >= 226
+                && Color.blue(c) >= 232;
+    }
+
+    private static boolean isLightGray(int c) {
+        int max = Math.max(Color.red(c), Math.max(Color.green(c), Color.blue(c)));
+        int min = Math.min(Color.red(c), Math.min(Color.green(c), Color.blue(c)));
+        return Color.alpha(c) > 180 && min > 175 && (max - min) < 30;
+    }
+
+    private static boolean isNearWhite(int c) {
+        return Color.alpha(c) > 180
+                && Color.red(c) > 220
+                && Color.green(c) > 220
+                && Color.blue(c) > 220;
+    }
+
+    private static boolean isDarkText(int c) {
+        return Color.alpha(c) > 180
+                && Color.red(c) < 105
+                && Color.green(c) < 125
+                && Color.blue(c) < 155;
+    }
+
+    private static boolean isMutedText(int c) {
+        return Color.alpha(c) > 180
+                && Color.red(c) < 180
+                && Color.green(c) < 190
+                && Color.blue(c) < 205;
     }
 }
