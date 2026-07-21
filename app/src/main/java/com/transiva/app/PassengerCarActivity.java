@@ -319,6 +319,7 @@ public class PassengerCarActivity extends Activity {
         page.addView(progressBar, plp);
 
         setContentView(page);
+        CustomerAppSettings.apply(this);
         bindActions();
         updateModeUI();
     }

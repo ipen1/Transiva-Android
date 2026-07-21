@@ -123,6 +123,7 @@ public class CustomerTopUpActivity extends Activity {
         page.addView(progressBar, pLp);
 
         setContentView(page);
+        CustomerAppSettings.apply(this);
 
         buildTopBar();
         buildBalanceCard();

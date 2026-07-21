@@ -103,6 +103,7 @@ public class CustomerBalanceHistoryActivity
 
         readSession();
         setContentView(buildScreen());
+        CustomerAppSettings.apply(this);
         loadWallet();
     }
 

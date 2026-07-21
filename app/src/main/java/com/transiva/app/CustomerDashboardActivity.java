@@ -140,6 +140,7 @@ public class CustomerDashboardActivity extends Activity
                 );
 
         setContentView(buildScreen());
+        CustomerAppSettings.apply(this);
 
         presenter.load(username, userId);
         loadLocation();
@@ -339,6 +340,12 @@ public class CustomerDashboardActivity extends Activity
 
         actions.addView(headerIconAction("ic_notification_bell", "Pemberitahuan", () ->
                 startActivity(new Intent(this, CustomerNotificationActivity.class))));
+
+        LinearLayout.LayoutParams settingsLp = new LinearLayout.LayoutParams(dp(44), dp(44));
+        settingsLp.setMargins(dp(8), 0, 0, 0);
+        View settings = headerAction("⚙", "Pengaturan", () ->
+                startActivity(new Intent(this, CustomerSettingsActivity.class)));
+        actions.addView(settings, settingsLp);
 
         LinearLayout.LayoutParams chatLp = new LinearLayout.LayoutParams(dp(44), dp(44));
         chatLp.setMargins(dp(8), 0, 0, 0);

@@ -440,7 +440,7 @@ public final class CustomerChatNotificationPoller {
                 "Notifikasi pesan baru terkait order Transiva"
         );
 
-        channel.enableVibration(true);
+        channel.enableVibration(CustomerAppSettings.isVibrationEnabled(context));
 
         manager.createNotificationChannel(
                 channel

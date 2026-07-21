@@ -125,6 +125,7 @@ public class TransFoodActivity extends Activity {
         lp.gravity = Gravity.CENTER;
         page.addView(progressBar, lp);
         setContentView(page);
+        CustomerAppSettings.apply(this);
     }
 
     private void showRestaurantList() {

@@ -77,6 +77,7 @@ public class CustomerChatActivity extends Activity {
 
         loadSession();
         setContentView(buildScreen());
+        CustomerAppSettings.apply(this);
 
         CustomerChatNotificationPoller
                 .requestPermission(this);

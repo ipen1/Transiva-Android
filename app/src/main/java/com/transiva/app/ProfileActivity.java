@@ -126,8 +126,8 @@ public class ProfileActivity extends Activity {
 
         readSession();
         setContentView(buildScreen());
+        CustomerAppSettings.apply(this);
         loadProfile();
-        loadConnectedDevice();
     }
 
     @Override
@@ -138,8 +138,8 @@ public class ProfileActivity extends Activity {
                 avatarView != null
                         && !loading
         ) {
+            CustomerAppSettings.apply(this);
             loadProfile();
-            loadConnectedDevice();
         }
     }
 
@@ -262,7 +262,6 @@ public class ProfileActivity extends Activity {
         buildHeader(root);
         buildIdentityCard(root);
         buildFormCard(root);
-        buildDeviceCard(root);
         buildSecurityCard(root);
 
         shell.addView(

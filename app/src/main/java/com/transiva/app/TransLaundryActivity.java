@@ -122,6 +122,7 @@ public class TransLaundryActivity extends Activity {
         lp.gravity = Gravity.CENTER;
         page.addView(progressBar, lp);
         setContentView(page);
+        CustomerAppSettings.apply(this);
     }
 
     private void renderPage() {

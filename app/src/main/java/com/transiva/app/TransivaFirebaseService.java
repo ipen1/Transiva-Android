@@ -492,7 +492,7 @@ public class TransivaFirebaseService extends FirebaseMessagingService {
                 );
 
         channel.setDescription(description);
-        channel.enableVibration(true);
+        channel.enableVibration(CustomerAppSettings.isVibrationEnabled(this));
         channel.enableLights(true);
 
         channel.setSound(

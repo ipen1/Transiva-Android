@@ -388,6 +388,7 @@ public class TransRideActivity extends Activity {
         page.addView(progressBar, progressLp);
 
         setContentView(page);
+        CustomerAppSettings.apply(this);
         bindActions();
         updateModeUI();
     }

@@ -134,6 +134,7 @@ public class TransivaBridge {
 
     @JavascriptInterface
     public void vibrateMs(final int ms) {
+        if (!CustomerAppSettings.isVibrationEnabled(activity)) return;
         runOnUi(() -> {
             try {
                 Vibrator vibrator =
@@ -160,6 +161,7 @@ public class TransivaBridge {
 
     @JavascriptInterface
     public void vibratePattern() {
+        if (!CustomerAppSettings.isVibrationEnabled(activity)) return;
         runOnUi(() -> {
             try {
                 Vibrator vibrator =

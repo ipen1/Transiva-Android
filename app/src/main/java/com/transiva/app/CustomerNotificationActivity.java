@@ -30,6 +30,7 @@ public class CustomerNotificationActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(Color.parseColor("#0B7CFF"));
         setContentView(buildScreen());
+        CustomerAppSettings.apply(this);
         renderNotifications();
         TransivaNotificationStore.markAllRead(this);
     }

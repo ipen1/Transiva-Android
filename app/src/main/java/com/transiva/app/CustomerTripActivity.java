@@ -297,6 +297,7 @@ public class CustomerTripActivity extends Activity {
         page.addView(progressBar, plp);
 
         setContentView(page);
+        CustomerAppSettings.apply(this);
     }
 
     private String mapHtml() {

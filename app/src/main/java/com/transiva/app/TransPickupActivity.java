@@ -115,6 +115,7 @@ public class TransPickupActivity extends Activity {
         p.gravity = Gravity.CENTER;
         page.addView(progressBar, p);
         setContentView(page);
+        CustomerAppSettings.apply(this);
     }
 
     private void buildForm() {

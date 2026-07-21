@@ -144,6 +144,7 @@ public class TranstourActivity extends Activity {
         page.addView(progressBar, lp);
 
         setContentView(page);
+        CustomerAppSettings.apply(this);
     }
 
     private void showHome() {

@@ -91,6 +91,7 @@ public class CustomerHistoryActivity extends Activity {
 
         loadSession();
         setContentView(buildScreen());
+        CustomerAppSettings.apply(this);
         loadHistory();
     }
 

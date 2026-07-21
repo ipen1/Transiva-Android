@@ -139,6 +139,7 @@ public class CustomerChatRoomActivity extends Activity {
 
         readIntent();
         setContentView(buildScreen());
+        CustomerAppSettings.apply(this);
 
         CustomerChatNotificationPoller.requestPermission(
                 this

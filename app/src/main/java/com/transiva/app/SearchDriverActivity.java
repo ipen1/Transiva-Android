@@ -206,6 +206,7 @@ public class SearchDriverActivity extends Activity {
         page.addView(progressBar, pLp);
 
         setContentView(page);
+        CustomerAppSettings.apply(this);
     }
 
     private void getUserLocationThenStart() {
