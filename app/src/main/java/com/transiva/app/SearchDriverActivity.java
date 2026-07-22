@@ -433,18 +433,11 @@ public class SearchDriverActivity extends Activity {
                     return;
                 }
 
-                JSONObject driver = res.optJSONObject("driver");
-                String assignedDriver = firstNonEmpty(
-                        driver != null ? driver.optString("username", "") : "",
-                        driver != null ? driver.optString("name", "") : "",
-                        order.optString("driver_username", ""),
-                        order.optString("driver", ""),
-                        res.optString("driver_username", "")
-                );
-                boolean driverAssigned = res.optBoolean("driver_found", false)
-                        || assignedDriver.length() > 0;
-
-                if (isDriverAcceptedStatus(status) || driverAssigned) {
+                // PENTING: keberadaan driver online / offered_driver / driver_found
+                // BUKAN berarti order sudah diterima. Customer tetap di layar pencarian
+                // selama status masih pending. UI driver hanya boleh muncul setelah
+                // backend benar-benar mengubah status menjadi driver_accepted.
+                if (isDriverAcceptedStatus(status)) {
                     mainHandler.post(() -> showDriver(res));
                 }
             } catch (Exception ignored) {}
@@ -453,14 +446,10 @@ public class SearchDriverActivity extends Activity {
 
     private boolean isDriverAcceptedStatus(String rawStatus) {
         String status = firstNonEmpty(rawStatus, "").trim().toLowerCase(Locale.US);
-        return status.equals("taken")
-                || status.equals("accepted")
-                || status.equals("accept")
-                || status.equals("driver_accepted")
-                || status.equals("driver accepted")
-                || status.equals("assigned")
-                || status.equals("confirmed")
+        return status.equals("driver_accepted")
                 || status.equals("arrived_pickup")
+                || status.equals("picked_up")
+                || status.equals("on_trip")
                 || status.equals("on_delivery")
                 || status.equals("arrived_delivery");
     }
@@ -556,7 +545,7 @@ public class SearchDriverActivity extends Activity {
         saveTripPrefs(activeOrderId, driverType, pickupLat, pickupLng, deliveryLat, deliveryLng);
         loadDriverMap(driverName, driverLat, driverLng, pickupLat, pickupLng);
 
-        mainHandler.postDelayed(() -> openNativeTrip(driverType, pickupLat, pickupLng, deliveryLat, deliveryLng), 3200);
+        mainHandler.postDelayed(() -> openNativeTrip(driverType, pickupLat, pickupLng, deliveryLat, deliveryLng), 6000);
     }
 
     private void openNativeTrip(String driverType, double pickupLat, double pickupLng, double deliveryLat, double deliveryLng) {
