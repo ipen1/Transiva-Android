@@ -6,6 +6,8 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -26,6 +28,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -61,6 +64,10 @@ public class SearchDriverActivity extends Activity {
     private TextView driverNameText;
     private TextView driverDistanceText;
     private TextView driverAvatarText;
+    private TextView driverPlateText;
+    private TextView driverRatingText;
+    private TextView acceptedBadgeText;
+    private ImageView driverPhotoView;
     private LinearLayout driverCard;
     private WebView miniMap;
     private Button cancelBtn;
@@ -158,34 +165,73 @@ public class SearchDriverActivity extends Activity {
 
         driverCard = new LinearLayout(this);
         driverCard.setOrientation(LinearLayout.VERTICAL);
-        driverCard.setPadding(dp(16), dp(16), dp(16), dp(16));
-        driverCard.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(24), 1));
+        driverCard.setPadding(dp(18), dp(18), dp(18), dp(18));
+        driverCard.setBackground(roundStroke("#FFFFFF", "#CFE1F7", dp(26), 1));
+        driverCard.setElevation(dp(8));
         driverCard.setVisibility(View.GONE);
         LinearLayout.LayoutParams driverCardLp = new LinearLayout.LayoutParams(-1, -2);
         driverCardLp.setMargins(0, dp(18), 0, 0);
         root.addView(driverCard, driverCardLp);
 
+        acceptedBadgeText = text("✓  DRIVER MENERIMA PESANAN", 11, "#08783E", true);
+        acceptedBadgeText.setGravity(Gravity.CENTER);
+        acceptedBadgeText.setPadding(dp(12), dp(7), dp(12), dp(7));
+        acceptedBadgeText.setBackground(round("#E9FFF3", dp(18)));
+        LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(-2, -2);
+        badgeLp.gravity = Gravity.CENTER_HORIZONTAL;
+        badgeLp.setMargins(0, 0, 0, dp(16));
+        driverCard.addView(acceptedBadgeText, badgeLp);
+
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         driverCard.addView(row, new LinearLayout.LayoutParams(-1, -2));
 
-        driverAvatarText = text("D", 22, "#FFFFFF", true);
+        FrameLayout avatarFrame = new FrameLayout(this);
+        avatarFrame.setBackground(roundStroke("#EAF3FF", "#BFD8F6", dp(22), 1));
+        LinearLayout.LayoutParams avFrameLp = new LinearLayout.LayoutParams(dp(78), dp(78));
+        avFrameLp.setMargins(0, 0, dp(14), 0);
+        row.addView(avatarFrame, avFrameLp);
+
+        driverAvatarText = text("D", 24, "#FFFFFF", true);
         driverAvatarText.setGravity(Gravity.CENTER);
-        driverAvatarText.setBackground(round("#0B7CFF", dp(28)));
-        LinearLayout.LayoutParams avLp = new LinearLayout.LayoutParams(dp(56), dp(56));
-        avLp.setMargins(0, 0, dp(12), 0);
-        row.addView(driverAvatarText, avLp);
+        driverAvatarText.setBackground(round("#0B7CFF", dp(22)));
+        avatarFrame.addView(driverAvatarText, new FrameLayout.LayoutParams(-1, -1));
+
+        driverPhotoView = new ImageView(this);
+        driverPhotoView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        driverPhotoView.setBackground(round("#EAF3FF", dp(22)));
+        driverPhotoView.setClipToOutline(true);
+        driverPhotoView.setVisibility(View.GONE);
+        avatarFrame.addView(driverPhotoView, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout infoCol = new LinearLayout(this);
         infoCol.setOrientation(LinearLayout.VERTICAL);
         row.addView(infoCol, new LinearLayout.LayoutParams(0, -2, 1));
 
-        driverNameText = text("Driver", 18, "#0B3A78", true);
+        driverNameText = text("Driver", 19, "#0B3A78", true);
         infoCol.addView(driverNameText, new LinearLayout.LayoutParams(-1, -2));
 
-        driverDistanceText = text("Driver menuju lokasi jemput", 13, "#64748B", false);
+        LinearLayout metaRow = new LinearLayout(this);
+        metaRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams metaLp = new LinearLayout.LayoutParams(-1, -2);
+        metaLp.setMargins(0, dp(6), 0, 0);
+        infoCol.addView(metaRow, metaLp);
+
+        driverPlateText = text("Plat • -", 12, "#475569", true);
+        driverPlateText.setPadding(dp(9), dp(5), dp(9), dp(5));
+        driverPlateText.setBackground(round("#F1F5F9", dp(12)));
+        metaRow.addView(driverPlateText, new LinearLayout.LayoutParams(-2, -2));
+
+        driverRatingText = text("⭐ 5.0", 12, "#8A5A00", true);
+        driverRatingText.setPadding(dp(9), dp(5), dp(9), dp(5));
+        driverRatingText.setBackground(round("#FFF8E1", dp(12)));
+        LinearLayout.LayoutParams ratingLp = new LinearLayout.LayoutParams(-2, -2);
+        ratingLp.setMargins(dp(8), 0, 0, 0);
+        metaRow.addView(driverRatingText, ratingLp);
+
+        driverDistanceText = text("Driver sedang menuju lokasi jemput", 13, "#64748B", false);
         LinearLayout.LayoutParams distLp = new LinearLayout.LayoutParams(-1, -2);
-        distLp.setMargins(0, dp(4), 0, 0);
+        distLp.setMargins(0, dp(9), 0, 0);
         infoCol.addView(driverDistanceText, distLp);
 
         miniMap = new WebView(this);
@@ -387,14 +433,36 @@ public class SearchDriverActivity extends Activity {
                     return;
                 }
 
-                if (status.equals("taken")
-                        || status.equals("arrived_pickup")
-                        || status.equals("on_delivery")
-                        || status.equals("arrived_delivery")) {
+                JSONObject driver = res.optJSONObject("driver");
+                String assignedDriver = firstNonEmpty(
+                        driver != null ? driver.optString("username", "") : "",
+                        driver != null ? driver.optString("name", "") : "",
+                        order.optString("driver_username", ""),
+                        order.optString("driver", ""),
+                        res.optString("driver_username", "")
+                );
+                boolean driverAssigned = res.optBoolean("driver_found", false)
+                        || assignedDriver.length() > 0;
+
+                if (isDriverAcceptedStatus(status) || driverAssigned) {
                     mainHandler.post(() -> showDriver(res));
                 }
             } catch (Exception ignored) {}
         }).start();
+    }
+
+    private boolean isDriverAcceptedStatus(String rawStatus) {
+        String status = firstNonEmpty(rawStatus, "").trim().toLowerCase(Locale.US);
+        return status.equals("taken")
+                || status.equals("accepted")
+                || status.equals("accept")
+                || status.equals("driver_accepted")
+                || status.equals("driver accepted")
+                || status.equals("assigned")
+                || status.equals("confirmed")
+                || status.equals("arrived_pickup")
+                || status.equals("on_delivery")
+                || status.equals("arrived_delivery");
     }
 
     private void showDriver(JSONObject data) {
@@ -403,8 +471,8 @@ public class SearchDriverActivity extends Activity {
         destroyLoopsKeepScreen();
         radarView.stopRadar();
 
-        titleText.setText("Driver Ditemukan");
-        setSubtitle("Driver sedang menuju lokasi penjemputan");
+        titleText.setText("Driver Menerima Pesanan");
+        setSubtitle("Yeay! Driver Anda sudah terhubung dan segera menuju pickup");
         cancelBtn.setVisibility(View.GONE);
         driverCard.setVisibility(View.VISIBLE);
 
@@ -422,9 +490,34 @@ public class SearchDriverActivity extends Activity {
                 "Driver"
         );
 
+        String driverPlate = firstNonEmpty(
+                driver.optString("plate", ""),
+                driver.optString("vehicle_plate", ""),
+                driver.optString("plat", ""),
+                order.optString("driver_plate", ""),
+                data.optString("driver_plate", ""),
+                "-"
+        );
+        double rating = firstPositiveDouble(
+                driver.optDouble("rating", 0),
+                order.optDouble("driver_rating", 0),
+                data.optDouble("driver_rating", 0),
+                data.optDouble("rating", 0)
+        );
+        String driverPhoto = firstNonEmpty(
+                driver.optString("driver_photo", ""),
+                driver.optString("photo", ""),
+                data.optString("driver_photo", "")
+        );
+
         driverNameText.setText(driverName);
-        driverDistanceText.setText("Driver menuju pickup");
+        driverPlateText.setText("Plat • " + driverPlate);
+        driverRatingText.setText(rating > 0
+                ? "⭐ " + String.format(Locale.US, "%.1f", rating)
+                : "⭐ Driver baru");
+        driverDistanceText.setText("Driver sedang menuju lokasi jemput");
         driverAvatarText.setText(driverName.substring(0, 1).toUpperCase(Locale.US));
+        loadDriverPhoto(driverPhoto);
 
         String driverType = normalizeDriverType(firstNonEmpty(
                 order.optString("driver_type", ""),
@@ -463,7 +556,7 @@ public class SearchDriverActivity extends Activity {
         saveTripPrefs(activeOrderId, driverType, pickupLat, pickupLng, deliveryLat, deliveryLng);
         loadDriverMap(driverName, driverLat, driverLng, pickupLat, pickupLng);
 
-        mainHandler.postDelayed(() -> openNativeTrip(driverType, pickupLat, pickupLng, deliveryLat, deliveryLng), 1800);
+        mainHandler.postDelayed(() -> openNativeTrip(driverType, pickupLat, pickupLng, deliveryLat, deliveryLng), 3200);
     }
 
     private void openNativeTrip(String driverType, double pickupLat, double pickupLng, double deliveryLat, double deliveryLng) {
@@ -489,11 +582,63 @@ public class SearchDriverActivity extends Activity {
         }
     }
 
+    private double firstPositiveDouble(double... values) {
+        if (values == null) return 0;
+        for (double value : values) if (value > 0) return value;
+        return 0;
+    }
+
+    private void loadDriverPhoto(String rawUrl) {
+        if (driverPhotoView == null) return;
+        String value = firstNonEmpty(rawUrl, "").trim();
+        if (value.length() == 0) {
+            driverPhotoView.setVisibility(View.GONE);
+            driverAvatarText.setVisibility(View.VISIBLE);
+            return;
+        }
+        final String photoUrl = value.startsWith("http://") || value.startsWith("https://")
+                ? value
+                : BASE_URL + (value.startsWith("/") ? value.substring(1) : value);
+
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(photoUrl).openConnection();
+                conn.setConnectTimeout(10000);
+                conn.setReadTimeout(10000);
+                conn.setUseCaches(true);
+                conn.connect();
+                try (InputStream in = conn.getInputStream()) {
+                    Bitmap bitmap = BitmapFactory.decodeStream(in);
+                    if (bitmap != null) {
+                        mainHandler.post(() -> {
+                            if (destroyed || driverPhotoView == null) return;
+                            driverPhotoView.setImageBitmap(bitmap);
+                            driverPhotoView.setVisibility(View.VISIBLE);
+                            driverAvatarText.setVisibility(View.GONE);
+                        });
+                    }
+                }
+            } catch (Exception ignored) {
+                mainHandler.post(() -> {
+                    if (driverPhotoView != null) driverPhotoView.setVisibility(View.GONE);
+                    if (driverAvatarText != null) driverAvatarText.setVisibility(View.VISIBLE);
+                });
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }).start();
+    }
+
     private void loadDriverMap(String driverName, double driverLat, double driverLng, double pickupLat, double pickupLng) {
         if (driverLat == 0 || driverLng == 0 || pickupLat == 0 || pickupLng == 0) {
             miniMap.loadData("<html><body style='font-family:sans-serif;text-align:center;padding:30px;color:#64748B'>Koordinat driver belum lengkap</body></html>", "text/html", "UTF-8");
             return;
         }
+
+        String tileUrl = CustomerAppSettings.isDarkMode(this)
+                ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
 
         String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
                 "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'/>" +
@@ -501,7 +646,7 @@ public class SearchDriverActivity extends Activity {
                 "<style>html,body,#map{height:100%;margin:0} .leaflet-control-attribution{display:none}</style></head>" +
                 "<body><div id='map'></div><script>" +
                 "var map=L.map('map',{zoomControl:false,attributionControl:false});" +
-                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);" +
+                "L.tileLayer('" + tileUrl + "').addTo(map);" +
                 "var d=[" + driverLat + "," + driverLng + "], p=[" + pickupLat + "," + pickupLng + "];" +
                 "L.marker(d).addTo(map).bindPopup('" + jsSafe(driverName) + "').openPopup();" +
                 "L.marker(p).addTo(map).bindPopup('Lokasi Jemput');" +
