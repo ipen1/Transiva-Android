@@ -414,6 +414,11 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".AdminFeeSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".AdminRecommendationManagementActivity"
             android:exported="false"
             android:screenOrientation="portrait"
