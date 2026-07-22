@@ -178,6 +178,12 @@ public class AdminDashboardActivity extends Activity {
             case "Business":
                 intent = new Intent(this, AdminBusinessManagementActivity.class);
                 break;
+            case "Laundry":
+                intent = new Intent(this, AdminLaundryManagementActivity.class);
+                break;
+            case "Wisata":
+                intent = new Intent(this, AdminWisataManagementActivity.class);
+                break;
             case "Money":
                 intent = new Intent(this, AdminMoneyManagementActivity.class);
                 break;
