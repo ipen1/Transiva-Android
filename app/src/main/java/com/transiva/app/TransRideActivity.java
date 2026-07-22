@@ -64,7 +64,7 @@ public class TransRideActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private WebView mapView;
-    private TextView pickupText, deliveryText, modeText, fareText, paymentSummaryText;
+    private TextView pickupText, deliveryText, modeText, fareText, paymentSummaryText, driverAvailabilityText;
     private TextView distanceInfoText, durationInfoText, originalPriceText, finalPriceText, discountInfoText;
     private Button voucherChoiceBtn, noteChoiceBtn, paymentChoiceBtn;
     private EditText googleMapInput, noteInput, voucherInput;
@@ -307,6 +307,15 @@ public class TransRideActivity extends Activity {
         LinearLayout.LayoutParams bottomLp = new LinearLayout.LayoutParams(-1, -2);
         bottomLp.setMargins(0, dp(6), 0, 0);
         root.addView(bottomCard, bottomLp);
+
+        driverAvailabilityText = text("Tidak ada driver TransRide yang online", 10, "#B91C1C", true);
+        driverAvailabilityText.setGravity(Gravity.CENTER);
+        driverAvailabilityText.setPadding(dp(8), dp(5), dp(8), dp(5));
+        driverAvailabilityText.setBackground(roundStroke("#FEF2F2", "#FECACA", dp(10), 1));
+        driverAvailabilityText.setVisibility(View.GONE);
+        LinearLayout.LayoutParams driverAvailabilityLp = new LinearLayout.LayoutParams(-1, -2);
+        driverAvailabilityLp.setMargins(0, 0, 0, dp(6));
+        bottomCard.addView(driverAvailabilityText, driverAvailabilityLp);
 
         voucherInput = new EditText(this);
         voucherInput.setSingleLine(true);
@@ -944,6 +953,14 @@ public class TransRideActivity extends Activity {
                     if (destroyed || !mapReady) return;
 
                     eval("clearDrivers()");
+
+                    boolean noDriversOnline = arr == null || arr.length() == 0;
+                    if (driverAvailabilityText != null) {
+                        driverAvailabilityText.setVisibility(noDriversOnline ? View.VISIBLE : View.GONE);
+                        if (noDriversOnline) {
+                            driverAvailabilityText.setText("Tidak ada driver TransRide yang online");
+                        }
+                    }
 
                     if (arr == null) return;
 

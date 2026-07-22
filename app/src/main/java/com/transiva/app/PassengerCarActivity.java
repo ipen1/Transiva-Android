@@ -11,6 +11,7 @@ import android.graphics.Color;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
+import android.graphics.Paint;
 import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.os.Bundle;
@@ -26,7 +27,6 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -53,6 +53,7 @@ public class PassengerCarActivity extends Activity {
 
     private static final String BASE_URL = "https://transiva.my.id/";
     private static final String CREATE_ORDER_URL = BASE_URL + "server/createOrder.php";
+    private static final String PAYMENT_QUOTE_URL = BASE_URL + "server/ride_payment_quote.php";
     private static final String RESOLVE_MAPS_URL = BASE_URL + "server/resolve_google_maps.php";
     private static final String GET_BUSINESSES_URL = BASE_URL + "server/getBusinesses.php";
     private static final String GET_LAUNDRIES_URL = BASE_URL + "server/admin_get_laundries.php";
@@ -63,15 +64,47 @@ public class PassengerCarActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private WebView mapView;
-    private TextView pickupText, deliveryText, modeText, fareText;
-    private EditText googleMapInput, noteInput;
+    private TextView pickupText, deliveryText, modeText, fareText, paymentSummaryText, driverAvailabilityText;
+    private TextView distanceInfoText, durationInfoText, originalPriceText, finalPriceText, discountInfoText;
+    private Button voucherChoiceBtn, noteChoiceBtn, paymentChoiceBtn;
+    private EditText googleMapInput, noteInput, voucherInput;
     private Button pickupBtn, deliveryBtn, gpsBtn, orderBtn, backBtn, useLinkBtn;
     private ProgressBar progressBar;
 
     private boolean mapReady = false;
     private boolean ordering = false;
     private String mode = "pickup";
+
+    /*
+     * SATU-SATUNYA PENGATURAN UKURAN MARKER JEMPUT/TUJUAN.
+     *
+     * Marker center Android dan marker tersimpan Leaflet memakai ukuran yang sama.
+     * Cukup ubah angka MARKER_WIDTH_DP untuk memperbesar atau memperkecil semuanya.
+     *
+     * Rekomendasi:
+     * 36 = kecil
+     * 40 = sedang
+     * 44 = besar
+     */
+    private static final int MARKER_WIDTH_DP = 40;
+
+    // Rasio mengikuti file ikon asli (46 x 58).
+    private static final int MARKER_HEIGHT_DP =
+            Math.round(MARKER_WIDTH_DP * 58f / 46f);
+
+    private static final int MARKER_BOX_WIDTH_DP = MARKER_WIDTH_DP;
+    private static final int MARKER_BOX_HEIGHT_DP = MARKER_HEIGHT_DP;
+    private static final int MARKER_IMAGE_WIDTH_DP = MARKER_WIDTH_DP;
+    private static final int MARKER_IMAGE_HEIGHT_DP = MARKER_HEIGHT_DP;
+
+    private static final int MARKER_ANCHOR_X_PX =
+            MARKER_BOX_WIDTH_DP / 2;
+
+    private static final int MARKER_ANCHOR_Y_PX =
+            Math.max(1, MARKER_IMAGE_HEIGHT_DP - 2);
     private String username = "";
+    private String authToken = "";
+    private String paymentMethod = "cash";
     private int userId = 0;
 
     private double pickupLat = 0, pickupLng = 0;
@@ -101,6 +134,9 @@ public class PassengerCarActivity extends Activity {
 
         try {
             SessionManager session = new SessionManager(this);
+            // Token dibaca terpisah dari status session agar session lama yang masih valid
+            // tetap dapat dimigrasikan oleh SessionManager.getToken().
+            authToken = session.getToken();
             if (session.isLoggedIn()) {
                 username = firstNonEmpty(
                         session.getUsername(),
@@ -156,167 +192,209 @@ public class PassengerCarActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(10), dp(10), dp(10), dp(10));
+        root.setPadding(dp(7), dp(7), dp(7), dp(7));
         page.addView(root, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout topBiked = new LinearLayout(this);
-        topBiked.setOrientation(LinearLayout.VERTICAL);
-        topBiked.setPadding(dp(10), dp(8), dp(10), dp(8));
-        topBiked.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
-        root.addView(topBiked, new LinearLayout.LayoutParams(-1, -2));
+        /* =========================
+         * HEADER COMPACT
+         * ========================= */
+        LinearLayout topCard = new LinearLayout(this);
+        topCard.setOrientation(LinearLayout.VERTICAL);
+        topCard.setPadding(dp(9), dp(7), dp(9), dp(7));
+        topCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(14), 1));
+        root.addView(topCard, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout titleRow = new LinearLayout(this);
         titleRow.setGravity(Gravity.CENTER_VERTICAL);
-        topBiked.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
+        topCard.addView(titleRow, new LinearLayout.LayoutParams(-1, dp(30)));
 
-        TextView title = text("Transcar", 18, "#0B3A78", true);
-        titleRow.addView(title, new LinearLayout.LayoutParams(0, dp(34), 1));
+        TextView title = text("Transcar", 17, "#0B3A78", true);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
+
+        modeText = text("Geser peta, lalu pilih titik", 10, "#64748B", false);
+        modeText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        titleRow.addView(modeText, new LinearLayout.LayoutParams(0, -1, 1.25f));
 
         Button close = smallButton("×", "#FEE2E2", "#DC2626", "#FECACA");
-        titleRow.addView(close, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(dp(30), dp(30));
+        closeLp.setMargins(dp(5), 0, 0, 0);
+        titleRow.addView(close, closeLp);
+        backBtn = close;
         close.setOnClickListener(v -> finish());
-
-        modeText = text("Geser peta lalu pilih titik jemput / tujuan", 11, "#64748B", false);
-        modeText.setPadding(0, 0, 0, dp(6));
-        topBiked.addView(modeText);
 
         LinearLayout pointRow = new LinearLayout(this);
         pointRow.setOrientation(LinearLayout.HORIZONTAL);
-        topBiked.addView(pointRow, new LinearLayout.LayoutParams(-1, dp(56)));
+        LinearLayout.LayoutParams pointRowLp = new LinearLayout.LayoutParams(-1, dp(50));
+        pointRowLp.setMargins(0, dp(4), 0, 0);
+        topCard.addView(pointRow, pointRowLp);
 
-        pickupBtn = compactPointButton("●  Lokasi Jemput", "Belum dipilih", "#16A34A");
-        deliveryBtn = compactPointButton("●  Lokasi Tujuan", "Belum dipilih", "#EF4444");
+        pickupBtn = compactPointButton("●  Jemput", "Belum dipilih", "#16A34A");
+        deliveryBtn = compactPointButton("●  Tujuan", "Belum dipilih", "#EF4444");
 
         pointRow.addView(pickupBtn, new LinearLayout.LayoutParams(0, -1, 1));
+        LinearLayout.LayoutParams deliveryLp = new LinearLayout.LayoutParams(0, -1, 1);
+        deliveryLp.setMargins(dp(5), 0, 0, 0);
+        pointRow.addView(deliveryBtn, deliveryLp);
 
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(0, -1, 1);
-        dlp.setMargins(dp(6), 0, 0, 0);
-        pointRow.addView(deliveryBtn, dlp);
-
-        pickupText = text("Pickup: belum dipilih", 10, "#334155", false);
-        deliveryText = text("Tujuan: belum dipilih", 10, "#334155", false);
+        pickupText = text("Pickup: belum dipilih", 9, "#334155", false);
+        deliveryText = text("Tujuan: belum dipilih", 9, "#334155", false);
         pickupText.setVisibility(View.GONE);
         deliveryText.setVisibility(View.GONE);
 
         LinearLayout linkRow = new LinearLayout(this);
         linkRow.setOrientation(LinearLayout.HORIZONTAL);
         linkRow.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams linkLp = new LinearLayout.LayoutParams(-1, dp(42));
-        linkLp.setMargins(0, dp(7), 0, 0);
-        topBiked.addView(linkRow, linkLp);
+        LinearLayout.LayoutParams linkLp = new LinearLayout.LayoutParams(-1, dp(36));
+        linkLp.setMargins(0, dp(5), 0, 0);
+        topCard.addView(linkRow, linkLp);
 
         googleMapInput = new EditText(this);
         googleMapInput.setSingleLine(true);
-        googleMapInput.setTextSize(11);
-        googleMapInput.setHint("🔗 Link Google Maps tujuan...");
-        googleMapInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(14), 1));
-        googleMapInput.setPadding(dp(10), 0, dp(10), 0);
+        googleMapInput.setTextSize(10);
+        googleMapInput.setHint("Link Google Maps tujuan (opsional)");
+        googleMapInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(11), 1));
+        googleMapInput.setPadding(dp(9), 0, dp(9), 0);
         linkRow.addView(googleMapInput, new LinearLayout.LayoutParams(0, -1, 1));
 
         useLinkBtn = smallButton("Pakai", "#EAF4FF", "#0B7CFF", "#9DCAFF");
-        LinearLayout.LayoutParams ulp = new LinearLayout.LayoutParams(dp(70), -1);
-        ulp.setMargins(dp(7), 0, 0, 0);
-        linkRow.addView(useLinkBtn, ulp);
+        LinearLayout.LayoutParams useLinkLp = new LinearLayout.LayoutParams(dp(62), -1);
+        useLinkLp.setMargins(dp(5), 0, 0, 0);
+        linkRow.addView(useLinkBtn, useLinkLp);
 
+        /* =========================
+         * MAP - PRIORITAS RUANG UTAMA
+         * ========================= */
         FrameLayout mapBox = new FrameLayout(this);
+        mapBox.setBackground(roundStroke("#EAF4FF", "#AFCFF2", dp(14), 1));
         LinearLayout.LayoutParams mapLp = new LinearLayout.LayoutParams(-1, 0, 1);
-        mapLp.setMargins(0, dp(8), 0, dp(8));
+        mapLp.setMargins(0, dp(6), 0, dp(6));
         root.addView(mapBox, mapLp);
 
         mapView = new WebView(this);
         mapView.setBackgroundColor(Color.parseColor("#EAF4FF"));
         mapView.setWebViewClient(new WebViewClient());
-        WebSettings s = mapView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        if (android.os.Build.VERSION.SDK_INT >= 21) s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        mapView.addJavascriptInterface(new MapBridge(), "AndroidCar");
-        mapBox.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
-
-        FrameLayout centerMarkerBox = new FrameLayout(this);
-
-        /*
-         * Ukuran center marker dibuat sama dengan marker hijau/merah Leaflet.
-         * Jika ingin semua marker terlihat seimbang, cukup ubah CENTER_PIN_W/H
-         * dan pastikan nilainya sama dengan assetpin pada CSS mapHtml().
-         */
-        final int CENTER_PIN_W = 54;
-        final int CENTER_PIN_H = 66;
-
-        FrameLayout.LayoutParams clp =
-                new FrameLayout.LayoutParams(
-                        dp(CENTER_PIN_W),
-                        dp(CENTER_PIN_H)
-                );
-
-        clp.gravity = Gravity.CENTER;
-
-        /*
-         * Karena icon center berupa overlay native di atas WebView,
-         * topMargin mengatur posisi visual agar ujung pin berada di titik tengah map.
-         * Nilai ini dibuat lebih kecil agar icon biru tidak terlihat terlalu besar/naik.
-         */
-        clp.topMargin = -dp(18);
-        clp.leftMargin = dp(5);
-
-        mapBox.addView(centerMarkerBox, clp);
-
-        int centerPinId = getDrawableId("map_center_pin", "ic_center_pin", "center_pin", "map_destination_pin");
-        if (centerPinId > 0) {
-            ImageView centerMarker = new ImageView(this);
-            centerMarker.setImageResource(centerPinId);
-            centerMarker.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            centerMarker.setAdjustViewBounds(false);
-            centerMarker.setPadding(0, 0, 0, 0);
-            centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
-        } else {
-            TextView centerMarker = text("📍", 28, "#EF4444", true);
-            centerMarker.setGravity(Gravity.CENTER);
-            centerMarkerBox.addView(centerMarker, new FrameLayout.LayoutParams(-1, -1));
+        WebSettings settings = mapView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
+        mapView.addJavascriptInterface(new MapBridge(), "AndroidCar");
+
+        FrameLayout.LayoutParams webLp = new FrameLayout.LayoutParams(-1, -1);
+        webLp.setMargins(dp(1), dp(1), dp(1), dp(1));
+        mapBox.addView(mapView, webLp);
+
+        gpsBtn = smallButton("⌖", "#FFFFFF", "#0B7CFF", "#9DCAFF");
+        gpsBtn.setTextSize(18);
+        FrameLayout.LayoutParams gpsMapLp = new FrameLayout.LayoutParams(dp(42), dp(42));
+        gpsMapLp.gravity = Gravity.BOTTOM | Gravity.START;
+        gpsMapLp.setMargins(dp(10), 0, 0, dp(10));
+        mapBox.addView(gpsBtn, gpsMapLp);
 
         mapView.loadDataWithBaseURL(BASE_URL, mapHtml(), "text/html", "UTF-8", null);
 
-        LinearLayout bottomBiked = new LinearLayout(this);
-        bottomBiked.setOrientation(LinearLayout.VERTICAL);
-        bottomBiked.setPadding(dp(10), dp(8), dp(10), dp(8));
-        bottomBiked.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(18), 1));
-        root.addView(bottomBiked, new LinearLayout.LayoutParams(-1, -2));
+        /* =========================
+         * DRAIV-STYLE BOTTOM CARD
+         * ========================= */
+        LinearLayout bottomCard = new LinearLayout(this);
+        bottomCard.setOrientation(LinearLayout.VERTICAL);
+        bottomCard.setPadding(dp(10), dp(9), dp(10), dp(10));
+        bottomCard.setBackground(roundStroke("#F8FBFF", "#D7E6F8", dp(14), 1));
+        LinearLayout.LayoutParams bottomLp = new LinearLayout.LayoutParams(-1, -2);
+        bottomLp.setMargins(0, dp(6), 0, 0);
+        root.addView(bottomCard, bottomLp);
 
-        fareText = text("Tarif dihitung server setelah order dibuat", 10, "#64748B", false);
-        bottomBiked.addView(fareText);
+        driverAvailabilityText = text("Tidak ada driver Transcar yang online", 10, "#B91C1C", true);
+        driverAvailabilityText.setGravity(Gravity.CENTER);
+        driverAvailabilityText.setPadding(dp(8), dp(5), dp(8), dp(5));
+        driverAvailabilityText.setBackground(roundStroke("#FEF2F2", "#FECACA", dp(10), 1));
+        driverAvailabilityText.setVisibility(View.GONE);
+        LinearLayout.LayoutParams driverAvailabilityLp = new LinearLayout.LayoutParams(-1, -2);
+        driverAvailabilityLp.setMargins(0, 0, 0, dp(6));
+        bottomCard.addView(driverAvailabilityText, driverAvailabilityLp);
 
+        voucherInput = new EditText(this);
+        voucherInput.setSingleLine(true);
         noteInput = new EditText(this);
         noteInput.setSingleLine(true);
-        noteInput.setTextSize(12);
-        noteInput.setHint("Catatan untuk driver mobil...");
-        noteInput.setBackground(roundStroke("#FFFFFF", "#D7E6F8", dp(14), 1));
-        noteInput.setPadding(dp(10), 0, dp(10), 0);
-        LinearLayout.LayoutParams nlp = new LinearLayout.LayoutParams(-1, dp(42));
-        nlp.setMargins(0, dp(7), 0, dp(8));
-        bottomBiked.addView(noteInput, nlp);
 
-        LinearLayout actionRow = new LinearLayout(this);
-        actionRow.setOrientation(LinearLayout.HORIZONTAL);
-        bottomBiked.addView(actionRow, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout quickRow = new LinearLayout(this);
+        quickRow.setOrientation(LinearLayout.HORIZONTAL);
+        quickRow.setGravity(Gravity.CENTER_VERTICAL);
+        bottomCard.addView(quickRow, new LinearLayout.LayoutParams(-1, dp(44)));
 
-        backBtn = smallButton("← Kembali", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        gpsBtn = smallButton("⌖ GPS", "#FFFFFF", "#0B7CFF", "#9DCAFF");
-        orderBtn = smallButton("🚘 Order Mobil", "#0B7CFF", "#FFFFFF", "#0B7CFF");
-        actionRow.addView(backBtn, new LinearLayout.LayoutParams(0, dp(44), 1));
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(0, dp(44), 1);
-        glp.setMargins(dp(7), 0, dp(7), 0);
-        actionRow.addView(gpsBtn, glp);
-        actionRow.addView(orderBtn, new LinearLayout.LayoutParams(0, dp(44), 1.45f));
+        voucherChoiceBtn = smallButton("🏷 Voucher", "#0B7CFF", "#FFFFFF", "#0B7CFF");
+        noteChoiceBtn = smallButton("📝 Note", "#F59E0B", "#FFFFFF", "#F59E0B");
+        paymentChoiceBtn = smallButton("💵 Tunai", "#FFFFFF", "#0B3A78", "#C8D9EC");
+        voucherChoiceBtn.setTextSize(10);
+        noteChoiceBtn.setTextSize(10);
+        paymentChoiceBtn.setTextSize(10);
+
+        quickRow.addView(voucherChoiceBtn, new LinearLayout.LayoutParams(0, -1, 0.95f));
+        LinearLayout.LayoutParams noteQuickLp = new LinearLayout.LayoutParams(0, -1, 0.82f);
+        noteQuickLp.setMargins(dp(6), 0, dp(6), 0);
+        quickRow.addView(noteChoiceBtn, noteQuickLp);
+        quickRow.addView(paymentChoiceBtn, new LinearLayout.LayoutParams(0, -1, 1.18f));
+
+        voucherChoiceBtn.setOnClickListener(v -> showVoucherDialog());
+        noteChoiceBtn.setOnClickListener(v -> showNoteDialog());
+        paymentChoiceBtn.setOnClickListener(v -> showPaymentDialog());
+
+        LinearLayout estimateRow = new LinearLayout(this);
+        estimateRow.setOrientation(LinearLayout.HORIZONTAL);
+        estimateRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams estimateLp = new LinearLayout.LayoutParams(-1, dp(66));
+        estimateLp.setMargins(dp(2), dp(6), dp(2), dp(5));
+        bottomCard.addView(estimateRow, estimateLp);
+
+        LinearLayout tripInfo = new LinearLayout(this);
+        tripInfo.setOrientation(LinearLayout.VERTICAL);
+        tripInfo.setGravity(Gravity.CENTER_VERTICAL);
+        estimateRow.addView(tripInfo, new LinearLayout.LayoutParams(0, -1, 1));
+
+        distanceInfoText = text("⌁  Jarak : -", 11, "#334155", false);
+        durationInfoText = text("◷  Waktu : -", 11, "#334155", false);
+        tripInfo.addView(distanceInfoText, new LinearLayout.LayoutParams(-1, dp(28)));
+        tripInfo.addView(durationInfoText, new LinearLayout.LayoutParams(-1, dp(28)));
+
+        LinearLayout priceBox = new LinearLayout(this);
+        priceBox.setOrientation(LinearLayout.VERTICAL);
+        priceBox.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        estimateRow.addView(priceBox, new LinearLayout.LayoutParams(0, -1, 1));
+
+        originalPriceText = text("", 10, "#94A3B8", false);
+        originalPriceText.setGravity(Gravity.END);
+        originalPriceText.setVisibility(View.GONE);
+        priceBox.addView(originalPriceText, new LinearLayout.LayoutParams(-1, dp(20)));
+
+        finalPriceText = text("Rp -", 18, "#0B3A78", true);
+        finalPriceText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        priceBox.addView(finalPriceText, new LinearLayout.LayoutParams(-1, dp(30)));
+
+        discountInfoText = text("", 9, "#16A34A", true);
+        discountInfoText.setGravity(Gravity.END);
+        discountInfoText.setVisibility(View.GONE);
+        priceBox.addView(discountInfoText, new LinearLayout.LayoutParams(-1, dp(16)));
+
+        fareText = text("Tarif dihitung dari database", 8, "#64748B", false);
+        fareText.setVisibility(View.GONE);
+        paymentSummaryText = text("", 8, "#64748B", false);
+        paymentSummaryText.setVisibility(View.GONE);
+
+        orderBtn = smallButton("🚘  PESAN SEKARANG", "#0B7CFF", "#FFFFFF", "#0B7CFF");
+        orderBtn.setTextSize(13);
+        orderBtn.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        bottomCard.addView(orderBtn, new LinearLayout.LayoutParams(-1, dp(48)));
 
         progressBar = new ProgressBar(this);
         progressBar.setVisibility(View.GONE);
-        FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(dp(54), dp(54));
-        plp.gravity = Gravity.CENTER;
-        page.addView(progressBar, plp);
+        FrameLayout.LayoutParams progressLp = new FrameLayout.LayoutParams(dp(50), dp(50));
+        progressLp.gravity = Gravity.CENTER;
+        page.addView(progressBar, progressLp);
 
         setContentView(page);
         CustomerAppSettings.apply(this);
@@ -324,19 +402,101 @@ public class PassengerCarActivity extends Activity {
         updateModeUI();
     }
 
+    private void showVoucherDialog() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setText(voucherInput == null ? "" : voucherInput.getText().toString());
+        input.setHint("Masukkan kode voucher");
+        input.setPadding(dp(14), dp(8), dp(14), dp(8));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Voucher Transcar")
+                .setMessage("Masukkan kode voucher lalu tekan Gunakan.")
+                .setView(input)
+                .setNegativeButton("Hapus", (dialog, which) -> {
+                    if (voucherInput != null) voucherInput.setText("");
+                    voucherChoiceBtn.setText("🏷 Voucher");
+                    requestPaymentQuote();
+                })
+                .setNeutralButton("Batal", null)
+                .setPositiveButton("Gunakan", (dialog, which) -> {
+                    String code = input.getText().toString().trim().toUpperCase(Locale.US);
+                    if (voucherInput != null) voucherInput.setText(code);
+                    voucherChoiceBtn.setText(code.isEmpty() ? "🏷 Voucher" : "🏷 " + code);
+                    requestPaymentQuote();
+                })
+                .show();
+    }
+
+    private void showNoteDialog() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(false);
+        input.setMinLines(3);
+        input.setMaxLines(5);
+        input.setText(noteInput == null ? "" : noteInput.getText().toString());
+        input.setHint("Contoh: jemput di depan pagar");
+        input.setPadding(dp(14), dp(8), dp(14), dp(8));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Catatan untuk driver")
+                .setView(input)
+                .setNegativeButton("Hapus", (dialog, which) -> {
+                    if (noteInput != null) noteInput.setText("");
+                    noteChoiceBtn.setText("📝 Note");
+                })
+                .setNeutralButton("Batal", null)
+                .setPositiveButton("Simpan", (dialog, which) -> {
+                    String note = input.getText().toString().trim();
+                    if (noteInput != null) noteInput.setText(note);
+                    noteChoiceBtn.setText(note.isEmpty() ? "📝 Note" : "📝 Ada Note");
+                })
+                .show();
+    }
+
+    private void showPaymentDialog() {
+        String[] methods = {"Tunai", "Transiva Pay"};
+        int checked = paymentMethod.equals("balance") ? 1 : 0;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Pilih metode pembayaran")
+                .setSingleChoiceItems(methods, checked, (dialog, which) -> {
+                    paymentMethod = which == 1 ? "balance" : "cash";
+                    paymentChoiceBtn.setText(which == 1 ? "💳 Transiva Pay" : "💵 Tunai");
+                    dialog.dismiss();
+                    requestPaymentQuote();
+                })
+                .setNegativeButton("Batal", null)
+                .show();
+    }
+
     private void bindActions() {
-        pickupBtn.setOnClickListener(v -> { mode = "pickup"; updateModeUI(); setPointFromCenter(); });
-        deliveryBtn.setOnClickListener(v -> { mode = "delivery"; updateModeUI(); setPointFromCenter(); });
+        pickupBtn.setOnClickListener(v -> handlePointButtonClick("pickup"));
+        deliveryBtn.setOnClickListener(v -> handlePointButtonClick("delivery"));
         gpsBtn.setOnClickListener(v -> goToMyLocation());
         backBtn.setOnClickListener(v -> finish());
         orderBtn.setOnClickListener(v -> createOrder());
         useLinkBtn.setOnClickListener(v -> useGoogleMapLink());
     }
 
+    /**
+     * Klik pertama pada tombol yang tidak aktif hanya mengganti mode marker center.
+     * Klik kedua pada tombol yang sudah aktif menetapkan titik di posisi tengah peta.
+     * Dengan pola ini pengguna selalu dapat kembali memilih ulang Jemput atau Tujuan.
+     */
+    private void handlePointButtonClick(String requestedMode) {
+        if (!requestedMode.equals(mode)) {
+            mode = requestedMode;
+            updateModeUI();
+            return;
+        }
+
+        setPointFromCenter();
+    }
+
     private String mapHtml() {
         String pickupIcon = drawableDataUri("map_pickup_pin", "ic_pickup_pin", "pickup_pin", "pickup", "point_pickup", "ic_pickup");
         String deliveryIcon = drawableDataUri("map_destination_pin", "map_delivery_pin", "ic_delivery_pin", "delivery_pin", "delivery", "point_delivery", "ic_delivery");
-        String carIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
+        String bikeIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
         String placeIcon = drawableDataUri("mark", "map_place_pin", "business_pin", "merchant_pin", "laundry_pin");
         String driverIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
 
@@ -346,28 +506,54 @@ public class PassengerCarActivity extends Activity {
                 "<script src='" + BASE_URL + "js/leaflet.js'></script>" +
                 "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef6ff;overflow:hidden;}" +
                 ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
-                ".leaflet-container{font-family:Arial,sans-serif;border-radius:18px;background:#eef6ff;}" +
-                ".pin{font-size:34px;text-align:center;filter:drop-shadow(0 6px 6px rgba(0,0,0,.28));}" +
-                ".assetpin{width:54px;height:66px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".leaflet-container{font-family:Arial,sans-serif;border-radius:14px;background:#eef6ff;}" +
+                ".pin{font-size:25px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.24));}" +
+                ".assetpin{display:block;width:" + MARKER_IMAGE_WIDTH_DP +
+                "px;height:" + MARKER_IMAGE_HEIGHT_DP +
+                "px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.26));}" +
                 ".bikepin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".placepin{width:42px;height:42px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
-                ".driverpin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
+                ".driverpin{width:42px;height:42px;object-fit:contain;border-radius:50%;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
                 ".route{stroke-linecap:round;stroke-linejoin:round;}" +
                 ".popup{min-width:170px;line-height:1.55;font-size:13px;color:#0f172a;}" +
                 ".popup b{font-size:15px;color:#0B3A78;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map,pickup=null,delivery=null,route=null;" +
+                "var map,pickup=null,delivery=null,centerMarker=null,route=null;" +
                 "var placeMarkers=[],driverMarkers=[];" +
-                "var pickupIconData='" + js(pickupIcon) + "',deliveryIconData='" + js(deliveryIcon) + "',carIconData='" + js(carIcon) + "',placeIconData='" + js(placeIcon) + "',driverIconData='" + js(driverIcon) + "';" +
+                "var pickupIconData='" + js(pickupIcon) + "',deliveryIconData='" + js(deliveryIcon) + "',bikeIconData='" + js(bikeIcon) + "',placeIconData='" + js(placeIcon) + "',driverIconData='" + js(driverIcon) + "';" +
                 "function esc(v){return String(v||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}" +
                 "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView([" + centerLat + "," + centerLng + "],17);" +
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,attribution:''}).addTo(map);" +
-                "function notifyCenter(){var c=map.getCenter();try{AndroidCar.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
+                "setCenterMarker('pickup');" +
+                "function notifyCenter(){var c=map.getCenter();if(centerMarker)centerMarker.setLatLng(c);try{AndroidCar.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
+                "map.on('move',function(){if(centerMarker)centerMarker.setLatLng(map.getCenter());});" +
                 "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
                 "setTimeout(function(){map.invalidateSize(true);var c=map.getCenter();try{AndroidCar.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
                 "}catch(e){setTimeout(ready,700);}}" +
-                "function iconData(data,fallback){if(data&&data.length>20){return L.divIcon({html:'<img class=assetpin src=\"'+data+'\">',className:'',iconSize:[54,66],iconAnchor:[27,54],popupAnchor:[0,-52]});}return L.divIcon({html:'<div class=pin>'+fallback+'</div>',className:'',iconSize:[46,46],iconAnchor:[23,40],popupAnchor:[0,-38]});}" +
-                "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[46,46],iconAnchor:[23,40],popupAnchor:[0,-38]});}" +
+                "function iconData(data,fallback){" +
+                "var w=" + MARKER_BOX_WIDTH_DP + "," +
+                "h=" + MARKER_BOX_HEIGHT_DP + "," +
+                "ax=" + MARKER_ANCHOR_X_PX + "," +
+                "ay=" + MARKER_ANCHOR_Y_PX + ";" +
+                "var html=(data&&data.length>20)" +
+                "?'<img class=assetpin src=\"'+data+'\">'" +
+                ":'<div class=pin style=\"width:'+w+'px;height:'+h+'px;line-height:'+h+'px\">'+fallback+'</div>';" +
+                "return L.divIcon({" +
+                "html:html,className:''," +
+                "iconSize:[w,h]," +
+                "iconAnchor:[ax,ay]," +
+                "popupAnchor:[0,-Math.max(1,ay-2)]" +
+                "});" +
+                "}" +
+                "function setCenterMarker(type){" +
+                "if(!map)return;" +
+                "var isPickup=(type==='pickup');" +
+                "var icon=iconData(isPickup?pickupIconData:deliveryIconData,isPickup?'🟢':'🔴');" +
+                "var position=map.getCenter();" +
+                "if(centerMarker){centerMarker.setLatLng(position);centerMarker.setIcon(icon);}" +
+                "else{centerMarker=L.marker(position,{icon:icon,interactive:false,keyboard:false,zIndexOffset:1200}).addTo(map);}" +
+                "}" +
+                "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[32,36],iconAnchor:[16,31],popupAnchor:[0,-29]});}" +
                 "function driverData(){if(driverIconData&&driverIconData.length>20){return L.divIcon({html:'<img class=driverpin src=\"'+driverIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-24]});}return L.divIcon({html:'<div class=pin>🚘</div>',className:'',iconSize:[46,46],iconAnchor:[23,28],popupAnchor:[0,-28]});}" +
                 "function setPickup(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:700}).addTo(map);if(label)pickup.bindPopup('<div class=popup><b>Lokasi Jemput</b><br>'+esc(label)+'</div>');}" +
                 "function setDelivery(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:700}).addTo(map);if(label)delivery.bindPopup('<div class=popup><b>Lokasi Tujuan</b><br>'+esc(label)+'</div>');}" +
@@ -375,7 +561,7 @@ public class PassengerCarActivity extends Activity {
                 "function clearPlaces(){for(var i=0;i<placeMarkers.length;i++){try{map.removeLayer(placeMarkers[i]);}catch(e){}}placeMarkers=[];}" +
                 "function addPlace(lat,lng,name,type,address){if(!map||!lat||!lng)return;var html='<div class=popup><b>'+esc(name)+'</b><br>'+esc(type||'Transiva')+(address?'<br>'+esc(address):'')+'</div>';var m=L.marker([+lat,+lng],{icon:placeData(),zIndexOffset:350}).addTo(map).bindPopup(html);placeMarkers.push(m);}" +
                 "function clearDrivers(){for(var i=0;i<driverMarkers.length;i++){try{map.removeLayer(driverMarkers[i]);}catch(e){}}driverMarkers=[];}" +
-                "function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var m=L.marker([+lat,+lng],{icon:driverData(),zIndexOffset:500}).addTo(map).bindPopup('<div class=popup><b>'+esc(name||'Driver')+'</b><br>Driver mobil online</div>');driverMarkers.push(m);}" +
+                "function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var m=L.marker([+lat,+lng],{icon:driverData(),zIndexOffset:500}).addTo(map).bindPopup('<div class=popup><b>'+esc(name||'Driver')+'</b><br>Driver online</div>');driverMarkers.push(m);}" +
                 "function drawRouteAfterOrder(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();route=L.polyline([a,b],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
                 "ready();" +
                 "</script></body></html>";
@@ -451,7 +637,13 @@ public class PassengerCarActivity extends Activity {
             if (best != null) {
                 centerLat = best.getLatitude(); centerLng = best.getLongitude(); pickLat = centerLat; pickLng = centerLng;
                 eval("moveTo(" + centerLat + "," + centerLng + ",17)");
-                if (!validCoord(pickupLat, pickupLng)) { mode = "pickup"; setPointFromCenter(); }
+
+                // Jangan otomatis menetapkan titik saat halaman baru dibuka.
+                // Marker center harus tetap pada mode Jemput sampai pengguna menekan Jemput.
+                if (!validCoord(pickupLat, pickupLng)) {
+                    mode = "pickup";
+                    updateModeUI();
+                }
             } else {
                 toastDialog("GPS belum mendapatkan lokasi. Aktifkan lokasi lalu tekan GPS lagi.");
             }
@@ -552,6 +744,12 @@ public class PassengerCarActivity extends Activity {
                     deliveryBtn.setText("●  Tujuan\n" + shortAddress(address));
                     eval("setDelivery(" + deliveryLat + "," + deliveryLng + ",'" + js(address) + "')");
                 }
+
+                // Quote harus dipanggil setelah koordinat kedua titik sudah tersimpan.
+                if (validCoordinate(pickupLat, pickupLng)
+                        && validCoordinate(deliveryLat, deliveryLng)) {
+                    requestPaymentQuote();
+                }
             });
         }).start();
     }
@@ -591,6 +789,11 @@ public class PassengerCarActivity extends Activity {
             conn.setUseCaches(false);
             conn.setRequestProperty("User-Agent", "TransivaAndroid/1.0");
             conn.setRequestProperty("Accept", "application/json");
+            String requestToken = refreshAuthToken();
+            if (!requestToken.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + requestToken);
+            }
+            conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
 
             String body = readStream(conn.getInputStream());
             JSONObject json = new JSONObject(body);
@@ -751,6 +954,14 @@ public class PassengerCarActivity extends Activity {
 
                     eval("clearDrivers()");
 
+                    boolean noDriversOnline = arr == null || arr.length() == 0;
+                    if (driverAvailabilityText != null) {
+                        driverAvailabilityText.setVisibility(noDriversOnline ? View.VISIBLE : View.GONE);
+                        if (noDriversOnline) {
+                            driverAvailabilityText.setText("Tidak ada driver Transcar yang online");
+                        }
+                    }
+
                     if (arr == null) return;
 
                     for (int i = 0; i < arr.length(); i++) {
@@ -765,7 +976,7 @@ public class PassengerCarActivity extends Activity {
                         String name = firstNonEmpty(
                                 d.optString("name", ""),
                                 d.optString("username", ""),
-                                "Driver Car"
+                                "Driver"
                         );
 
                         eval("addDriver(" + lat + "," + lng + ",'" + js(name) + "')");
@@ -792,6 +1003,11 @@ public class PassengerCarActivity extends Activity {
             conn.setReadTimeout(TIMEOUT_MS);
             conn.setUseCaches(false);
             conn.setRequestProperty("Accept", "application/json");
+            String requestToken = refreshAuthToken();
+            if (!requestToken.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + requestToken);
+            }
+            conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
 
             String body = readStream(conn.getInputStream()).trim();
             return body.length() == 0 ? new JSONObject() : new JSONObject(body);
@@ -816,6 +1032,22 @@ public class PassengerCarActivity extends Activity {
         return earth * c;
     }
 
+    private String refreshAuthToken() {
+        try {
+            String latest = new SessionManager(this).getToken();
+            if (latest != null && !latest.trim().isEmpty()) {
+                authToken = latest.trim();
+            }
+        } catch (Exception ignored) {}
+        return authToken == null ? "" : authToken.trim();
+    }
+
+    private boolean ensureAuthTokenForOrder() {
+        if (!refreshAuthToken().isEmpty()) return true;
+        toastDialog("Sesi login tidak memiliki token autentikasi. Silakan login ulang sekali untuk memperbarui sesi.");
+        return false;
+    }
+
     private void createOrder() {
         if (ordering) return;
 
@@ -825,6 +1057,10 @@ public class PassengerCarActivity extends Activity {
 
         if (userId <= 0) {
             toastDialog("User ID tidak ditemukan. Silakan login ulang.");
+            return;
+        }
+
+        if (!ensureAuthTokenForOrder()) {
             return;
         }
 
@@ -877,6 +1113,8 @@ public class PassengerCarActivity extends Activity {
                 payload.put("delivery_address", firstNonEmpty(deliveryAddress, "Lokasi Tujuan"));
                 payload.put("userLocation", userLocation);
                 payload.put("note", noteInput.getText().toString().trim());
+                payload.put("payment_method", paymentMethod);
+                payload.put("voucher_code", voucherInput == null ? "" : voucherInput.getText().toString().trim().toUpperCase(Locale.US));
 
                 JSONObject res = postJson(CREATE_ORDER_URL, payload);
                 mainHandler.post(() -> handleOrderResult(res));
@@ -918,6 +1156,8 @@ public class PassengerCarActivity extends Activity {
                 .putString("pickup_address", firstNonEmpty(pickupAddress, "Lokasi Jemput"))
                 .putString("delivery_address", firstNonEmpty(deliveryAddress, "Lokasi Tujuan"))
                 .putString("active_order_price", res.optString("price", ""))
+                .putString("active_order_payment_method", res.optString("payment_method", paymentMethod))
+                .putString("active_order_voucher", res.optString("voucher_code", ""))
                 .apply();
 
         try {
@@ -940,6 +1180,240 @@ public class PassengerCarActivity extends Activity {
         }
     }
 
+    private void requestPaymentQuote() {
+        if (!validCoordinate(pickupLat, pickupLng)
+                || !validCoordinate(deliveryLat, deliveryLng)) {
+            if (paymentSummaryText != null) {
+                paymentSummaryText.setText("Pilih titik jemput dan tujuan");
+            }
+            if (distanceInfoText != null) distanceInfoText.setText("⌁  Jarak : -");
+            if (durationInfoText != null) durationInfoText.setText("◷  Waktu : -");
+            if (finalPriceText != null) finalPriceText.setText("Rp -");
+            if (originalPriceText != null) originalPriceText.setVisibility(View.GONE);
+            if (discountInfoText != null) discountInfoText.setVisibility(View.GONE);
+            return;
+        }
+
+        final double fallbackKm = Math.max(
+                0.1,
+                distanceMeter(
+                        pickupLat,
+                        pickupLng,
+                        deliveryLat,
+                        deliveryLng
+                ) / 1000.0
+        );
+
+        // Tampilkan estimasi jarak/waktu segera, lalu harga diisi dari database.
+        final double fallbackMinutes = Math.max(
+                1.0,
+                (fallbackKm / 25.0) * 60.0
+        );
+
+        distanceInfoText.setText(String.format(
+                new Locale("id", "ID"),
+                "⌁  Jarak : %.1f km",
+                fallbackKm
+        ));
+        durationInfoText.setText(String.format(
+                new Locale("id", "ID"),
+                "◷  Waktu : %.0f menit",
+                fallbackMinutes
+        ));
+        finalPriceText.setText("Menghitung...");
+        finalPriceText.setTextColor(Color.parseColor("#64748B"));
+        paymentSummaryText.setText("Mengambil tarif dari database...");
+
+        new Thread(() -> {
+            try {
+                JSONObject payload = new JSONObject();
+
+                JSONObject pickup = new JSONObject();
+                pickup.put("latitude", pickupLat);
+                pickup.put("longitude", pickupLng);
+
+                JSONObject delivery = new JSONObject();
+                delivery.put("latitude", deliveryLat);
+                delivery.put("longitude", deliveryLng);
+
+                payload.put("pickup", pickup);
+                payload.put("delivery", delivery);
+
+                // Field datar ditambahkan untuk kompatibilitas endpoint lama/hosting cache.
+                payload.put("pickup_lat", pickupLat);
+                payload.put("pickup_lng", pickupLng);
+                payload.put("delivery_lat", deliveryLat);
+                payload.put("delivery_lng", deliveryLng);
+                payload.put("service_type", "Transcar");
+                payload.put("payment_method", paymentMethod);
+                payload.put(
+                        "voucher_code",
+                        voucherInput == null
+                                ? ""
+                                : voucherInput.getText().toString()
+                                .trim()
+                                .toUpperCase(Locale.US)
+                );
+
+                JSONObject res = postJson(PAYMENT_QUOTE_URL, payload);
+
+                mainHandler.post(() -> {
+                    if (destroyed) return;
+
+                    if (!res.optBoolean("success", false)) {
+                        String message = firstNonEmpty(
+                                res.optString("message", ""),
+                                "Tarif belum dapat dihitung"
+                        );
+                        paymentSummaryText.setText(message);
+                        finalPriceText.setText("Rp -");
+                        finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
+                        return;
+                    }
+
+                    int original = jsonInt(
+                            res,
+                            "original_price",
+                            jsonInt(res, "standard_price", 0)
+                    );
+                    int discount = jsonInt(res, "discount", 0);
+                    int total = jsonInt(
+                            res,
+                            "price",
+                            jsonInt(res, "final_price", original)
+                    );
+                    int balance = jsonInt(res, "balance", 0);
+
+                    double distanceKm = jsonDouble(
+                            res,
+                            "distance_km",
+                            fallbackKm
+                    );
+                    double durationMinutes = jsonDouble(
+                            res,
+                            "duration_minutes",
+                            jsonDouble(res, "estimated_minutes", fallbackMinutes)
+                    );
+
+                    distanceKm = Math.max(0.1, distanceKm);
+                    durationMinutes = Math.max(1.0, durationMinutes);
+
+                    distanceInfoText.setText(String.format(
+                            new Locale("id", "ID"),
+                            "⌁  Jarak : %.1f km",
+                            distanceKm
+                    ));
+                    durationInfoText.setText(String.format(
+                            new Locale("id", "ID"),
+                            "◷  Waktu : %.0f menit",
+                            durationMinutes
+                    ));
+
+                    if (total <= 0) {
+                        paymentSummaryText.setText("Tarif database tidak valid");
+                        finalPriceText.setText("Rp -");
+                        finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
+                        return;
+                    }
+
+                    finalPriceText.setText("Rp " + formatMoney(total));
+
+                    if (discount > 0 && original > total) {
+                        originalPriceText.setVisibility(View.VISIBLE);
+                        originalPriceText.setText("Rp " + formatMoney(original));
+                        originalPriceText.setPaintFlags(
+                                originalPriceText.getPaintFlags()
+                                        | Paint.STRIKE_THRU_TEXT_FLAG
+                        );
+                        finalPriceText.setTextColor(Color.parseColor("#16A34A"));
+                        discountInfoText.setVisibility(View.VISIBLE);
+                        discountInfoText.setText(
+                                "Hemat Rp " + formatMoney(discount)
+                        );
+                    } else {
+                        originalPriceText.setVisibility(View.GONE);
+                        originalPriceText.setPaintFlags(
+                                originalPriceText.getPaintFlags()
+                                        & ~Paint.STRIKE_THRU_TEXT_FLAG
+                        );
+                        finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
+                        discountInfoText.setVisibility(View.GONE);
+                    }
+
+                    String label = paymentMethod.equals("balance")
+                            ? "Transiva Pay"
+                            : "Tunai";
+                    paymentChoiceBtn.setText(
+                            paymentMethod.equals("balance")
+                                    ? "💳 Transiva Pay"
+                                    : "💵 Tunai"
+                    );
+
+                    String info = label;
+                    if (paymentMethod.equals("balance")) {
+                        info += " • Saldo Rp" + formatMoney(balance);
+                    }
+
+                    fareText.setText("Tarif database: Rp" + formatMoney(total));
+                    paymentSummaryText.setText(info);
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> {
+                    if (destroyed) return;
+                    paymentSummaryText.setText("Gagal terhubung ke server tarif");
+                    finalPriceText.setText("Rp -");
+                    finalPriceText.setTextColor(Color.parseColor("#0B3A78"));
+                });
+            }
+        }).start();
+    }
+
+    private int jsonInt(JSONObject json, String key, int fallback) {
+        if (json == null || key == null) return fallback;
+        Object value = json.opt(key);
+        if (value == null || value == JSONObject.NULL) return fallback;
+        try {
+            if (value instanceof Number) {
+                return ((Number) value).intValue();
+            }
+            String clean = String.valueOf(value)
+                    .replace("Rp", "")
+                    .replace(".", "")
+                    .replace(",", "")
+                    .trim();
+            return clean.isEmpty() ? fallback : (int) Math.round(Double.parseDouble(clean));
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private double jsonDouble(JSONObject json, String key, double fallback) {
+        if (json == null || key == null) return fallback;
+        Object value = json.opt(key);
+        if (value == null || value == JSONObject.NULL) return fallback;
+        try {
+            if (value instanceof Number) {
+                return ((Number) value).doubleValue();
+            }
+            String clean = String.valueOf(value)
+                    .replace(",", ".")
+                    .trim();
+            return clean.isEmpty() ? fallback : Double.parseDouble(clean);
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private String formatMoney(int value) {
+        return String.format(new Locale("id", "ID"), "%,d", Math.max(0, value)).replace(',', '.');
+    }
+
+    private boolean validCoordinate(double latitude, double longitude) {
+        return latitude >= -90.0 && latitude <= 90.0
+                && longitude >= -180.0 && longitude <= 180.0
+                && latitude != 0.0 && longitude != 0.0;
+    }
+
     private JSONObject postJson(String urlText, JSONObject payload) throws Exception {
         HttpURLConnection conn = null;
         try {
@@ -953,6 +1427,11 @@ public class PassengerCarActivity extends Activity {
             conn.setUseCaches(false);
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
+            String requestToken = refreshAuthToken();
+            if (!requestToken.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + requestToken);
+            }
+            conn.setRequestProperty("X-Device-UUID", DeviceIdentityManager.getInstallationUuid(this));
             OutputStream os = conn.getOutputStream();
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(os, StandardCharsets.UTF_8));
             writer.write(payload.toString()); writer.flush(); writer.close(); os.close();
@@ -972,10 +1451,22 @@ public class PassengerCarActivity extends Activity {
     }
 
     private void updateModeUI() {
-        boolean p = "pickup".equals(mode);
-        modeText.setText(p ? "Geser peta lalu tekan Jemput" : "Geser peta lalu tekan Tujuan");
-        pickupBtn.setAlpha(p ? 1f : .80f);
-        deliveryBtn.setAlpha(p ? .80f : 1f);
+        boolean pickupMode = "pickup".equals(mode);
+
+        modeText.setText(
+                pickupMode
+                        ? "Geser peta lalu tekan Jemput"
+                        : "Geser peta lalu tekan Tujuan"
+        );
+
+        pickupBtn.setAlpha(pickupMode ? 1f : .80f);
+        deliveryBtn.setAlpha(pickupMode ? .80f : 1f);
+
+        eval(
+                "setCenterMarker('"
+                        + (pickupMode ? "pickup" : "delivery")
+                        + "')"
+        );
     }
 
     private void eval(String js) { if (mapView != null && mapReady) try { mapView.evaluateJavascript(js, null); } catch (Exception ignored) {} }
