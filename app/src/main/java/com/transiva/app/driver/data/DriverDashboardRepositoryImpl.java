@@ -46,7 +46,22 @@ public final class DriverDashboardRepositoryImpl implements DriverDashboardRepos
 
                 DriverApiClient.Result result =
                         api.post("driver_set_status_native.php", body);
+
+                // Jangan anggap sukses hanya karena HTTP 200. Status yang
+                // dikembalikan server wajib sama dengan status yang diminta.
+                // Ini mencegah UI terlihat ONLINE sementara database gagal berubah.
+                boolean serverOnline = result.body.optInt("is_online", -1) == 1;
+                if (!result.body.has("is_online") || serverOnline != online) {
+                    callback.onError(
+                            result.status,
+                            "STATUS_NOT_PERSISTED",
+                            "Status driver belum tersimpan di server."
+                    );
+                    return;
+                }
+
                 session.updateDriverRuntime(result.body);
+                session.put("driver_server_online", serverOnline ? "1" : "0");
 
                 callback.onSuccess(
                         result.body.optString("message",
