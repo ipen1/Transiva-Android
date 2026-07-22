@@ -499,6 +499,7 @@ public class PassengerCarActivity extends Activity {
         String bikeIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
         String placeIcon = drawableDataUri("mark", "map_place_pin", "business_pin", "merchant_pin", "laundry_pin");
         String driverIcon = drawableDataUri("map_car_top", "ic_car_top", "car_top", "ic_transcar", "transcar", "car", "transcar_marker");
+        final boolean useDarkMap = CustomerAppSettings.isDarkMode(this);
 
         return "<!DOCTYPE html><html><head>" +
                 "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>" +
@@ -518,12 +519,14 @@ public class PassengerCarActivity extends Activity {
                 ".popup{min-width:170px;line-height:1.55;font-size:13px;color:#0f172a;}" +
                 ".popup b{font-size:15px;color:#0B3A78;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map,pickup=null,delivery=null,centerMarker=null,route=null;" +
+                "var map,pickup=null,delivery=null,centerMarker=null,route=null,baseMapLayer=null,currentMapTheme=\'\';" +
                 "var placeMarkers=[],driverMarkers=[];" +
+                "function desiredMapTheme(){return " + (useDarkMap ? "\'night\'" : "\'day\'") + ";}" +
+                "function applyMapTheme(force){if(!map)return;var theme=desiredMapTheme();if(!force&&theme===currentMapTheme)return;currentMapTheme=theme;if(baseMapLayer){try{map.removeLayer(baseMapLayer);}catch(e){}}var isDay=(theme===\'day\');var url=isDay?\'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png\':\'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png\';baseMapLayer=L.tileLayer(url,{subdomains:\'abcd\',maxZoom:20,attribution:\'&copy; OpenStreetMap contributors &copy; CARTO\'}).addTo(map);document.documentElement.style.background=isDay?\'#eef6ff\':\'#111827\';document.body.style.background=isDay?\'#eef6ff\':\'#111827\';}" +
                 "var pickupIconData='" + js(pickupIcon) + "',deliveryIconData='" + js(deliveryIcon) + "',bikeIconData='" + js(bikeIcon) + "',placeIconData='" + js(placeIcon) + "',driverIconData='" + js(driverIcon) + "';" +
                 "function esc(v){return String(v||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}" +
                 "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView([" + centerLat + "," + centerLng + "],17);" +
-                "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:22,attribution:''}).addTo(map);" +
+                "applyMapTheme(true);" +
                 "setCenterMarker('pickup');" +
                 "function notifyCenter(){var c=map.getCenter();if(centerMarker)centerMarker.setLatLng(c);try{AndroidCar.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
                 "map.on('move',function(){if(centerMarker)centerMarker.setLatLng(map.getCenter());});" +
