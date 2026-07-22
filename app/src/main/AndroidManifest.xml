@@ -378,6 +378,18 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".AdminLaundryManagementActivity"
+            android:screenOrientation="portrait"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name=".AdminWisataManagementActivity"
+            android:screenOrientation="portrait"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".AdminBusinessManagementActivity"
             android:exported="false"
             android:screenOrientation="portrait"
