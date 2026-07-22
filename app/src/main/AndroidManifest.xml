@@ -372,6 +372,18 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".AdminMerchantManagementActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
+            android:name=".AdminBusinessManagementActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".AdminDashboardActivity"
             android:exported="false"
             android:screenOrientation="portrait"
