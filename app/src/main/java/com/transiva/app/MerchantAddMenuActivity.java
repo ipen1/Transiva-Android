@@ -9,17 +9,28 @@ import android.graphics.Bitmap;
 import android.provider.MediaStore;
 import android.view.Gravity;
 import android.widget.*;
+import org.json.JSONArray;
 import org.json.JSONObject;
+import java.util.ArrayList;
+import java.util.List;
 
 public class MerchantAddMenuActivity extends MerchantBaseActivity {
     private static final int PICK_IMAGE = 801;
+    private static final String GROSSUP_ENDPOINT = BASE + "get_transfood_grossup_rules.php";
+
     private LinearLayout root;
     private EditText nameInput, priceInput, categoryInput;
     private TextView originalText, fileText, previewName, previewPrice, previewCategory, previewIcon;
     private ImageView previewImage;
     private Uri imageUri = null;
+    private final List<GrossupRule> grossupRules = new ArrayList<>();
+    private volatile boolean grossupLoaded = false;
 
-    @Override protected void onCreate(Bundle b){ super.onCreate(b); build(); }
+    @Override protected void onCreate(Bundle b){
+        super.onCreate(b);
+        build();
+        loadGrossupRules();
+    }
 
     private void build(){
         root = new LinearLayout(this); setContentView(page(root));
@@ -38,7 +49,7 @@ public class MerchantAddMenuActivity extends MerchantBaseActivity {
         categoryInput = input("Makanan / Minuman", InputType.TYPE_CLASS_TEXT);
         root.addView(categoryInput);
 
-        originalText = card("Harga Asli: Rp 0\nFee Gross Up: Rp 0\nHarga Tampil: Rp 0");
+        originalText = card("Harga Asli: Rp 0\nFee Gross Up: memuat...\nHarga Tampil: Rp 0");
         root.addView(originalText);
 
         root.addView(label("Preview Tampilan di Aplikasi"));
@@ -112,12 +123,56 @@ public class MerchantAddMenuActivity extends MerchantBaseActivity {
         categoryInput.addTextChangedListener(watcher);
     }
 
-    private int gross(long price){ if(price <= 0) return 0; if(price < 5000) return 200; if(price <= 10000) return 300; return 500; }
+    private void loadGrossupRules(){
+        new Thread(() -> {
+            try{
+                JSONObject response = new JSONObject(get(GROSSUP_ENDPOINT));
+                if(!response.optBoolean("success", false)) throw new Exception(response.optString("message", "Gagal memuat gross-up"));
+                JSONArray rows = response.optJSONArray("grossup_rules");
+                List<GrossupRule> loaded = new ArrayList<>();
+                if(rows != null){
+                    for(int i=0; i<rows.length(); i++){
+                        JSONObject row = rows.optJSONObject(i);
+                        if(row == null) continue;
+                        long min = Math.max(0L, row.optLong("min_amount", 0L));
+                        Long max = null;
+                        if(!row.isNull("max_amount")) max = Math.max(min, row.optLong("max_amount", min));
+                        long fee = Math.max(0L, row.optLong("fee", 0L));
+                        loaded.add(new GrossupRule(min, max, fee));
+                    }
+                }
+                runOnUiThread(() -> {
+                    grossupRules.clear();
+                    grossupRules.addAll(loaded);
+                    grossupLoaded = true;
+                    updatePreview();
+                });
+            }catch(Exception e){
+                runOnUiThread(() -> {
+                    grossupLoaded = false;
+                    updatePreview();
+                    Toast.makeText(this, "Aturan gross-up belum dapat dimuat. Periksa API server.", Toast.LENGTH_LONG).show();
+                });
+            }
+        }).start();
+    }
+
+    private long gross(long price){
+        if(price <= 0) return 0;
+        for(GrossupRule rule : grossupRules){
+            boolean aboveMin = price >= rule.min;
+            boolean belowMax = rule.max == null || price <= rule.max;
+            if(aboveMin && belowMax) return rule.fee;
+        }
+        return 0;
+    }
+
     private void updatePreview(){
         long original = 0; try{ original = Long.parseLong(priceInput.getText().toString().trim()); }catch(Exception ignored){}
-        int fee = gross(original);
+        long fee = gross(original);
         long appPrice = original + fee;
-        originalText.setText("Harga Asli: " + rupiah(original) + "\nFee Gross Up: " + rupiah(fee) + "\nHarga Tampil: " + rupiah(appPrice));
+        String feeText = grossupLoaded ? rupiah(fee) : "memuat...";
+        originalText.setText("Harga Asli: " + rupiah(original) + "\nFee Gross Up: " + feeText + "\nHarga Tampil: " + rupiah(appPrice));
         String name = nameInput.getText().toString().trim();
         String cat = categoryInput.getText().toString().trim();
         previewName.setText(name.isEmpty() ? "Nama menu" : name);
@@ -158,12 +213,13 @@ public class MerchantAddMenuActivity extends MerchantBaseActivity {
         String cat = categoryInput.getText().toString().trim();
         long original = 0; try{ original = Long.parseLong(priceInput.getText().toString().trim()); }catch(Exception ignored){}
         if(name.isEmpty() || cat.isEmpty() || original <= 0){ alert("Lengkapi Data", "Nama, harga, dan kategori wajib diisi."); return; }
-        int fee = gross(original); long appPrice = original + fee;
+        if(!grossupLoaded){ alert("Aturan Harga Belum Siap", "Aturan gross-up belum berhasil dimuat dari server. Coba buka ulang halaman atau periksa API server."); return; }
+        long fee = gross(original); long appPrice = original + fee;
 
         final String finalName = name;
         final String finalCat = cat;
         final long finalOriginal = original;
-        final int finalFee = fee;
+        final long finalFee = fee;
         final long finalAppPrice = appPrice;
         final Uri finalImageUri = imageUri;
 
@@ -185,5 +241,12 @@ public class MerchantAddMenuActivity extends MerchantBaseActivity {
                 });
             }catch(Exception e){ runOnUiThread(() -> { save.setEnabled(true); save.setText("Simpan Menu"); alert("Error","Server error / koneksi gagal."); }); }
         }).start();
+    }
+
+    private static class GrossupRule {
+        final long min;
+        final Long max;
+        final long fee;
+        GrossupRule(long min, Long max, long fee){ this.min = min; this.max = max; this.fee = fee; }
     }
 }
