@@ -110,6 +110,10 @@ public class SessionManager {
             e.putString("driver_type", clean.optString("driver_type", "bike"));
             e.putString("photo", clean.optString("photo", ""));
             e.putString("driver_photo", clean.optString("driver_photo", ""));
+            e.putString("plate", clean.optString("plate", ""));
+            e.putString("verification_status", clean.optString("verification_status", ""));
+            e.putString("driver_is_online", clean.optString("is_online", "0"));
+            e.putString("driver_is_busy", clean.optString("is_busy", "0"));
 
             long now = System.currentTimeMillis();
 
@@ -269,6 +273,10 @@ public class SessionManager {
             obj.put("driver_type", getDriverType());
             obj.put("photo", getPhoto());
             obj.put("driver_photo", getDriverPhoto());
+            obj.put("plate", get("plate"));
+            obj.put("verification_status", get("verification_status"));
+            obj.put("is_online", get("driver_is_online"));
+            obj.put("is_busy", get("driver_is_busy"));
 
             obj.put("saved_at", prefs.getLong("saved_at", 0L));
             obj.put("last_seen_at", prefs.getLong("last_seen_at", 0L));
@@ -363,8 +371,13 @@ public class SessionManager {
                 "customer"
         ));
 
+        JSONObject nestedProfile = out.optJSONObject("driver_profile");
+        if (nestedProfile == null) nestedProfile = out.optJSONObject("profile");
+        if (nestedProfile == null) nestedProfile = new JSONObject();
+
         String driverType = firstNonEmpty(
                 out.optString("driver_type", ""),
+                nestedProfile.optString("driver_type", ""),
                 "bike"
         ).toLowerCase(Locale.US);
 
@@ -407,11 +420,64 @@ public class SessionManager {
             out.put("photo", out.optString("driver_photo", ""));
         }
 
-        if (!out.has("driver_photo")) {
-            out.put("driver_photo", out.optString("photo", ""));
+        if (!out.has("driver_photo") || safe(out.optString("driver_photo", "")).isEmpty()) {
+            out.put("driver_photo", firstNonEmpty(
+                    nestedProfile.optString("driver_photo", ""),
+                    nestedProfile.optString("profile_photo", ""),
+                    out.optString("photo", "")
+            ));
         }
+        if (!out.has("plate") || safe(out.optString("plate", "")).isEmpty()) {
+            out.put("plate", nestedProfile.optString("plate", ""));
+        }
+        if (!out.has("verification_status") || safe(out.optString("verification_status", "")).isEmpty()) {
+            out.put("verification_status", nestedProfile.optString("verification_status", ""));
+        }
+        if (!out.has("is_online")) out.put("is_online", nestedProfile.opt("is_online"));
+        if (!out.has("is_busy")) out.put("is_busy", nestedProfile.opt("is_busy"));
 
         return out;
+    }
+
+    /**
+     * Sinkronkan state driver yang bersumber dari driver_profiles tanpa
+     * menimpa token/login utama. Dipanggil setelah dashboard/profile/status API.
+     */
+    public void updateDriverRuntime(JSONObject driver) {
+        if (driver == null) return;
+        try {
+            SharedPreferences.Editor e = prefs.edit();
+            String type = firstNonEmpty(driver.optString("driver_type", ""), getDriverType());
+            type = type.toLowerCase(Locale.US);
+            if (!"car".equals(type)) type = "bike";
+            e.putString("driver_type", type);
+
+            String photo = firstNonEmpty(
+                    driver.optString("driver_photo", ""),
+                    driver.optString("profile_photo", "")
+            );
+            if (!photo.isEmpty()) e.putString("driver_photo", photo);
+            if (driver.has("plate")) e.putString("plate", safe(driver.optString("plate", "")));
+            if (driver.has("verification_status")) {
+                e.putString("verification_status", safe(driver.optString("verification_status", "")));
+            }
+            if (driver.has("is_online")) {
+                e.putString("driver_is_online", jsonBooleanText(driver.opt("is_online")));
+            }
+            if (driver.has("is_busy")) {
+                e.putString("driver_is_busy", jsonBooleanText(driver.opt("is_busy")));
+            }
+            e.putLong("driver_profile_synced_at", System.currentTimeMillis());
+            e.apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String jsonBooleanText(Object value) {
+        if (value instanceof Boolean) return (Boolean) value ? "1" : "0";
+        if (value instanceof Number) return ((Number) value).intValue() != 0 ? "1" : "0";
+        String v = safe(String.valueOf(value)).toLowerCase(Locale.US);
+        return ("1".equals(v) || "true".equals(v) || "yes".equals(v) || "online".equals(v)) ? "1" : "0";
     }
 
     private boolean isValidUserObject(JSONObject user) {

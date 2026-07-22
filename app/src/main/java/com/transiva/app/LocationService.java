@@ -204,8 +204,16 @@ public class LocationService extends Service {
             }
         } catch (DriverApiClient.ApiException e) {
             Log.e(TAG, e.code + ": " + e.getMessage(), e);
-            if (e.status == 401 || e.status == 403) {
+            if (e.status == 401 || "UNAUTHORIZED".equalsIgnoreCase(e.code)
+                    || "TOKEN_EXPIRED".equalsIgnoreCase(e.code)
+                    || "TOKEN_REVOKED".equalsIgnoreCase(e.code)) {
                 session.forceLogout("session_expired");
+                stopTracking();
+            } else if ("DRIVER_OFFLINE".equalsIgnoreCase(e.code)) {
+                // 403 DRIVER_OFFLINE adalah state operasional, bukan sesi invalid.
+                // Jangan logout driver hanya karena status server berubah offline.
+                session.put("driver_server_online", "0");
+                session.put("driver_is_online", "0");
                 stopTracking();
             } else {
                 updateNotification("Online • lokasi belum tersinkron");

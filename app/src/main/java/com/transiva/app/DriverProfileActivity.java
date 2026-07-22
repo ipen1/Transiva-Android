@@ -277,6 +277,7 @@ public class DriverProfileActivity extends Activity {
                 DriverApiClient.Result result = api.get(PROFILE_ENDPOINT + System.currentTimeMillis());
                 JSONObject profile = result.body.optJSONObject("profile");
                 if (profile == null) throw new IllegalStateException("Data profil kosong.");
+                session.updateDriverRuntime(profile);
                 runOnUiThread(() -> {
                     bindProfile(profile);
                     setLoading(false);
