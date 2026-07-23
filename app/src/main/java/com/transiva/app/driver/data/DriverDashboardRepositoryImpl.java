@@ -47,10 +47,27 @@ public final class DriverDashboardRepositoryImpl implements DriverDashboardRepos
                 DriverApiClient.Result result =
                         api.post("driver_set_status_native.php", body);
 
-                // Jangan anggap sukses hanya karena HTTP 200. Status yang
-                // dikembalikan server wajib sama dengan status yang diminta.
-                // Ini mencegah UI terlihat ONLINE sementara database gagal berubah.
+                // Jangan anggap sukses hanya karena HTTP 200. Status dan user_id
+                // yang dikembalikan server wajib sesuai akun login saat ini.
+                // Backend tidak boleh membuat / memilih driver_profile milik akun lain.
                 boolean serverOnline = result.body.optInt("is_online", -1) == 1;
+                int serverUserId = result.body.optInt("user_id", 0);
+                int sessionUserId = 0;
+                try {
+                    String raw = session.getId();
+                    if (raw == null || raw.trim().isEmpty()) raw = session.getUserId();
+                    sessionUserId = Integer.parseInt(raw == null ? "0" : raw.trim());
+                } catch (Exception ignored) { }
+
+                if (sessionUserId > 0 && serverUserId > 0 && serverUserId != sessionUserId) {
+                    callback.onError(
+                            409,
+                            "DRIVER_PROFILE_USER_MISMATCH",
+                            "Profil driver server tidak sesuai dengan akun yang sedang login."
+                    );
+                    return;
+                }
+
                 if (!result.body.has("is_online") || serverOnline != online) {
                     callback.onError(
                             result.status,
