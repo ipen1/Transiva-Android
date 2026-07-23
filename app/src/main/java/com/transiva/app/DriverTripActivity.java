@@ -578,30 +578,28 @@ public class DriverTripActivity extends Activity {
         return source.equals("pickup_orders") || source.contains("pickup");
     }
     private void postDriverLocation(double lat, double lng, boolean force){
-        if(!valid(lat, lng) || driverUsername.length() == 0) return;
+        if(!valid(lat, lng)) return;
 
         long now = System.currentTimeMillis();
-        if(!force && now - lastLocationPostAt < LOCATION_POST_INTERVAL_MS) return;
-
-        if(!force && valid(lastPostedLat, lastPostedLng)){
-            float moved = distanceBetween(lastPostedLat, lastPostedLng, lat, lng);
-            if(moved < 1.0f && now - lastLocationPostAt < LOCATION_POST_INTERVAL_MS * 2) return;
-        }
-
+        if(!force && now - lastLocationPostAt < 3000L) return;
         lastLocationPostAt = now;
         lastPostedLat = lat;
         lastPostedLng = lng;
 
         new Thread(() -> {
             try{
+                SessionManager session = new SessionManager(this);
+                com.transiva.app.driver.data.DriverApiClient api = new com.transiva.app.driver.data.DriverApiClient(session);
                 JSONObject p = new JSONObject();
-                p.put("username", driverUsername);
                 p.put("latitude", lat);
                 p.put("longitude", lng);
-                driverType = resolveDriverTypeFromOrder();
-                p.put("driver_type", driverType);
-                if(order != null) p.put("order_id", orderId());
-                postJson(BASE_URL + "updateDriverLocation.php", p);
+                p.put("location_time", System.currentTimeMillis());
+                if(order != null){
+                    p.put("order_id", orderId());
+                    p.put("order_source", isPickupOrder() ? "pickup_orders" : "orders");
+                }
+                api.post("driver_update_location_native.php", p);
+                api.shutdown();
             }catch(Exception ignored){}
         }).start();
     }
