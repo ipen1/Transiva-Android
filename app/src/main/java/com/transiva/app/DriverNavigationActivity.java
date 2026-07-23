@@ -39,6 +39,8 @@ public class DriverNavigationActivity extends Activity {
     private static final float MAX_ACCURACY_M = 120f;
     private static final long LOCATION_TIME_TOLERANCE_MS = 2000L;
     private static final float MAX_REASONABLE_SPEED_MPS = 55f;
+    private static final float MAP_MOVE_MIN_DISTANCE_M = 6f;
+    private static final long GPS_PRIORITY_WINDOW_MS = 10000L;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private WebView mapView;
@@ -59,6 +61,8 @@ public class DriverNavigationActivity extends Activity {
     private boolean mapReady = false;
     private Location acceptedLocation;
     private double lastBearingDeg = 0.0;
+    private double lastRenderedLat = 0.0, lastRenderedLng = 0.0;
+    private long lastGpsAcceptedAt = 0L;
 
     private SessionManager session;
     private DriverApiClient api;
@@ -241,14 +245,14 @@ public class DriverNavigationActivity extends Activity {
         return "<!doctype html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"+
                 "<link rel='stylesheet' href='https://transiva.my.id/js/leaflet.css'><script src='https://transiva.my.id/js/leaflet.js'></script>"+
                 "<style>html,body,#map{height:100%;width:100%;margin:0;background:#EAF4FF;overflow:hidden}.leaflet-control-attribution,.leaflet-control-zoom{display:none!important}.leaflet-container{font-family:Arial,sans-serif;background:#EAF4FF}.veh{width:58px;height:58px;object-fit:contain;filter:drop-shadow(0 6px 8px rgba(0,0,0,.35));transform-origin:center}.vehF{width:50px;height:50px;border-radius:25px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 6px 16px rgba(0,0,0,.25)}.pin{width:44px;height:44px;border-radius:22px;color:white;display:flex;align-items:center;justify-content:center;font-size:22px;border:3px solid white;box-shadow:0 5px 12px rgba(0,0,0,.25)}.pickup{background:#16A34A}.delivery{background:#EF4444}</style></head><body><div id='map'></div><script>"+
-                "var pickup=["+pLat+","+pLng+"],dest=["+dLat+","+dLng+"];var targetMode='"+targetMode+"',vehicleType='"+vehicleType+"';var current=null,marker=null,route=null,routePts=[],lastKey='';"+
+                "var pickup=["+pLat+","+pLng+"],dest=["+dLat+","+dLng+"];var targetMode='"+targetMode+"',vehicleType='"+vehicleType+"';var current=null,marker=null,route=null,routePts=[],lastKey='',snapSeg=0,lastSnap=null;"+
                 "var map=L.map('map',{zoomControl:false,attributionControl:false,preferCanvas:true}).setView(["+cLat+","+cLng+"],18);L.tileLayer('"+tile+"',{maxZoom:20,crossOrigin:true}).addTo(map);"+
                 "function ok(a,b){a=+a;b=+b;return isFinite(a)&&isFinite(b)&&a!==0&&b!==0;}function target(){return targetMode==='delivery'?dest:pickup;}"+
                 "function pinIcon(t){return L.divIcon({className:'',html:'<div class=\"pin '+(t==='pickup'?'pickup':'delivery')+'\">'+(t==='pickup'?'⚑':'⌂')+'</div>',iconSize:[44,44],iconAnchor:[22,38]});}"+
                 "if(ok(pickup[0],pickup[1]))L.marker(pickup,{icon:pinIcon('pickup')}).addTo(map);if(ok(dest[0],dest[1]))L.marker(dest,{icon:pinIcon('delivery')}).addTo(map);"+
                 "function vehIcon(deg){var f=vehicleType==='car'?'map_car_top.png':'map_motor_top.png';var emoji=vehicleType==='car'?'🚘':'🏍️';return L.divIcon({className:'',html:'<img class=\"veh\" src=\"file:///android_res/drawable/'+f+'\" onerror=\"this.outerHTML=\\'<div class=vehF>'+emoji+'</div>\\'\" style=\"transform:rotate('+(+deg||0)+'deg)\">',iconSize:[58,58],iconAnchor:[29,29]});}"+
-                "function routeTo(a,b,force){var t=target();if(!ok(a,b)||!ok(t[0],t[1]))return;var k=a.toFixed(4)+','+b.toFixed(4)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&k===lastKey)return;lastKey=k;fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(r=>r.json()).then(j=>{if(!j.routes||!j.routes[0])throw 0;routePts=j.routes[0].geometry.coordinates.map(x=>[x[1],x[0]]);if(route)map.removeLayer(route);route=L.polyline(routePts,{weight:7,opacity:.9,color:'#087CFF',lineCap:'round',lineJoin:'round'}).addTo(map);if(window.AndroidNav&&AndroidNav.routeInfo)AndroidNav.routeInfo(j.routes[0].distance,j.routes[0].duration);}).catch(()=>{if(route)map.removeLayer(route);route=L.polyline([[a,b],t],{weight:5,opacity:.65,color:'#087CFF',dashArray:'8,8'}).addTo(map);});}"+
-                "var moveAnim=null;function moveMarker(p,deg){if(!marker){marker=L.marker(p,{icon:vehIcon(deg),zIndexOffset:9999}).addTo(map);current=p;map.setView(p,18,{animate:false});return;}if(moveAnim)cancelAnimationFrame(moveAnim);var q=marker.getLatLng(),from=[q.lat,q.lng],to=p,start=performance.now(),dur=420;marker.setIcon(vehIcon(deg));function step(now){var t=Math.min(1,(now-start)/dur),e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;var x=[from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e];marker.setLatLng(x);current=x;map.panTo(x,{animate:false});if(t<1)moveAnim=requestAnimationFrame(step);else{moveAnim=null;marker.setLatLng(to);current=to;}}moveAnim=requestAnimationFrame(step);}"+
+                "function bearingOf(a,b){var lat1=a[0]*Math.PI/180,lat2=b[0]*Math.PI/180,d=(b[1]-a[1])*Math.PI/180,y=Math.sin(d)*Math.cos(lat2),x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(d),v=Math.atan2(y,x)*180/Math.PI;return(v+360)%360;}function snapForward(lat,lng){lat=+lat;lng=+lng;if(!routePts||routePts.length<2)return{p:[lat,lng],deg:null};var cos=Math.cos(lat*Math.PI/180);if(!isFinite(cos)||Math.abs(cos)<.000001)cos=1;var px=lng*cos,py=lat,best=1e99,bp=[lat,lng],bi=snapSeg;var start=Math.max(0,snapSeg);for(var i=start;i<routePts.length-1;i++){var a=routePts[i],b=routePts[i+1],ax=a[1]*cos,ay=a[0],bx=b[1]*cos,by=b[0],vx=bx-ax,vy=by-ay,wx=px-ax,wy=py-ay,len=vx*vx+vy*vy,t=len?((wx*vx+wy*vy)/len):0;if(t<0)t=0;if(t>1)t=1;var qx=ax+vx*t,qy=ay+vy*t,dx=px-qx,dy=py-qy,dd=dx*dx+dy*dy;if(dd<best){best=dd;bp=[qy,qx/cos];bi=i;}}if(bi>=snapSeg)snapSeg=bi;lastSnap=bp;return{p:bp,deg:bearingOf(routePts[snapSeg],routePts[Math.min(snapSeg+1,routePts.length-1)])};}function routeTo(a,b,force){var t=target();if(!ok(a,b)||!ok(t[0],t[1]))return;var k=a.toFixed(4)+','+b.toFixed(4)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&k===lastKey)return;lastKey=k;fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(r=>r.json()).then(j=>{if(!j.routes||!j.routes[0])throw 0;routePts=j.routes[0].geometry.coordinates.map(x=>[x[1],x[0]]);snapSeg=0;lastSnap=null;if(route)map.removeLayer(route);route=L.polyline(routePts,{weight:7,opacity:.9,color:'#087CFF',lineCap:'round',lineJoin:'round'}).addTo(map);if(window.AndroidNav&&AndroidNav.routeInfo)AndroidNav.routeInfo(j.routes[0].distance,j.routes[0].duration);}).catch(()=>{routePts=[[a,b],t];snapSeg=0;lastSnap=null;if(route)map.removeLayer(route);route=L.polyline(routePts,{weight:5,opacity:.65,color:'#087CFF',dashArray:'8,8'}).addTo(map);});}"+
+                "var moveAnim=null;function moveMarker(raw,rawDeg){var s=snapForward(raw[0],raw[1]),p=s.p,deg=(s.deg==null?rawDeg:s.deg);if(!marker){marker=L.marker(p,{icon:vehIcon(deg),zIndexOffset:9999}).addTo(map);current=p;map.setView(p,18,{animate:false});return;}if(moveAnim)cancelAnimationFrame(moveAnim);var q=marker.getLatLng(),from=[q.lat,q.lng],to=p,start=performance.now(),dur=650;marker.setIcon(vehIcon(deg));function step(now){var t=Math.min(1,(now-start)/dur),e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;var x=[from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e];marker.setLatLng(x);current=x;map.panTo(x,{animate:false});if(t<1)moveAnim=requestAnimationFrame(step);else{moveAnim=null;marker.setLatLng(to);current=to;}}moveAnim=requestAnimationFrame(step);}"+
                 "window.updateDrv=function(a,b,deg){if(!ok(a,b))return;routeTo(+a,+b,false);var p=[+a,+b];moveMarker(p,+deg||0);};"+
                 "window.recenterDriver=function(){if(current)map.setView(current,18,{animate:true});};setTimeout(()=>map.invalidateSize(true),500);"+
                 "</script></body></html>";
@@ -295,8 +299,16 @@ public class DriverNavigationActivity extends Activity {
                     location.getLatitude(), location.getLongitude());
         }
 
-        updateMap(false);
+        // Database tetap menerima posisi terbaru, sedangkan marker hanya bergerak setelah
+        // perpindahan nyata sekitar 6 meter agar stabil dan tidak bergetar.
         uploadLocation(location, false);
+        double visualMoved = valid(lastRenderedLat, lastRenderedLng)
+                ? distanceMeters(lastRenderedLat, lastRenderedLng, lastDriverLat, lastDriverLng) : 999.0;
+        if (!valid(lastRenderedLat, lastRenderedLng) || visualMoved >= MAP_MOVE_MIN_DISTANCE_M) {
+            updateMap(false);
+            lastRenderedLat = lastDriverLat;
+            lastRenderedLng = lastDriverLng;
+        }
     }
 
     /**
@@ -314,6 +326,15 @@ public class DriverNavigationActivity extends Activity {
         // because some phones and mock-GPS apps alternate providers while moving slowly.
         if (candidateTime > 0L && acceptedTime > 0L
                 && candidateTime + LOCATION_TIME_TOLERANCE_MS < acceptedTime) {
+            return false;
+        }
+
+        String provider = candidate.getProvider() == null ? "" : candidate.getProvider();
+        long now = System.currentTimeMillis();
+        if (LocationManager.NETWORK_PROVIDER.equals(provider)
+                && lastGpsAcceptedAt > 0L && now - lastGpsAcceptedAt < GPS_PRIORITY_WINDOW_MS) {
+            // Jangan biarkan fix NETWORK yang biasanya lebih kasar menarik kendaraan
+            // kembali ke posisi lama ketika GPS masih aktif/sehat.
             return false;
         }
 
@@ -342,6 +363,9 @@ public class DriverNavigationActivity extends Activity {
             if (impliedSpeed > MAX_REASONABLE_SPEED_MPS) return false;
         }
 
+        if (LocationManager.GPS_PROVIDER.equals(candidate.getProvider())) {
+            lastGpsAcceptedAt = System.currentTimeMillis();
+        }
         return true;
     }
 
