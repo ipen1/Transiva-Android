@@ -37,6 +37,9 @@ public class DriverNavigationActivity extends Activity {
     private static final long LOCATION_UPLOAD_INTERVAL_MS = 3000L;
     private static final long MAX_LOCATION_AGE_MS = 30000L;
     private static final float MAX_ACCURACY_M = 120f;
+    private static final long GPS_PREFERENCE_MS = 10000L;
+    private static final long LOCATION_TIME_TOLERANCE_MS = 1500L;
+    private static final float MAX_REASONABLE_SPEED_MPS = 55f;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private WebView mapView;
@@ -55,6 +58,9 @@ public class DriverNavigationActivity extends Activity {
     private double prevDriverLat = 0, prevDriverLng = 0;
     private long lastUploadAt = 0L;
     private boolean mapReady = false;
+    private Location acceptedLocation;
+    private long lastGpsAcceptedAt = 0L;
+    private double lastBearingDeg = 0.0;
 
     private SessionManager session;
     private DriverApiClient api;
@@ -244,8 +250,8 @@ public class DriverNavigationActivity extends Activity {
                 "if(ok(pickup[0],pickup[1]))L.marker(pickup,{icon:pinIcon('pickup')}).addTo(map);if(ok(dest[0],dest[1]))L.marker(dest,{icon:pinIcon('delivery')}).addTo(map);"+
                 "function vehIcon(deg){var f=vehicleType==='car'?'map_car_top.png':'map_motor_top.png';var emoji=vehicleType==='car'?'🚘':'🏍️';return L.divIcon({className:'',html:'<img class=\"veh\" src=\"file:///android_res/drawable/'+f+'\" onerror=\"this.outerHTML=\\'<div class=vehF>'+emoji+'</div>\\'\" style=\"transform:rotate('+(+deg||0)+'deg)\">',iconSize:[58,58],iconAnchor:[29,29]});}"+
                 "function routeTo(a,b,force){var t=target();if(!ok(a,b)||!ok(t[0],t[1]))return;var k=a.toFixed(4)+','+b.toFixed(4)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&k===lastKey)return;lastKey=k;fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(r=>r.json()).then(j=>{if(!j.routes||!j.routes[0])throw 0;routePts=j.routes[0].geometry.coordinates.map(x=>[x[1],x[0]]);if(route)map.removeLayer(route);route=L.polyline(routePts,{weight:7,opacity:.9,color:'#087CFF',lineCap:'round',lineJoin:'round'}).addTo(map);if(window.AndroidNav&&AndroidNav.routeInfo)AndroidNav.routeInfo(j.routes[0].distance,j.routes[0].duration);}).catch(()=>{if(route)map.removeLayer(route);route=L.polyline([[a,b],t],{weight:5,opacity:.65,color:'#087CFF',dashArray:'8,8'}).addTo(map);});}"+
-                "function nearest(a,b){if(routePts.length<2)return[a,b];var best=[a,b],bd=1e99;for(var i=0;i<routePts.length;i++){var p=routePts[i],dx=p[0]-a,dy=p[1]-b,d=dx*dx+dy*dy;if(d<bd){bd=d;best=p;}}return best;}"+
-                "window.updateDrv=function(a,b,deg){if(!ok(a,b))return;routeTo(+a,+b,false);var p=nearest(+a,+b);if(!marker){marker=L.marker(p,{icon:vehIcon(deg),zIndexOffset:9999}).addTo(map);current=p;}else{marker.setLatLng(p);marker.setIcon(vehIcon(deg));current=p;}map.panTo(p,{animate:true,duration:.45});};"+
+                "var moveAnim=null;function moveMarker(p,deg){if(!marker){marker=L.marker(p,{icon:vehIcon(deg),zIndexOffset:9999}).addTo(map);current=p;map.setView(p,18,{animate:false});return;}if(moveAnim)cancelAnimationFrame(moveAnim);var q=marker.getLatLng(),from=[q.lat,q.lng],to=p,start=performance.now(),dur=700;marker.setIcon(vehIcon(deg));function step(now){var t=Math.min(1,(now-start)/dur),e=t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;var x=[from[0]+(to[0]-from[0])*e,from[1]+(to[1]-from[1])*e];marker.setLatLng(x);current=x;map.panTo(x,{animate:false});if(t<1)moveAnim=requestAnimationFrame(step);else{moveAnim=null;marker.setLatLng(to);current=to;}}moveAnim=requestAnimationFrame(step);}"+
+                "window.updateDrv=function(a,b,deg){if(!ok(a,b))return;routeTo(+a,+b,false);var p=[+a,+b];moveMarker(p,+deg||0);};"+
                 "window.recenterDriver=function(){if(current)map.setView(current,18,{animate:true});};setTimeout(()=>map.invalidateSize(true),500);"+
                 "</script></body></html>";
     }
@@ -276,11 +282,60 @@ public class DriverNavigationActivity extends Activity {
     }
 
     private void handleLocation(Location location) {
-        if (!usable(location)) return;
+        if (!shouldAcceptLocation(location)) return;
+
+        Location previous = acceptedLocation == null ? null : new Location(acceptedLocation);
+        acceptedLocation = new Location(location);
+        if (LocationManager.GPS_PROVIDER.equals(location.getProvider())) {
+            lastGpsAcceptedAt = System.currentTimeMillis();
+        }
+
         lastDriverLat = location.getLatitude();
         lastDriverLng = location.getLongitude();
+
+        if (location.hasBearing() && location.hasSpeed() && location.getSpeed() >= 0.8f) {
+            lastBearingDeg = normalizeBearing(location.getBearing());
+        } else if (previous != null && previous.distanceTo(location) >= 3f) {
+            lastBearingDeg = bearing(previous.getLatitude(), previous.getLongitude(),
+                    location.getLatitude(), location.getLongitude());
+        }
+
         updateMap(false);
         uploadLocation(location, false);
+    }
+
+    /**
+     * Prevents GPS/NETWORK ping-pong. Android can deliver a fresh GPS point followed by
+     * a less accurate network point located behind the vehicle. That old behaviour made
+     * the map marker jump forward, back to the previous position, then forward again.
+     */
+    private boolean shouldAcceptLocation(Location candidate) {
+        if (!usable(candidate)) return false;
+        if (acceptedLocation == null) return true;
+
+        long candidateTime = candidate.getTime();
+        long acceptedTime = acceptedLocation.getTime();
+        if (candidateTime + LOCATION_TIME_TOLERANCE_MS < acceptedTime) return false;
+
+        boolean candidateGps = LocationManager.GPS_PROVIDER.equals(candidate.getProvider());
+        boolean acceptedGps = LocationManager.GPS_PROVIDER.equals(acceptedLocation.getProvider());
+        long now = System.currentTimeMillis();
+
+        // While GPS is healthy, do not let coarse NETWORK fixes pull the marker backwards.
+        if (!candidateGps && acceptedGps && now - lastGpsAcceptedAt < GPS_PREFERENCE_MS) {
+            return false;
+        }
+
+        float distance = acceptedLocation.distanceTo(candidate);
+        long dtMs = Math.max(1L, candidateTime - acceptedTime);
+        float impliedSpeed = distance / (dtMs / 1000f);
+        if (dtMs > 0 && impliedSpeed > MAX_REASONABLE_SPEED_MPS && distance > 35f) return false;
+
+        float oldAccuracy = acceptedLocation.hasAccuracy() ? acceptedLocation.getAccuracy() : MAX_ACCURACY_M;
+        float newAccuracy = candidate.hasAccuracy() ? candidate.getAccuracy() : MAX_ACCURACY_M;
+        if (distance > 18f && newAccuracy > Math.max(45f, oldAccuracy * 1.8f)) return false;
+
+        return true;
     }
 
     private void stopLocationWatch() {
@@ -337,13 +392,27 @@ public class DriverNavigationActivity extends Activity {
     private void updateMap(boolean forceRoute) {
         try {
             if (mapView == null || Build.VERSION.SDK_INT < 19 || !mapReady || !valid(lastDriverLat,lastDriverLng)) return;
-            double deg = 0;
-            if (valid(prevDriverLat,prevDriverLng)) deg = bearing(prevDriverLat, prevDriverLng, lastDriverLat, lastDriverLng);
+            double deg = lastBearingDeg;
+            if (deg == 0.0 && valid(prevDriverLat,prevDriverLng)) {
+                double moved = distanceMeters(prevDriverLat, prevDriverLng, lastDriverLat, lastDriverLng);
+                if (moved >= 3.0) deg = bearing(prevDriverLat, prevDriverLng, lastDriverLat, lastDriverLng);
+            }
             final String js = "if(window.updateDrv)updateDrv("+lastDriverLat+","+lastDriverLng+","+deg+");";
             mainHandler.post(() -> mapView.evaluateJavascript(js, null));
             prevDriverLat = lastDriverLat;
             prevDriverLng = lastDriverLng;
         } catch (Exception ignored) {}
+    }
+
+    private double normalizeBearing(double value) {
+        value %= 360.0;
+        return value < 0 ? value + 360.0 : value;
+    }
+
+    private double distanceMeters(double lat1, double lng1, double lat2, double lng2) {
+        float[] out = new float[1];
+        Location.distanceBetween(lat1, lng1, lat2, lng2, out);
+        return out[0];
     }
 
     private void evaluate(String js) {
