@@ -71,6 +71,7 @@ public class CustomerTripActivity extends Activity {
     private TextView driverNameText;
     private TextView driverTypeText;
     private TextView driverPlateText;
+    private TextView driverRatingText;
     private TextView tripInfoText;
     private ImageView driverPhotoView;
     private ProgressBar progressBar;
@@ -96,6 +97,7 @@ public class CustomerTripActivity extends Activity {
 
     private String lastDriverName = "Driver";
     private String lastStatus = "";
+    private String lastDriverPhotoUrl = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -230,9 +232,11 @@ public class CustomerTripActivity extends Activity {
         driverNameText = text("Driver", 15, "#0B3A78", true);
         driverTypeText = text("🏍️ Motor / Bike", 12, "#2563EB", true);
         driverPlateText = text("🔢 Plat: -", 12, "#64748B", false);
+        driverRatingText = text("⭐ Driver baru", 12, "#64748B", false);
         info.addView(driverNameText);
         info.addView(driverTypeText);
         info.addView(driverPlateText);
+        info.addView(driverRatingText);
 
         statusText = text("Menghubungkan lokasi driver...", 13, "#334155", true);
         statusText.setPadding(dp(4), dp(10), dp(4), dp(8));
@@ -423,7 +427,19 @@ public class CustomerTripActivity extends Activity {
                 driver.optString("vehicle_plate", ""),
                 driver.optString("plat", ""),
                 order.optString("driver_plate", ""),
+                res.optString("driver_plate", ""),
                 "-"
+        );
+        String driverPhoto = firstNonEmpty(
+                driver.optString("driver_photo", ""),
+                driver.optString("photo", ""),
+                order.optString("driver_photo", ""),
+                res.optString("driver_photo", "")
+        );
+        double driverRating = firstPositiveDouble(
+                driver.optDouble("rating", 0),
+                order.optDouble("driver_rating", 0),
+                res.optDouble("driver_rating", 0)
         );
 
         activeDriverType = resolveDriverType(order, driver);
@@ -466,6 +482,10 @@ public class CustomerTripActivity extends Activity {
         driverNameText.setText(driverName);
         driverTypeText.setText("car".equals(activeDriverType) ? "🚘 Mobil / Car" : "🏍️ Motor / Bike");
         driverPlateText.setText("🔢 Plat: " + plate);
+        driverRatingText.setText(driverRating > 0
+                ? "⭐ " + String.format(Locale.US, "%.1f", driverRating)
+                : "⭐ Driver baru");
+        loadDriverPhoto(driverPhoto);
         setStatusText(status, driverName, hasDriverLocation);
 
         saveTripPrefs();
@@ -490,6 +510,59 @@ public class CustomerTripActivity extends Activity {
         }
 
         pushAllMarkersToMap();
+    }
+
+    private void loadDriverPhoto(String rawUrl) {
+        if (driverPhotoView == null) return;
+
+        String value = firstNonEmpty(rawUrl, "").trim();
+        if (value.length() == 0 || "null".equalsIgnoreCase(value)) {
+            lastDriverPhotoUrl = "";
+            driverPhotoView.setImageResource(android.R.drawable.ic_menu_myplaces);
+            return;
+        }
+
+        final String photoUrl = value.startsWith("http://") || value.startsWith("https://")
+                ? value
+                : BASE_URL + (value.startsWith("/") ? value.substring(1) : value);
+
+        // Tracking berjalan tiap 3 detik. Jangan download foto yang sama berulang kali.
+        if (photoUrl.equals(lastDriverPhotoUrl)) return;
+        lastDriverPhotoUrl = photoUrl;
+
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(photoUrl).openConnection();
+                conn.setConnectTimeout(12000);
+                conn.setReadTimeout(12000);
+                conn.setUseCaches(true);
+                conn.connect();
+
+                if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) {
+                    throw new IllegalStateException("HTTP " + conn.getResponseCode());
+                }
+
+                try (InputStream in = conn.getInputStream()) {
+                    final Bitmap bitmap = BitmapFactory.decodeStream(in);
+                    if (bitmap != null) {
+                        mainHandler.post(() -> {
+                            if (driverPhotoView != null && photoUrl.equals(lastDriverPhotoUrl)) {
+                                driverPhotoView.setImageBitmap(bitmap);
+                            }
+                        });
+                    }
+                }
+            } catch (Exception ignored) {
+                mainHandler.post(() -> {
+                    if (driverPhotoView != null && photoUrl.equals(lastDriverPhotoUrl)) {
+                        driverPhotoView.setImageResource(android.R.drawable.ic_menu_myplaces);
+                    }
+                });
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }).start();
     }
 
     private void pushAllMarkersToMap() {
@@ -526,6 +599,14 @@ public class CustomerTripActivity extends Activity {
         if (!validCoord(lastDriverLat, lastDriverLng) && (validCoord(pickupLat, pickupLng) || validCoord(deliveryLat, deliveryLng))) {
             tripInfoText.setText("Titik pickup dan delivery siap. Menunggu lokasi driver terbaru...");
         }
+    }
+
+    private double firstPositiveDouble(double... values) {
+        if (values == null) return 0;
+        for (double value : values) {
+            if (value > 0) return value;
+        }
+        return 0;
     }
 
     private String resolveDriverType(JSONObject order, JSONObject driver) {
