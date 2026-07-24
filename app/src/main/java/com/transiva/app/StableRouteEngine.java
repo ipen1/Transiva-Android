@@ -112,7 +112,7 @@ public final class StableRouteEngine {
      * Decode OSRM polyline6. Full overview keeps the route exactly on the OSM
      * road geometry while transferring much less data than full GeoJSON.
      */
-    private static JSONArray decodePolyline6(String encoded) {
+    private static JSONArray decodePolyline6(String encoded) throws Exception {
         JSONArray out = new JSONArray();
         if (encoded == null || encoded.isEmpty()) return out;
         int index = 0, lat = 0, lng = 0;
