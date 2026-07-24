@@ -5,6 +5,8 @@ import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.MediaRecorder;
 import android.view.Gravity;
@@ -17,7 +19,12 @@ import android.widget.TextView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Locale;
 
 public final class ChatVoiceNote {
@@ -187,36 +194,129 @@ public final class ChatVoiceNote {
         box.addView(label, new LinearLayout.LayoutParams(dp(activity, 150), -2));
 
         play.setOnClickListener(v -> {
-            if (url.isEmpty()) return;
+            if (url.isEmpty()) {
+                label.setText("Voice note tidak tersedia");
+                return;
+            }
             play.setEnabled(false);
             play.setText("…");
-            MediaPlayer player = new MediaPlayer();
-            try {
-                player.setDataSource(url);
-                player.setOnPreparedListener(mp -> {
-                    play.setText("■");
-                    play.setEnabled(true);
-                    mp.start();
-                });
-                player.setOnCompletionListener(mp -> {
-                    play.setText("▶");
-                    try { mp.release(); } catch (Exception ignored) {}
-                });
-                player.setOnErrorListener((mp, what, extra) -> {
-                    play.setText("▶");
-                    play.setEnabled(true);
-                    try { mp.release(); } catch (Exception ignored) {}
-                    return true;
-                });
-                player.prepareAsync();
-            } catch (Exception e) {
-                play.setText("▶");
-                play.setEnabled(true);
-                try { player.release(); } catch (Exception ignored) {}
-            }
+            label.setText("Memuat voice note…");
+
+            new Thread(() -> {
+                File cached = null;
+                try {
+                    cached = downloadToCache(activity, url);
+                    File finalCached = cached;
+                    activity.runOnUiThread(() -> playLocalVoice(activity, finalCached, play, label, durationMs));
+                } catch (Exception e) {
+                    if (cached != null) cached.delete();
+                    String reason = e.getMessage();
+                    activity.runOnUiThread(() -> {
+                        play.setText("▶");
+                        play.setEnabled(true);
+                        label.setText("Gagal memuat voice note");
+                    });
+                }
+            }, "chat-voice-download").start();
         });
 
         return box;
+    }
+
+    private static File downloadToCache(Activity activity, String sourceUrl) throws Exception {
+        HttpURLConnection connection = null;
+        InputStream input = null;
+        FileOutputStream output = null;
+        File temp = new File(activity.getCacheDir(), "play_voice_" + System.nanoTime() + ".m4a");
+        try {
+            URL current = new URL(sourceUrl);
+            int redirects = 0;
+            while (true) {
+                connection = (HttpURLConnection) current.openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setInstanceFollowRedirects(false);
+                connection.setRequestProperty("Accept", "audio/mp4,audio/*,*/*");
+                connection.setRequestProperty("User-Agent", "Transiva-Android");
+                int code = connection.getResponseCode();
+                if (code >= 300 && code < 400 && redirects < 5) {
+                    String location = connection.getHeaderField("Location");
+                    connection.disconnect();
+                    connection = null;
+                    if (location == null || location.trim().isEmpty()) throw new Exception("Redirect audio tidak valid");
+                    current = new URL(current, location);
+                    redirects++;
+                    continue;
+                }
+                if (code != HttpURLConnection.HTTP_OK && code != HttpURLConnection.HTTP_PARTIAL) {
+                    throw new Exception("HTTP " + code);
+                }
+                input = new BufferedInputStream(connection.getInputStream());
+                output = new FileOutputStream(temp);
+                byte[] buffer = new byte[16 * 1024];
+                int read;
+                long total = 0;
+                while ((read = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, read);
+                    total += read;
+                    if (total > 15L * 1024L * 1024L) throw new Exception("Voice note terlalu besar");
+                }
+                output.flush();
+                if (total < 128) throw new Exception("File audio kosong");
+                return temp;
+            }
+        } catch (Exception e) {
+            temp.delete();
+            throw e;
+        } finally {
+            try { if (input != null) input.close(); } catch (Exception ignored) {}
+            try { if (output != null) output.close(); } catch (Exception ignored) {}
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private static void playLocalVoice(Activity activity, File file, Button play, TextView label, long durationMs) {
+        final MediaPlayer player = new MediaPlayer();
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 21) {
+                player.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build());
+            } else {
+                player.setAudioStreamType(AudioManager.STREAM_MUSIC);
+            }
+            player.setVolume(1.0f, 1.0f);
+            player.setDataSource(file.getAbsolutePath());
+            player.setOnPreparedListener(mp -> {
+                play.setText("■");
+                play.setEnabled(true);
+                label.setText(String.format(Locale.US, "Memutar  %s", durationLabel(durationMs)));
+                mp.start();
+            });
+            player.setOnCompletionListener(mp -> {
+                play.setText("▶");
+                play.setEnabled(true);
+                label.setText(String.format(Locale.US, "Voice note  %s", durationLabel(durationMs)));
+                try { mp.release(); } catch (Exception ignored) {}
+                try { file.delete(); } catch (Exception ignored) {}
+            });
+            player.setOnErrorListener((mp, what, extra) -> {
+                play.setText("▶");
+                play.setEnabled(true);
+                label.setText("Audio tidak dapat diputar");
+                try { mp.release(); } catch (Exception ignored) {}
+                try { file.delete(); } catch (Exception ignored) {}
+                return true;
+            });
+            player.prepareAsync();
+        } catch (Exception e) {
+            play.setText("▶");
+            play.setEnabled(true);
+            label.setText("Audio tidak dapat diputar");
+            try { player.release(); } catch (Exception ignored) {}
+            try { file.delete(); } catch (Exception ignored) {}
+        }
     }
 
     private static String durationLabel(long durationMs) {
