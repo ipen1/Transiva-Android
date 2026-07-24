@@ -71,10 +71,14 @@ public class CustomerChatRoomActivity extends Activity {
     private static final String UPLOAD_IMAGE_URL =
             BASE_URL + "server/upload_chat_image.php";
 
+    private static final String UPLOAD_VOICE_URL =
+            BASE_URL + "server/upload_chat_voice.php";
+
     private static final int REQUEST_GALLERY = 4101;
     private static final int REQUEST_CAMERA = 4102;
     private static final int REQUEST_INTERNAL_CAMERA = 4104;
     private static final int REQUEST_CAMERA_PERMISSION = 4103;
+    private static final int REQUEST_AUDIO_PERMISSION = 4105;
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
 
@@ -88,6 +92,7 @@ public class CustomerChatRoomActivity extends Activity {
     private EditText input;
     private Button sendButton;
     private Button attachButton;
+    private Button voiceButton;
     private ProgressBar progress;
     private LinearLayout inputCard;
 
@@ -511,6 +516,18 @@ public class CustomerChatRoomActivity extends Activity {
 
         sendLp.setMargins(dp(7), 0, 0, 0);
         inputCard.addView(sendButton, sendLp);
+
+        voiceButton = new Button(this);
+        voiceButton.setText("🎙");
+        voiceButton.setTextSize(18);
+        voiceButton.setAllCaps(false);
+        voiceButton.setPadding(0, 0, 0, 0);
+        voiceButton.setTextColor(Color.parseColor("#0B7CFF"));
+        voiceButton.setBackground(round("#EAF4FF", 15));
+        LinearLayout.LayoutParams voiceLp = new LinearLayout.LayoutParams(dp(48), -1);
+        voiceLp.setMargins(dp(7), 0, 0, 0);
+        inputCard.addView(voiceButton, voiceLp);
+        setupVoiceRecorder();
 
         sendButton.setOnClickListener(
                 view -> sendMessage()
@@ -1307,6 +1324,7 @@ public class CustomerChatRoomActivity extends Activity {
 
             attachButton.setEnabled(false);
             attachButton.setAlpha(0.45f);
+            if (voiceButton != null) { voiceButton.setEnabled(false); voiceButton.setAlpha(0.45f); }
 
             sendButton.setEnabled(false);
             sendButton.setText("Selesai");
@@ -1316,6 +1334,61 @@ public class CustomerChatRoomActivity extends Activity {
                     "Order selesai • riwayat hanya baca"
             );
         }
+    }
+
+    private void setupVoiceRecorder() {
+        ChatVoiceNote.attachRecorder(this, voiceButton, REQUEST_AUDIO_PERMISSION, new ChatVoiceNote.Listener() {
+            @Override public void onState(String text, boolean recording, boolean cancelArmed) {
+                statusText.setText(text);
+                voiceButton.setText(cancelArmed ? "✕" : (recording ? "●" : "🎙"));
+            }
+            @Override public void onReady(File file, long durationMs) { uploadVoiceNote(file, durationMs); }
+            @Override public void onError(String message) { toast(message); voiceButton.setText("🎙"); }
+        });
+    }
+
+    private void uploadVoiceNote(File file, long durationMs) {
+        if (readOnly || uploading || file == null) return;
+        uploading = true;
+        voiceButton.setEnabled(false);
+        new Thread(() -> {
+            try {
+                JSONObject upload = CustomerMessageApi.uploadVoice(
+                        UPLOAD_VOICE_URL, roomId, "customer", file, durationMs);
+                if (!upload.optBoolean("success", false)) throw new IllegalStateException(upload.optString("message", "Upload voice note gagal"));
+                String audioUrl = upload.optString("url", upload.optString("audio_url", ""));
+                JSONObject payload = new JSONObject();
+                payload.put("room_id", roomId); payload.put("sender_type", "customer");
+                payload.put("order_id", orderId); payload.put("message", ChatVoiceNote.encode(audioUrl, durationMs));
+                JSONObject sent = CustomerMessageApi.post(SEND_CHAT_URL, payload);
+                mainHandler.post(() -> {
+                    uploading = false; voiceButton.setEnabled(!readOnly); voiceButton.setText("🎙");
+                    if (sent.optBoolean("success", false)) loadMessages(false);
+                    else toast(sent.optString("message", "Voice note gagal dikirim"));
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> { uploading = false; voiceButton.setEnabled(!readOnly); voiceButton.setText("🎙"); statusText.setText("Voice note pending • jaringan"); toast(first(e.getMessage(), "Voice note gagal dikirim")); });
+            } finally { file.delete(); }
+        }).start();
+    }
+
+    private String absoluteVoiceContent(String content) {
+        String url = ChatVoiceNote.voiceUrl(content);
+        long duration = ChatVoiceNote.voiceDuration(content);
+        return ChatVoiceNote.encode(absoluteUrl(url), duration);
+    }
+
+    private PendingText addPendingText(String content) {
+        LinearLayout wrapper = new LinearLayout(this); wrapper.setOrientation(LinearLayout.VERTICAL); wrapper.setGravity(Gravity.RIGHT);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(0, dp(4), 0, dp(4)); messagesBox.addView(wrapper, lp);
+        TextView bubble = text(content, 13, "#FFFFFF", false); bubble.setPadding(dp(13), dp(9), dp(13), dp(9)); bubble.setBackground(gradient("#086BFF", "#2EA2FF", 17)); wrapper.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
+        TextView state = text("Pending…", 9, "#94A3B8", false); state.setPadding(dp(7), dp(2), dp(7), 0); wrapper.addView(state, new LinearLayout.LayoutParams(-2, -2)); scrollBottom();
+        return new PendingText(wrapper, state);
+    }
+
+    private static final class PendingText {
+        final LinearLayout root; final TextView state; PendingText(LinearLayout root, TextView state) { this.root=root; this.state=state; }
+        void markNetworkPending() { state.setText("Pending • jaringan"); }
     }
 
     private void loadMessages(
@@ -1331,8 +1404,7 @@ public class CustomerChatRoomActivity extends Activity {
             progress.setVisibility(View.VISIBLE);
         }
 
-        int requestedLastId =
-                firstLoad ? 0 : lastId;
+        int requestedLastId = 0;
 
         new Thread(() -> {
             try {
@@ -1342,7 +1414,8 @@ public class CustomerChatRoomActivity extends Activity {
                                 + URLEncoder.encode(
                                 roomId,
                                 StandardCharsets.UTF_8.name()
-                        );
+                        )
+                                + "&viewer_type=customer";
 
                 if (requestedLastId > 0) {
                     endpoint +=
@@ -1517,7 +1590,13 @@ public class CustomerChatRoomActivity extends Activity {
         wrapperLp.setMargins(0, dp(4), 0, dp(4));
         messagesBox.addView(wrapper, wrapperLp);
 
-        if (
+        if (ChatVoiceNote.isVoice(content)) {
+            wrapper.addView(
+                    ChatVoiceNote.createPlayerBubble(this, absoluteVoiceContent(content), mine),
+                    new LinearLayout.LayoutParams(-2, -2)
+            );
+
+        } else if (
                 content.startsWith(IMAGE_V2_PREFIX)
                         || content.startsWith(IMAGE_PREFIX)
         ) {
@@ -1635,7 +1714,11 @@ public class CustomerChatRoomActivity extends Activity {
 
         String time = formatTime(message.optString("created_at", ""));
         if (!time.isEmpty()) {
-            TextView timestamp = text(time, 9, "#94A3B8", false);
+            String receipt = mine
+                    ? (message.optString("read_at", "").trim().isEmpty()
+                    ? "  ✓ Terkirim" : "  ✓✓ Dibaca")
+                    : "";
+            TextView timestamp = text(time + receipt, 9, "#94A3B8", false);
             timestamp.setPadding(dp(7), dp(2), dp(7), 0);
             wrapper.addView(
                     timestamp,
@@ -1939,6 +2022,8 @@ public class CustomerChatRoomActivity extends Activity {
         sendButton.setEnabled(false);
         sendButton.setText("...");
         final String originalMessage = message;
+        final PendingText pending = addPendingText(originalMessage);
+        input.setText("");
 
         new Thread(() -> {
             try {
@@ -1958,15 +2043,16 @@ public class CustomerChatRoomActivity extends Activity {
                         sending = false;
                         sendButton.setEnabled(true);
                         sendButton.setText("Kirim");
-                        input.setText("");
+                        if (pending != null) messagesBox.removeView(pending.root);
                         loadMessages(false);
                     } else {
+                        if (pending != null) pending.markNetworkPending();
                         verifyDelivered(originalMessage);
                     }
                 });
 
             } catch (Exception error) {
-                mainHandler.post(() -> verifyDelivered(originalMessage));
+                mainHandler.post(() -> { if (pending != null) pending.markNetworkPending(); verifyDelivered(originalMessage); });
             }
         }).start();
     }

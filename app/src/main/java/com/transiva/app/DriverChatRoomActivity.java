@@ -57,6 +57,8 @@ public class DriverChatRoomActivity extends Activity {
             BASE_URL + "server/sendChat.php";
     private static final String UPLOAD_IMAGE_URL =
             BASE_URL + "server/upload_chat_image.php";
+    private static final String UPLOAD_VOICE_URL =
+            BASE_URL + "server/upload_chat_voice.php";
 
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
@@ -65,6 +67,7 @@ public class DriverChatRoomActivity extends Activity {
     private static final int REQUEST_GALLERY = 5101;
     private static final int REQUEST_INTERNAL_CAMERA = 5102;
     private static final int REQUEST_CAMERA_PERMISSION = 5103;
+    private static final int REQUEST_AUDIO_PERMISSION = 5104;
 
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -75,6 +78,7 @@ public class DriverChatRoomActivity extends Activity {
     private EditText input;
     private Button sendButton;
     private Button attachButton;
+    private Button voiceButton;
     private ProgressBar progress;
     private LinearLayout inputCard;
 
@@ -269,6 +273,14 @@ public class DriverChatRoomActivity extends Activity {
                 new LinearLayout.LayoutParams(dp(74), -1);
         sendLp.setMargins(dp(7), 0, 0, 0);
         inputCard.addView(sendButton, sendLp);
+
+        voiceButton = new Button(this);
+        voiceButton.setText("🎙"); voiceButton.setTextSize(18); voiceButton.setAllCaps(false);
+        voiceButton.setPadding(0, 0, 0, 0); voiceButton.setTextColor(Color.parseColor("#0B7CFF"));
+        voiceButton.setBackground(round("#EAF4FF", 15));
+        LinearLayout.LayoutParams voiceLp = new LinearLayout.LayoutParams(dp(48), -1);
+        voiceLp.setMargins(dp(7), 0, 0, 0); inputCard.addView(voiceButton, voiceLp);
+        setupVoiceRecorder();
 
         sendButton.setOnClickListener(v -> sendMessage());
         input.setOnEditorActionListener((v, actionId, event) -> {
@@ -585,12 +597,50 @@ public class DriverChatRoomActivity extends Activity {
         }
     }
 
+    private void setupVoiceRecorder() {
+        ChatVoiceNote.attachRecorder(this, voiceButton, REQUEST_AUDIO_PERMISSION, new ChatVoiceNote.Listener() {
+            @Override public void onState(String text, boolean recording, boolean cancelArmed) { statusText.setText(text); voiceButton.setText(cancelArmed ? "✕" : (recording ? "●" : "🎙")); }
+            @Override public void onReady(File file, long durationMs) { uploadVoiceNote(file, durationMs); }
+            @Override public void onError(String message) { toast(message); voiceButton.setText("🎙"); }
+        });
+    }
+
+    private void uploadVoiceNote(File file, long durationMs) {
+        if (readOnly || uploading || file == null) return;
+        uploading = true; voiceButton.setEnabled(false);
+        new Thread(() -> {
+            try {
+                JSONObject upload = DriverMessageApi.uploadVoice(session, UPLOAD_VOICE_URL, orderId, orderSource, roomId, file, durationMs);
+                if (!upload.optBoolean("success", false)) throw new IllegalStateException(upload.optString("message", "Upload voice note gagal"));
+                String audioUrl = upload.optString("url", upload.optString("audio_url", ""));
+                JSONObject body = new JSONObject(); body.put("order_id", orderId); body.put("order_db_id", orderDbId); body.put("source", orderSource); body.put("room_id", roomId); body.put("sender_type", "driver"); body.put("message", ChatVoiceNote.encode(audioUrl, durationMs));
+                JSONObject sent = DriverMessageApi.post(session, SEND_CHAT_URL, body);
+                main.post(() -> { uploading=false; voiceButton.setEnabled(!readOnly); voiceButton.setText("🎙"); if (sent.optBoolean("success", false)) loadMessages(false); else toast(sent.optString("message", "Voice note gagal dikirim")); });
+            } catch (Exception e) { main.post(() -> { uploading=false; voiceButton.setEnabled(!readOnly); voiceButton.setText("🎙"); statusText.setText("Voice note pending • jaringan"); toast(first(e.getMessage(), "Voice note gagal dikirim")); }); }
+            finally { file.delete(); }
+        }).start();
+    }
+
+    private String absoluteVoiceContent(String content) {
+        String url = ChatVoiceNote.voiceUrl(content);
+        if (!(url.startsWith("http://") || url.startsWith("https://"))) url = BASE_URL + (url.startsWith("/") ? url.substring(1) : url);
+        return ChatVoiceNote.encode(url, ChatVoiceNote.voiceDuration(content));
+    }
+
+    private PendingText addPendingText(String content) {
+        LinearLayout wrapper = messageWrapper(true);
+        TextView bubble = text(content, 13, "#FFFFFF", false); bubble.setPadding(dp(13), dp(9), dp(13), dp(9)); bubble.setBackground(gradient("#086BFF", "#2EA2FF", 17)); wrapper.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
+        TextView state = text("Pending…", 9, "#94A3B8", false); state.setPadding(dp(7), dp(2), dp(7), 0); wrapper.addView(state, new LinearLayout.LayoutParams(-2, -2)); scrollBottom(); return new PendingText(wrapper, state);
+    }
+
+    private static final class PendingText { final LinearLayout root; final TextView state; PendingText(LinearLayout root, TextView state){this.root=root;this.state=state;} void markNetworkPending(){state.setText("Pending • jaringan");} }
+
     private void loadMessages(boolean showLoading) {
         if (loading) return;
 
         loading = true;
         if (showLoading) progress.setVisibility(View.VISIBLE);
-        int requestedLastId = firstLoad ? 0 : lastId;
+        int requestedLastId = 0;
 
         new Thread(() -> {
             try {
@@ -609,7 +659,8 @@ public class DriverChatRoomActivity extends Activity {
                         + URLEncoder.encode(
                         roomId,
                         StandardCharsets.UTF_8.name()
-                );
+                )
+                        + "&viewer_type=driver";
 
                 if (requestedLastId > 0) {
                     endpoint += "&last_id=" + requestedLastId;
@@ -706,7 +757,9 @@ public class DriverChatRoomActivity extends Activity {
 
         LinearLayout wrapper = messageWrapper(mine);
 
-        if (content.startsWith(IMAGE_V2_PREFIX)
+        if (ChatVoiceNote.isVoice(content)) {
+            wrapper.addView(ChatVoiceNote.createPlayerBubble(this, absoluteVoiceContent(content), mine), new LinearLayout.LayoutParams(-2, -2));
+        } else if (content.startsWith(IMAGE_V2_PREFIX)
                 || content.startsWith(IMAGE_PREFIX)) {
             String previewUrl;
             String hdUrl;
@@ -864,6 +917,8 @@ public class DriverChatRoomActivity extends Activity {
 
         sending = true;
         setSendingEnabled(false);
+        final PendingText pending = addPendingText(message);
+        input.setText("");
 
         JSONObject body = new JSONObject();
 
@@ -890,9 +945,10 @@ public class DriverChatRoomActivity extends Activity {
                     setSendingEnabled(true);
 
                     if (response.optBoolean("success", false)) {
-                        input.setText("");
+                        if (pending != null) messagesBox.removeView(pending.root);
                         loadMessages(false);
                     } else {
+                        if (pending != null) pending.markNetworkPending();
                         toast(first(
                                 response.optString("message"),
                                 "Pesan gagal dikirim"));
@@ -903,6 +959,7 @@ public class DriverChatRoomActivity extends Activity {
                 main.post(() -> {
                     sending = false;
                     setSendingEnabled(true);
+                    if (pending != null) pending.markNetworkPending();
                     toast(first(error.getMessage(),
                             "Pesan gagal dikirim"));
                 });
@@ -917,6 +974,7 @@ public class DriverChatRoomActivity extends Activity {
         input.setHint("Percakapan ini hanya dapat dibaca");
         attachButton.setEnabled(false);
         attachButton.setAlpha(0.45f);
+        if (voiceButton != null) { voiceButton.setEnabled(false); voiceButton.setAlpha(0.45f); }
         sendButton.setEnabled(false);
         sendButton.setText("Selesai");
         sendButton.setAlpha(0.55f);
@@ -926,6 +984,7 @@ public class DriverChatRoomActivity extends Activity {
     private void setSendingEnabled(boolean enabled) {
         attachButton.setEnabled(enabled && !readOnly);
         sendButton.setEnabled(enabled && !readOnly);
+        if (voiceButton != null) voiceButton.setEnabled(enabled && !readOnly);
         input.setEnabled(enabled && !readOnly);
     }
 

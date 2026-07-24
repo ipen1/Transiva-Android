@@ -43,6 +43,7 @@ public class DriverChatActivity extends Activity {
     private static final String CONVERSATIONS_URL =
             BASE_URL + "server/get_driver_conversations.php";
     private static final String IMAGE_PREFIX = "[[IMAGE]]";
+    private static final String VOICE_PREFIX = "[[VOICE]]";
     private static final String IMAGE_V2_PREFIX = "[[IMAGE2]]";
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -461,17 +462,18 @@ public class DriverChatActivity extends Activity {
 
         String last = item.optString("last_message", "").trim();
         boolean image = isImageMessage(last);
-        String preview = image
-                ? (isLastMessageMine(item)
-                ? "Anda mengirim foto"
-                : customer + " mengirim foto")
-                : first(last, "Belum ada pesan");
+        boolean voice = last.startsWith(VOICE_PREFIX);
+        String preview = voice
+                ? (isLastMessageMine(item) ? "Anda mengirim voice note" : customer + " mengirim voice note")
+                : (image
+                ? (isLastMessageMine(item) ? "Anda mengirim foto" : customer + " mengirim foto")
+                : first(last, "Belum ada pesan"));
 
         TextView previewView = text(
                 preview,
                 11,
-                image ? "#0B5FAF" : "#64748B",
-                image
+                (image || voice) ? "#0B5FAF" : "#64748B",
+                image || voice
         );
         previewView.setSingleLine(true);
         previewView.setEllipsize(TextUtils.TruncateAt.END);

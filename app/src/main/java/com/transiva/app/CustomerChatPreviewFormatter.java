@@ -12,6 +12,8 @@ public final class CustomerChatPreviewFormatter {
     private static final String IMAGE_V2_PREFIX =
             "[[IMAGE2]]";
 
+    private static final String VOICE_PREFIX = "[[VOICE]]";
+
     private CustomerChatPreviewFormatter() {
     }
 
@@ -84,6 +86,10 @@ public final class CustomerChatPreviewFormatter {
                         "last_message",
                         ""
                 ).trim();
+
+        if (message.startsWith(VOICE_PREFIX)) {
+            return isMine(item) ? "Anda mengirim voice note" : first(participant, "Mitra") + " mengirim voice note";
+        }
 
         if (!isImageMessage(message)) {
             return first(

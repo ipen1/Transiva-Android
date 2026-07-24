@@ -3,6 +3,8 @@ package com.transiva.app;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -128,6 +130,42 @@ public final class CustomerMessageApi {
             if (connection != null) {
                 connection.disconnect();
             }
+        }
+    }
+
+    public static JSONObject uploadVoice(
+            String endpoint,
+            String roomId,
+            String senderType,
+            File file,
+            long durationMs
+    ) throws Exception {
+        String boundary = "----TransivaVoice" + System.currentTimeMillis();
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(endpoint).openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(TIMEOUT_MS);
+            connection.setReadTimeout(TIMEOUT_MS);
+            connection.setUseCaches(false);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Accept", "application/json");
+            connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            try (OutputStream output = connection.getOutputStream()) {
+                writeField(output, boundary, "room_id", roomId);
+                writeField(output, boundary, "sender_type", senderType);
+                writeField(output, boundary, "duration_ms", String.valueOf(durationMs));
+                writeFile(output, boundary, "audio", "voice.m4a", "audio/mp4", readFile(file));
+                output.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+                output.flush();
+            }
+            return readResponse(connection);
+        } finally { if (connection != null) connection.disconnect(); }
+    }
+
+    private static byte[] readFile(File file) throws Exception {
+        try (FileInputStream in = new FileInputStream(file); java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192]; int n; while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n); return out.toByteArray();
         }
     }
 
