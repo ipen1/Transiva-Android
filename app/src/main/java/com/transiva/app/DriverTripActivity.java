@@ -85,6 +85,10 @@ public class DriverTripActivity extends Activity {
     private long lastGpsFixAt = 0L;
     private SessionManager session;
     private final SmoothLocationEngine smoothLocation = new SmoothLocationEngine(2500L);
+    private volatile boolean routeRequestInFlight = false;
+    private long lastRouteRequestAt = 0L;
+    private double lastRouteFromLat = 0d, lastRouteFromLng = 0d;
+    private String lastNativeRouteMode = "";
 
     private final Runnable locationPostRunnable = new Runnable(){
         @Override public void run(){
@@ -247,7 +251,7 @@ public class DriverTripActivity extends Activity {
         mapView.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view, String url){
                 mapReady = true;
-                mainHandler.postDelayed(() -> updateMap(), 250);
+                mainHandler.postDelayed(() -> { updateMap(); requestStableRoute(true); }, 250);
             }
         });
         mapView.loadDataWithBaseURL("https://transiva.my.id/", mapHtml(), "text/html", "UTF-8", null); LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-1, dp(230)); mp.setMargins(0,dp(8),0,0); c.addView(mapView, mp); add(c,0,0,0,dp(12));
@@ -280,7 +284,9 @@ public class DriverTripActivity extends Activity {
                 "function clearLine(){if(routeLine&&map){map.removeLayer(routeLine);routeLine=null;}routePts=[];routeProgress=0;}"+
                 "function fitAll(){if(!map)return;var p=[];if(driverMarker)p.push(driverMarker.getLatLng());if(pickupMarker)p.push(pickupMarker.getLatLng());if(destMarker)p.push(destMarker.getLatLng());if(routeLine){try{map.fitBounds(routeLine.getBounds(),{padding:[44,44],maxZoom:17,animate:true});return;}catch(e){}}if(p.length===1)map.setView(p[0],16,{animate:true});else if(p.length>1)map.fitBounds(L.latLngBounds(p),{padding:[44,44],maxZoom:17,animate:true});}"+
                 "function drawStraight(a,b,color,silent){if(!map||!valid(a[0],a[1])||!valid(b[0],b[1]))return;clearLine();routePts=[a,b];routeLine=L.polyline(routePts,{color:color||'#087CFF',weight:5,opacity:.75,dashArray:'8,8',lineCap:'round'}).addTo(map);try{routeLine.bringToBack();}catch(e){}if(!silent)setBadge('Rute sementara ke '+targetLabel());if(driverRaw)setDriver(driverRaw.lat,driverRaw.lng,driverRaw.deg,driverRaw.type,true);}"+
-                "function drawRoute(a,b,force){if(!map||!valid(a,b))return;var t=targetPoint();if(!valid(t[0],t[1])){setBadge('Koordinat target belum lengkap');return;}var key=a.toFixed(4)+','+b.toFixed(4)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;if(drawing)return;drawing=true;lastRouteKey=key;var color=targetMode==='delivery'?'#16a34a':'#087CFF';setBadge('Rute ke '+targetLabel()+' sedang dimuat...');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j||!j.routes||!j.routes[0])throw new Error('no route');var cs=j.routes[0].geometry.coordinates,pts=[];for(var i=0;i<cs.length;i++)pts.push([cs[i][1],cs[i][0]]);clearLine();routePts=pts;routeLine=L.polyline(routePts,{weight:6,opacity:.9,color:color,lineCap:'round',lineJoin:'round'}).addTo(map);try{routeLine.bringToBack();}catch(e){}var km=(j.routes[0].distance/1000).toFixed(1),min=Math.max(1,Math.round(j.routes[0].duration/60));setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');if(driverRaw)setDriver(driverRaw.lat,driverRaw.lng,driverRaw.deg,driverRaw.type,true);fitAll();}).catch(function(){drawStraight([a,b],t,color,false);fitAll();}).finally(function(){drawing=false;});}"+
+                "function applyNativeRoute(pts,km,sec){try{if(typeof pts==='string')pts=JSON.parse(pts);if(!pts||pts.length<2)return;var color=targetMode==='delivery'?'#16a34a':'#087CFF';clearLine();routePts=pts;routeProgress=0;routeLine=L.polyline(routePts,{weight:6,opacity:.92,color:color,lineCap:'round',lineJoin:'round'}).addTo(map);try{routeLine.bringToBack();}catch(e){}var mins=Math.max(1,Math.round((+sec||0)/60));setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+(+km||0).toFixed(1)+' km • '+mins+' menit');if(driverRaw)setDriver(driverRaw.lat,driverRaw.lng,driverRaw.deg,driverRaw.type,true);}catch(e){}}"+
+                "window.applyNativeRoute=applyNativeRoute;"+
+                "function drawRoute(a,b,force){if(routePts.length<2)setBadge('Membuat rute ke '+targetLabel()+'...');}"+
                 "function setDriver(lat,lng,deg,type,skipRoute){if(!map||!valid(lat,lng))return;type=type==='car'?'car':'motor';vehicleType=type;driverRaw={lat:+lat,lng:+lng,deg:+deg||0,type:type};var t=targetPoint();if(routePts.length<2&&valid(t[0],t[1]))drawStraight([+lat,+lng],t,'#087CFF',true);var s=snapToRoute(lat,lng);var useDeg=(s.bearing!==null&&s.bearing!==undefined)?s.bearing:(+deg||lastDeg);lastDeg=useDeg;var target=L.latLng(s.lat,s.lng);if(!driverMarker){driverMarker=L.marker(target,{icon:vehicleIcon(type,useDeg),zIndexOffset:9999}).addTo(map).bindPopup(type==='car'?'Posisi Driver Mobil':'Posisi Driver Motor');}else{animateDriverTo(target,useDeg,type);}if(!skipRoute)drawRoute(+lat,+lng,false);}"+
                 "function animateDriverTo(target,deg,type){if(animId)cancelAnimationFrame(animId);var cur=driverMarker.getLatLng(),from=[cur.lat,cur.lng],to=[target.lat,target.lng],start=null,duration=850;driverMarker.setIcon(vehicleIcon(type,deg));function lerp(x,y,t){return x+(y-x)*t;}function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}function step(ts){if(!start)start=ts;var t=Math.min(1,(ts-start)/duration),e=ease(t),la=lerp(from[0],to[0],e),ln=lerp(from[1],to[1],e),s=snapToRoute(la,ln),bd=(s.bearing!==null&&s.bearing!==undefined)?s.bearing:deg;driverMarker.setLatLng([s.lat,s.lng]);rotateVehicle(bd);if(t<1)animId=requestAnimationFrame(step);else{animId=null;driverMarker.setLatLng(target);rotateVehicle(deg);}}animId=requestAnimationFrame(step);}"+
                 "window.setVehicleType=function(t){vehicleType=t==='car'?'car':'motor';if(driverRaw){driverRaw.type=vehicleType;if(driverMarker)driverMarker.setIcon(vehicleIcon(vehicleType,lastDeg));}};"+
@@ -464,10 +470,32 @@ public class DriverTripActivity extends Activity {
             driverType = resolveDriverTypeFromOrder();
             String js = "if(window.setVehicleType)setVehicleType('" + driverType + "');if(window.setTargetMode)setTargetMode('" + routeTargetMode() + "');if(window.updateDrv)updateDrv(" + lastDriverLat + "," + lastDriverLng + "," + deg + ",'" + driverType + "');";
             mapView.evaluateJavascript(js, null);
+            requestStableRoute(false);
             prevDriverLat = lastDriverLat;
             prevDriverLng = lastDriverLng;
         }catch(Exception ignored){}
     }
+    private void requestStableRoute(boolean force){
+        if(mapView == null || !mapReady || !valid(lastDriverLat,lastDriverLng)) return;
+        final String mode=routeTargetMode();
+        final double toLat=mode.equals("delivery")?coord("delivery_lat","destination_lat"):coord("pickup_lat","user_lat");
+        final double toLng=mode.equals("delivery")?coord("delivery_lng","destination_lng"):coord("pickup_lng","user_lng");
+        if(!valid(toLat,toLng) || routeRequestInFlight) return;
+        long now=System.currentTimeMillis();
+        float moved=valid(lastRouteFromLat,lastRouteFromLng)?distanceBetween(lastRouteFromLat,lastRouteFromLng,lastDriverLat,lastDriverLng):999f;
+        if(!force && mode.equals(lastNativeRouteMode) && moved<25f && now-lastRouteRequestAt<15000L) return;
+        routeRequestInFlight=true; lastRouteRequestAt=now;
+        final double fromLat=lastDriverLat,fromLng=lastDriverLng;
+        new Thread(() -> {
+            try{
+                StableRouteEngine.Result r=StableRouteEngine.fetch(fromLat,fromLng,toLat,toLng);
+                lastRouteFromLat=fromLat; lastRouteFromLng=fromLng; lastNativeRouteMode=mode;
+                final String pts=r.pointsJson(); final double km=r.distanceMeters/1000d,sec=r.durationSeconds;
+                mainHandler.post(() -> { try{ mapView.evaluateJavascript("if(window.applyNativeRoute)applyNativeRoute("+JSONObject.quote(pts)+","+km+","+sec+");",null); }catch(Exception ignored){} });
+            }catch(Exception ignored){} finally{ routeRequestInFlight=false; }
+        },"transiva-route-trip").start();
+    }
+
     private void refreshButtons(){
         if(arrivedPickupBtn == null) return;
         String st = status();

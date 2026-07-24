@@ -15,6 +15,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
@@ -64,6 +65,10 @@ public class DriverNavigationActivity extends Activity {
     private Location lastAcceptedLocation = null;
     private SessionManager session;
     private final SmoothLocationEngine smoothLocation = new SmoothLocationEngine(2500L);
+    private volatile boolean routeRequestInFlight = false;
+    private long lastRouteRequestAt = 0L;
+    private double lastRouteFromLat = 0d, lastRouteFromLng = 0d;
+    private String lastRouteMode = "";
 
     @Override protected void onCreate(Bundle b){
         super.onCreate(b);
@@ -121,6 +126,11 @@ public class DriverNavigationActivity extends Activity {
             if(Build.VERSION.SDK_INT >= 16) st.setAllowUniversalAccessFromFileURLs(true);
             if(Build.VERSION.SDK_INT >= 21) st.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }catch(Exception ignored){}
+        mapView.setWebViewClient(new WebViewClient(){
+            @Override public void onPageFinished(WebView view, String url){
+                mainHandler.postDelayed(() -> { updateMap(); requestStableRoute(true); }, 250);
+            }
+        });
         mapView.loadDataWithBaseURL("https://transiva.my.id/", fullMapHtml(), "text/html", "UTF-8", null);
         page.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
 
@@ -145,8 +155,8 @@ public class DriverNavigationActivity extends Activity {
         double cLat = valid(lastDriverLat,lastDriverLng) ? lastDriverLat : (valid(pLat,pLng) ? pLat : (valid(dLat,dLng) ? dLat : -0.9));
         double cLng = valid(lastDriverLat,lastDriverLng) ? lastDriverLng : (valid(pLat,pLng) ? pLng : (valid(dLat,dLng) ? dLng : 119.87));
         return "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"+
-                "<link rel='stylesheet' href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'>"+
-                "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'></script>"+
+                "<link rel='stylesheet' href='https://transiva.my.id/js/leaflet.css?v=native_route_1'>"+
+                "<script src='https://transiva.my.id/js/leaflet.js?v=native_route_1'></script>"+
                 "<style>html,body,#map{height:100%;margin:0;background:#EAF4FF;overflow:hidden}.leaflet-control-attribution,.leaflet-control-zoom{display:none!important}.leaflet-container{font-family:Arial,sans-serif;background:#EAF4FF}.motorWrap{width:64px;height:64px;display:flex;align-items:center;justify-content:center}.motorWrap img{width:62px;height:62px;transform-origin:center center;filter:drop-shadow(0 6px 12px rgba(0,0,0,.35))}.topBadge{position:absolute;z-index:999;top:20px;left:76px;right:14px;background:rgba(255,255,255,.96);border:1px solid #D7E6F8;border-radius:18px;padding:12px 14px;color:#0B3A78;font-size:14px;font-weight:800;box-shadow:0 8px 24px rgba(15,23,42,.18)}.centerDot{position:absolute;z-index:998;left:50%;top:50%;width:8px;height:8px;margin-left:-4px;margin-top:-4px;border-radius:50%;background:#087CFF;box-shadow:0 0 0 10px rgba(8,124,255,.16);pointer-events:none}</style></head><body><div id='map'></div><div id='badge' class='topBadge'>Menyiapkan navigasi...</div><div class='centerDot'></div><script>"+
                 "var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+targetMode+"';var lastDriver=[0,0];var currentPos=null;var currentDeg=0;var routePts=[];var routeLine1=null;var routeLine2=null;var driverMarker=null;var lastRouteKey='';var routeProgress=0;var animToken=0;var vehicleType='"+vehicleType+"';"+
                 "var map=L.map('map',{zoomControl:false,attributionControl:false,dragging:true,tap:true}).setView(["+cLat+","+cLng+"],18);"+
@@ -159,8 +169,9 @@ public class DriverNavigationActivity extends Activity {
                 "function bear(a,b,c,d){var y=Math.sin(rad(d-b))*Math.cos(rad(c));var x=Math.cos(rad(a))*Math.sin(rad(c))-Math.sin(rad(a))*Math.cos(rad(c))*Math.cos(rad(d-b));return (Math.atan2(y,x)*180/Math.PI+360)%360;}"+
                 "function nearestOnRoute(a,b){if(!routePts||routePts.length<2)return [a,b,currentDeg];var cos=Math.cos(rad(a));if(!isFinite(cos)||Math.abs(cos)<.00001)cos=1;var px=b*cos,py=a,best=[a,b,currentDeg],bd=1e99,bestI=routeProgress;var start=Math.max(0,routeProgress-2),end=Math.min(routePts.length-2,routeProgress+50);for(var i=start;i<=end;i++){var A=routePts[i],B=routePts[i+1],ax=A[1]*cos,ay=A[0],bx=B[1]*cos,by=B[0],vx=bx-ax,vy=by-ay,wx=px-ax,wy=py-ay,len=vx*vx+vy*vy,t=len?((wx*vx+wy*vy)/len):0;if(t<0)t=0;if(t>1)t=1;var qx=ax+vx*t,qy=ay+vy*t,dx=px-qx,dy=py-qy,dd=dx*dx+dy*dy;if(dd<bd){bd=dd;best=[qy,qx/cos,bear(A[0],A[1],B[0],B[1])];bestI=i;}}if(Math.sqrt(bd)*111320>80)return [a,b,currentDeg];if(bestI>=routeProgress)routeProgress=bestI;return best;}"+
                 "function animateTo(pos,deg){animToken++;var token=animToken;if(!driverMarker){currentPos=pos;currentDeg=isFinite(deg)?deg:0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg)}).addTo(map);map.setView(pos,18,{animate:false});return;}var ll=driverMarker.getLatLng(),from=[ll.lat,ll.lng];if(dist(from[0],from[1],pos[0],pos[1])>500)from=pos;var start=performance.now(),dur=650;function step(now){if(token!==animToken)return;var t=Math.min(1,(now-start)/dur),e=1-Math.pow(1-t,3),lat=from[0]+(pos[0]-from[0])*e,lng=from[1]+(pos[1]-from[1])*e;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(isFinite(deg)?deg:currentDeg));map.panTo([lat,lng],{animate:false});if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=isFinite(deg)?deg:currentDeg;}}requestAnimationFrame(step);}"+
-                "function drawRoute(a,b,force){var t=targetPoint();if(!a||!b||!t[0]||!t[1]){setBadge('Koordinat belum lengkap');return;}var key=a.toFixed(3)+','+b.toFixed(3)+'-'+t[0].toFixed(4)+','+t[1].toFixed(4)+'-'+targetMode;if(!force&&key===lastRouteKey)return;lastRouteKey=key;setBadge(targetMode==='delivery'?'Membuat rute ke tujuan':'Membuat rute ke pickup');fetch('https://router.project-osrm.org/route/v1/driving/'+b+','+a+';'+t[1]+','+t[0]+'?overview=full&geometries=geojson').then(function(r){return r.json();}).then(function(j){if(!j.routes||!j.routes[0])return;routePts=j.routes[0].geometry.coordinates.map(function(x){return[x[1],x[0]];});routeProgress=0;if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A'}).addTo(map);routeLine2=L.polyline(routePts,{weight:6,opacity:.96,color:'#087CFF'}).addTo(map);var km=(j.routes[0].distance/1000).toFixed(1);var min=Math.round(j.routes[0].duration/60);setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+km+' km • '+min+' menit');}).catch(function(){setBadge('Rute online gagal dimuat');});}"+
-                "window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];drawRoute(a,b,false);var s=nearestOnRoute(a,b),pos=[s[0],s[1]],finalDeg=isFinite(s[2])?s[2]:(isFinite(deg)?deg:currentDeg);animateTo(pos,finalDeg);};"+
+                "function applyNativeRoute(pts,km,sec){try{if(typeof pts==='string')pts=JSON.parse(pts);if(!pts||pts.length<2)return;routePts=pts;routeProgress=0;if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A',lineCap:'round',lineJoin:'round'}).addTo(map);routeLine2=L.polyline(routePts,{weight:6,opacity:.96,color:'#087CFF',lineCap:'round',lineJoin:'round'}).addTo(map);try{routeLine1.bringToBack();routeLine2.bringToBack();}catch(e){}var mins=Math.max(1,Math.round((+sec||0)/60));setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+(+km||0).toFixed(1)+' km • '+mins+' menit');if(lastDriver[0]&&lastDriver[1]){var s=nearestOnRoute(lastDriver[0],lastDriver[1]);animateTo([s[0],s[1]],s[2]);}}catch(e){}}"+
+                "window.applyNativeRoute=applyNativeRoute;window.routePending=function(){if(routePts.length<2)setBadge(targetMode==='delivery'?'Membuat rute ke tujuan...':'Membuat rute ke pickup...');};"+
+                "window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];var s=nearestOnRoute(a,b),pos=[s[0],s[1]],finalDeg=isFinite(s[2])?s[2]:(isFinite(deg)?deg:currentDeg);animateTo(pos,finalDeg);};"+
                 "</script></body></html>";
     }
 
@@ -274,9 +285,33 @@ public class DriverNavigationActivity extends Activity {
             if(valid(prevDriverLat,prevDriverLng)) deg = bearing(prevDriverLat, prevDriverLng, lastDriverLat, lastDriverLng);
             final String js = "if(window.updateDrv)updateDrv("+lastDriverLat+","+lastDriverLng+","+deg+");";
             mainHandler.post(() -> mapView.evaluateJavascript(js, null));
+            requestStableRoute(false);
             prevDriverLat = lastDriverLat;
             prevDriverLng = lastDriverLng;
         }catch(Exception ignored){}
+    }
+
+    private void requestStableRoute(boolean force){
+        if(mapView == null || !valid(lastDriverLat,lastDriverLng)) return;
+        final String mode = routeTargetMode();
+        final double toLat = mode.equals("delivery") ? coord("delivery_lat","destination_lat") : coord("pickup_lat","user_lat");
+        final double toLng = mode.equals("delivery") ? coord("delivery_lng","destination_lng") : coord("pickup_lng","user_lng");
+        if(!valid(toLat,toLng) || routeRequestInFlight) return;
+        long now = System.currentTimeMillis();
+        float moved = valid(lastRouteFromLat,lastRouteFromLng) ? distanceBetween(lastRouteFromLat,lastRouteFromLng,lastDriverLat,lastDriverLng) : 999f;
+        if(!force && mode.equals(lastRouteMode) && moved < 25f && now-lastRouteRequestAt < 15000L) return;
+        routeRequestInFlight = true;
+        lastRouteRequestAt = now;
+        final double fromLat=lastDriverLat, fromLng=lastDriverLng;
+        mainHandler.post(() -> { try{ mapView.evaluateJavascript("if(window.routePending)routePending();",null); }catch(Exception ignored){} });
+        new Thread(() -> {
+            try{
+                StableRouteEngine.Result r=StableRouteEngine.fetch(fromLat,fromLng,toLat,toLng);
+                lastRouteFromLat=fromLat; lastRouteFromLng=fromLng; lastRouteMode=mode;
+                final String pts=r.pointsJson(); final double km=r.distanceMeters/1000d, sec=r.durationSeconds;
+                mainHandler.post(() -> { try{ mapView.evaluateJavascript("if(window.applyNativeRoute)applyNativeRoute("+JSONObject.quote(pts)+","+km+","+sec+");",null); }catch(Exception ignored){} });
+            }catch(Exception ignored){} finally{ routeRequestInFlight=false; }
+        },"transiva-route-nav").start();
     }
 
     private String routeTargetMode(){
