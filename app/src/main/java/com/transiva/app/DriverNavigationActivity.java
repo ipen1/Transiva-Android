@@ -33,6 +33,7 @@ import org.maplibre.android.maps.MapLibreMapOptions;
 import org.maplibre.android.maps.MapView;
 import org.maplibre.android.maps.Style;
 import org.maplibre.android.style.layers.LineLayer;
+import org.maplibre.android.style.layers.Property;
 import org.maplibre.android.style.sources.GeoJsonSource;
 
 import java.io.OutputStream;
@@ -113,6 +114,15 @@ public class DriverNavigationActivity extends Activity {
     private boolean styleReady;
     private boolean routeInFlight;
     private boolean userAdjustedZoom = false;
+
+    // Final navigation smoothing: frequent small interpolation steps instead of GPS-sized jumps.
+    private static final long VISUAL_FRAME_MS = 16L;          // ~60 FPS
+    private static final long POSITION_EASE_MS = 900L;
+    private static final float POSITION_EASE_ALPHA = 0.16f;
+    private static final float BEARING_EASE_ALPHA = 0.10f;
+    private static final float CAMERA_BEARING_ALPHA = 0.075f;
+    private double smoothCameraBearing = Double.NaN;
+    private double smoothMarkerBearing = Double.NaN;
     private String pendingRouteGeoJson = "";
     private double pendingRouteKm;
     private double pendingRouteSeconds;
@@ -136,7 +146,7 @@ public class DriverNavigationActivity extends Activity {
     private final Runnable animationTick = new Runnable() {
         @Override public void run() {
             animateTowardLatestFix();
-            main.postDelayed(this, 50L);
+            main.postDelayed(this, VISUAL_FRAME_MS);
         }
     };
 
@@ -463,10 +473,26 @@ public class DriverNavigationActivity extends Activity {
 
         // Continuous native interpolation toward the route-matched target.
         double fraction = distance > 40f ? 0.38d : (distance > 10f ? 0.20d : 0.13d);
-        displayLat += (targetLat - displayLat) * fraction;
-        displayLng += (targetLng - displayLng) * fraction;
+        // Low-pass interpolation makes slow movement continuous instead of move/stop/move.
+        // Never teleport visually to a fresh GPS sample unless this is initial acquisition.
+        float visualAlpha = Math.max(0.08f, Math.min(POSITION_EASE_ALPHA, fraction));
+        displayLat = easePosition(displayLat, targetLat, visualAlpha);
+        displayLng = easePosition(displayLng, targetLng, visualAlpha);
         updateNativePosition(false);
         updateRemainingRouteLine();
+    }
+
+
+    private double easeBearing(double current, double target, float alpha) {
+        target = ((target % 360d) + 360d) % 360d;
+        if (Double.isNaN(current)) return target;
+        current = ((current % 360d) + 360d) % 360d;
+        double delta = ((target - current + 540d) % 360d) - 180d;
+        return (current + delta * alpha + 360d) % 360d;
+    }
+
+    private double easePosition(double current, double target, float alpha) {
+        return current + (target - current) * alpha;
     }
 
     private void updateNativePosition(boolean immediate) {
