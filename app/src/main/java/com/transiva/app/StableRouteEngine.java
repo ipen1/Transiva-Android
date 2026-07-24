@@ -30,11 +30,14 @@ public final class StableRouteEngine {
         public final JSONArray latLngPoints;
         public final double distanceMeters;
         public final double durationSeconds;
+        public final JSONArray maneuvers;
 
-        Result(JSONArray latLngPoints, double distanceMeters, double durationSeconds) {
+        Result(JSONArray latLngPoints, double distanceMeters, double durationSeconds,
+               JSONArray maneuvers) {
             this.latLngPoints = latLngPoints;
             this.distanceMeters = distanceMeters;
             this.durationSeconds = durationSeconds;
+            this.maneuvers = maneuvers == null ? new JSONArray() : maneuvers;
         }
 
         public String pointsJson() {
@@ -56,7 +59,7 @@ public final class StableRouteEngine {
             try {
                 String endpoint = OSRM
                         + String.format(Locale.US, "%.7f,%.7f;%.7f,%.7f", fromLng, fromLat, toLng, toLat)
-                        + "?overview=full&geometries=geojson&steps=false&alternatives=false";
+                        + "?overview=full&geometries=geojson&steps=true&alternatives=false";
                 connection = (HttpURLConnection) new URL(endpoint).openConnection();
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -99,9 +102,11 @@ public final class StableRouteEngine {
                 }
                 if (points.length() < 2) throw new IllegalStateException("Route points empty");
 
+                JSONArray maneuvers = parseManeuvers(route);
                 Result result = new Result(points,
                         route.optDouble("distance", 0d),
-                        route.optDouble("duration", 0d));
+                        route.optDouble("duration", 0d),
+                        maneuvers);
                 cacheResult = result;
                 cacheFromLat = fromLat; cacheFromLng = fromLng;
                 cacheToLat = toLat; cacheToLng = toLng;
@@ -120,6 +125,51 @@ public final class StableRouteEngine {
             }
         }
         throw last != null ? last : new IllegalStateException("Route failed");
+    }
+
+
+    /**
+     * Compact OSRM turn instructions. distance_from_start is based on step
+     * distance, which is good enough for a lightweight navigation banner.
+     */
+    private static JSONArray parseManeuvers(JSONObject route) throws Exception {
+        JSONArray out = new JSONArray();
+        JSONArray legs = route.optJSONArray("legs");
+        if (legs == null) return out;
+
+        double cumulative = 0d;
+        for (int li = 0; li < legs.length(); li++) {
+            JSONObject leg = legs.optJSONObject(li);
+            if (leg == null) continue;
+            JSONArray steps = leg.optJSONArray("steps");
+            if (steps == null) continue;
+
+            for (int si = 0; si < steps.length(); si++) {
+                JSONObject step = steps.optJSONObject(si);
+                if (step == null) continue;
+                JSONObject man = step.optJSONObject("maneuver");
+                if (man == null) {
+                    cumulative += Math.max(0d, step.optDouble("distance", 0d));
+                    continue;
+                }
+
+                JSONObject item = new JSONObject();
+                item.put("distance_from_start", cumulative);
+                item.put("step_distance", Math.max(0d, step.optDouble("distance", 0d)));
+                item.put("name", step.optString("name", ""));
+                item.put("type", man.optString("type", ""));
+                item.put("modifier", man.optString("modifier", ""));
+
+                JSONArray loc = man.optJSONArray("location"); // [lng,lat]
+                if (loc != null && loc.length() >= 2) {
+                    item.put("lng", loc.optDouble(0, 0d));
+                    item.put("lat", loc.optDouble(1, 0d));
+                }
+                out.put(item);
+                cumulative += Math.max(0d, step.optDouble("distance", 0d));
+            }
+        }
+        return out;
     }
 
     private static Result getCached(double fromLat, double fromLng, double toLat, double toLng) {

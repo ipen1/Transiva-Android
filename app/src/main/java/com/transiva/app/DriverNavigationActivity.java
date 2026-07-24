@@ -13,9 +13,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -85,8 +87,12 @@ public class DriverNavigationActivity extends Activity {
     private Marker driverMarker;
     private Marker pickupMarker;
     private Marker deliveryMarker;
+    // Vehicle is a native Android overlay, always rendered ABOVE every map layer.
+    // In heading-up mode it stays pointing straight toward the top of the screen.
+    private ImageView vehicleOverlay;
 
     private TextView routeBadge;
+    private TextView instructionBadge;
     private TextView speedBadge;
 
     private LocationManager locationManager;
@@ -127,6 +133,8 @@ public class DriverNavigationActivity extends Activity {
     private double pendingRouteKm;
     private double pendingRouteSeconds;
     private final List<double[]> routePoints = new ArrayList<>();
+    private final List<Double> routeCumulativeMeters = new ArrayList<>();
+    private JSONArray routeManeuvers = new JSONArray();
     private int routeProgressIndex = 0;
     private double snappedBearing = 0d;
     private long lastRouteSuccessAt = 0L;
@@ -135,10 +143,10 @@ public class DriverNavigationActivity extends Activity {
     private final Runnable routeRetryTick = new Runnable() {
         @Override public void run() {
             if (!isFinishing()) {
-                if (routePoints.size() < 2 || System.currentTimeMillis() - lastRouteSuccessAt > 30000L) {
+                if (routePoints.size() < 2) {
                     requestRoute(true);
                 }
-                main.postDelayed(this, routePoints.size() < 2 ? 2200L : 10000L);
+                main.postDelayed(this, routePoints.size() < 2 ? 2200L : 15000L);
             }
         }
     };
@@ -153,6 +161,8 @@ public class DriverNavigationActivity extends Activity {
     private double displayLat;
     private double displayLng;
     private boolean displayInitialized;
+    private long lastFixRealtimeMs = 0L;
+    private long lastInstructionUiAt = 0L;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -259,6 +269,16 @@ public class DriverNavigationActivity extends Activity {
             });
         });
 
+        vehicleOverlay = new ImageView(this);
+        vehicleOverlay.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        String vehicleDrawable = vehicleType.equals("car") ? "map_car_top" : "map_motor_top";
+        int vehicleRes = getResources().getIdentifier(vehicleDrawable, "drawable", getPackageName());
+        if (vehicleRes <= 0) vehicleRes = android.R.drawable.ic_menu_directions;
+        vehicleOverlay.setImageResource(vehicleRes);
+        FrameLayout.LayoutParams vehicleLp = new FrameLayout.LayoutParams(dp(48), dp(48));
+        vehicleLp.gravity = Gravity.CENTER;
+        page.addView(vehicleOverlay, vehicleLp);
+
         TextView back = new TextView(this);
         back.setText("‹");
         back.setTextSize(38);
@@ -283,6 +303,19 @@ public class DriverNavigationActivity extends Activity {
         routeLp.rightMargin = dp(18);
         routeLp.topMargin = dp(18);
         page.addView(routeBadge, routeLp);
+
+        instructionBadge = new TextView(this);
+        instructionBadge.setText("↑ Ikuti rute");
+        instructionBadge.setTextColor(Color.parseColor("#0B3A78"));
+        instructionBadge.setTextSize(14);
+        instructionBadge.setGravity(Gravity.CENTER_VERTICAL);
+        instructionBadge.setPadding(dp(16), dp(8), dp(16), dp(8));
+        instructionBadge.setBackground(roundRect(Color.parseColor("#F2FFFFFF"), 20));
+        FrameLayout.LayoutParams instructionLp = new FrameLayout.LayoutParams(-1, dp(52));
+        instructionLp.leftMargin = dp(84);
+        instructionLp.rightMargin = dp(18);
+        instructionLp.topMargin = dp(82);
+        page.addView(instructionBadge, instructionLp);
 
         speedBadge = new TextView(this);
         speedBadge.setText("0 km/j\nRata-rata 0 km/j");
@@ -364,14 +397,8 @@ public class DriverNavigationActivity extends Activity {
             }
         } catch (Exception ignored) {}
 
-        if (valid(driverLat, driverLng) && driverMarker == null) {
-            String drawable = vehicleType.equals("car") ? "map_car_top" : "map_motor_top";
-            Icon icon = iconFromDrawableScaled(f, drawable,
-                    android.R.drawable.ic_menu_directions, dp(56), dp(56));
-            driverMarker = map.addMarker(new MarkerOptions()
-                    .position(new LatLng(driverLat, driverLng))
-                    .icon(icon));
-        }
+        // Driver vehicle is intentionally NOT a MapLibre annotation.
+        // The Android ImageView overlay guarantees the route can never cover it.
     }
 
     private Icon iconFromDrawable(IconFactory factory, String name, int fallback) {
@@ -412,6 +439,7 @@ public class DriverNavigationActivity extends Activity {
                     lastLocation = new Location(l);
                     driverLat = l.getLatitude();
                     driverLng = l.getLongitude();
+                    lastFixRealtimeMs = SystemClock.elapsedRealtime();
                     updateSpeed(l);
 
                     if (l.hasBearing() && l.getSpeed() > 1.2f) currentBearing = l.getBearing();
@@ -453,35 +481,48 @@ public class DriverNavigationActivity extends Activity {
      */
     private void animateTowardLatestFix() {
         if (!valid(driverLat, driverLng) || map == null || !styleReady) return;
+
+        SnapPoint base = snapToRoute(driverLat, driverLng);
+        SnapPoint target = base;
+
+        // Dead-reckoning between GPS fixes: the visual target keeps moving at the
+        // measured speed for a short bounded window, so the icon/map does not
+        // move-stop-move between 700-1300 ms location samples.
+        if (base.onRoute && currentSpeedKmh > 1d && lastFixRealtimeMs > 0L) {
+            double ageSec = Math.max(0d,
+                    Math.min(1.15d, (SystemClock.elapsedRealtime() - lastFixRealtimeMs) / 1000d));
+            double lookAheadMeters = (currentSpeedKmh / 3.6d) * ageSec;
+            target = advanceAlongRoute(base, lookAheadMeters);
+        }
+
         if (!displayInitialized) {
-            SnapPoint initial = snapToRoute(driverLat, driverLng);
-            displayLat = initial.lat;
-            displayLng = initial.lng;
-            if (initial.onRoute) snappedBearing = initial.bearing;
+            displayLat = target.lat;
+            displayLng = target.lng;
+            snappedBearing = target.bearing;
             displayInitialized = true;
             updateNativePosition(true);
+            updateRemainingRouteLine();
+            updateInstructionBanner(target.progressMeters);
             return;
         }
 
-        SnapPoint target = snapToRoute(driverLat, driverLng);
-        double targetLat = target.lat;
-        double targetLng = target.lng;
         if (target.onRoute) snappedBearing = target.bearing;
 
-        float distance = meters(displayLat, displayLng, targetLat, targetLng);
-        if (distance < 0.25f) return;
+        float distance = meters(displayLat, displayLng, target.lat, target.lng);
+        if (distance > 0.05f) {
+            // Adaptive smoothing: slow driving advances gently; fast driving catches
+            // the visual target more quickly. Frame loop is ~60 FPS.
+            double speedFactor = Math.max(0d, Math.min(1d, currentSpeedKmh / 55d));
+            float alpha = (float) (0.045d + 0.105d * speedFactor);
+            if (distance > 25f) alpha = Math.max(alpha, 0.20f);
+            displayLat = easePosition(displayLat, target.lat, alpha);
+            displayLng = easePosition(displayLng, target.lng, alpha);
+            updateNativePosition(false);
+        }
 
-        // Continuous native interpolation toward the route-matched target.
-        double fraction = distance > 40f ? 0.38d : (distance > 10f ? 0.20d : 0.13d);
-        // Low-pass interpolation makes slow movement continuous instead of move/stop/move.
-        // Never teleport visually to a fresh GPS sample unless this is initial acquisition.
-        float visualAlpha = (float) Math.max(0.08d, Math.min((double) POSITION_EASE_ALPHA, fraction));
-        displayLat = easePosition(displayLat, targetLat, visualAlpha);
-        displayLng = easePosition(displayLng, targetLng, visualAlpha);
-        updateNativePosition(false);
         updateRemainingRouteLine();
+        updateInstructionBanner(target.progressMeters);
     }
-
 
     private double easeBearing(double current, double target, float alpha) {
         target = ((target % 360d) + 360d) % 360d;
@@ -503,11 +544,12 @@ public class DriverNavigationActivity extends Activity {
         double lng = displayInitialized ? displayLng : driverLng;
         if (!valid(lat, lng)) return;
 
-        if (driverMarker != null) driverMarker.setPosition(new LatLng(lat, lng));
-
-        double cameraBearing = routePoints.size() >= 2 && Double.isFinite(snappedBearing)
+        double desiredBearing = routePoints.size() >= 2 && Double.isFinite(snappedBearing)
                 ? snappedBearing
                 : (Double.isFinite(currentBearing) ? currentBearing : 0d);
+        smoothCameraBearing = easeBearing(smoothCameraBearing, desiredBearing,
+                immediate ? 1.0f : 0.065f);
+        double cameraBearing = smoothCameraBearing;
         double zoom = 18.4d;
         try {
             if (map != null && map.getCameraPosition() != null && map.getCameraPosition().zoom > 2d) {
@@ -522,8 +564,10 @@ public class DriverNavigationActivity extends Activity {
                 .tilt(42d)
                 .build();
 
-        if (immediate) map.moveCamera(CameraUpdateFactory.newCameraPosition(cp));
-        else map.easeCamera(CameraUpdateFactory.newCameraPosition(cp), 260);
+        // Do NOT start a new easeCamera animation every frame. Repeatedly cancelling
+        // animations is the main cause of "maju-berhenti-maju". Position/bearing are
+        // already smoothed above, so direct native camera updates are continuous.
+        map.moveCamera(CameraUpdateFactory.newCameraPosition(cp));
 
         speedBadge.setText(String.format(Locale.US, "%.0f km/j\nRata-rata %.0f km/j",
                 currentSpeedKmh, averageSpeedKmh));
@@ -575,6 +619,7 @@ public class DriverNavigationActivity extends Activity {
                 StableRouteEngine.Result r = StableRouteEngine.fetch(fromLat, fromLng, toLat, toLng);
                 pendingRouteGeoJson = routeGeoJson(r.pointsJson());
                 setRoutePoints(r.latLngPoints);
+                routeManeuvers = r.maneuvers == null ? new JSONArray() : r.maneuvers;
                 pendingRouteKm = r.distanceMeters / 1000d;
                 pendingRouteSeconds = r.durationSeconds;
                 lastRouteSuccessAt = System.currentTimeMillis();
@@ -604,8 +649,15 @@ public class DriverNavigationActivity extends Activity {
                 });
             } catch (Exception ignored) {
                 routeFailureCount++;
-                main.post(() -> routeBadge.setText(
-                        routeFailureCount <= 1 ? "Menyiapkan rute…" : "Rute belum tersedia • mencoba kembali…"));
+                main.post(() -> {
+                    // Never erase a working navigation summary because a background
+                    // refresh failed. Only show an error before the first route exists.
+                    if (routePoints.size() < 2) {
+                        routeBadge.setText(routeFailureCount <= 1
+                                ? "Menyiapkan rute…"
+                                : "Rute belum tersedia • mencoba kembali…");
+                    }
+                });
             } finally {
                 routeInFlight = false;
             }
@@ -690,14 +742,26 @@ public class DriverNavigationActivity extends Activity {
     private void setRoutePoints(JSONArray points) {
         synchronized (routePoints) {
             routePoints.clear();
+            routeCumulativeMeters.clear();
             routeProgressIndex = 0;
+            double cumulative = 0d;
             if (points == null) return;
+
+            double prevLat = 0d, prevLng = 0d;
+            boolean havePrev = false;
             for (int i = 0; i < points.length(); i++) {
                 JSONArray p = points.optJSONArray(i);
                 if (p == null || p.length() < 2) continue;
                 double lat = p.optDouble(0, Double.NaN);
                 double lng = p.optDouble(1, Double.NaN);
-                if (valid(lat, lng)) routePoints.add(new double[]{lat, lng});
+                if (!valid(lat, lng)) continue;
+
+                if (havePrev) cumulative += meters(prevLat, prevLng, lat, lng);
+                routePoints.add(new double[]{lat, lng});
+                routeCumulativeMeters.add(cumulative);
+                prevLat = lat;
+                prevLng = lng;
+                havePrev = true;
             }
         }
     }
@@ -710,7 +774,7 @@ public class DriverNavigationActivity extends Activity {
     private SnapPoint snapToRoute(double lat, double lng) {
         synchronized (routePoints) {
             if (routePoints.size() < 2 || !valid(lat, lng)) {
-                return new SnapPoint(lat, lng, currentBearing, false);
+                return new SnapPoint(lat, lng, currentBearing, false, routeProgressIndex, 0d, routeProgressMeters(routeProgressIndex));
             }
 
             int start = Math.max(0, routeProgressIndex - 3);
@@ -724,6 +788,7 @@ public class DriverNavigationActivity extends Activity {
             double bestDist2 = Double.MAX_VALUE;
             double bestLat = lat, bestLng = lng, bestBearing = currentBearing;
             int bestIndex = routeProgressIndex;
+            double bestT = 0d;
 
             for (int i = start; i <= end; i++) {
                 double[] a = routePoints.get(i);
@@ -748,13 +813,14 @@ public class DriverNavigationActivity extends Activity {
                     bestLat = qy / latScale;
                     bestBearing = bearing(a[0], a[1], b[0], b[1]);
                     bestIndex = i;
+                    bestT = t;
                 }
             }
 
             double distanceToRoute = Math.sqrt(bestDist2);
             // If GPS is extremely far from the route, use raw position and ask for reroute.
             if (distanceToRoute > 90d) {
-                return new SnapPoint(lat, lng, currentBearing, false);
+                return new SnapPoint(lat, lng, currentBearing, false, routeProgressIndex, 0d, routeProgressMeters(routeProgressIndex));
             }
 
             // Do not jump backward because of GPS/network noise.
@@ -766,19 +832,120 @@ public class DriverNavigationActivity extends Activity {
                 }
             }
 
-            return new SnapPoint(bestLat, bestLng, bestBearing, true);
+            double segmentMeters = meters(routePoints.get(bestIndex)[0], routePoints.get(bestIndex)[1],
+                    routePoints.get(bestIndex + 1)[0], routePoints.get(bestIndex + 1)[1]);
+            double progressMeters = routeProgressMeters(bestIndex) + segmentMeters * bestT;
+            return new SnapPoint(bestLat, bestLng, bestBearing, true,
+                    bestIndex, bestT, progressMeters);
         }
     }
 
     private static final class SnapPoint {
         final double lat, lng, bearing;
         final boolean onRoute;
-        SnapPoint(double lat, double lng, double bearing, boolean onRoute) {
+        final int segmentIndex;
+        final double segmentT;
+        final double progressMeters;
+
+        SnapPoint(double lat, double lng, double bearing, boolean onRoute,
+                  int segmentIndex, double segmentT, double progressMeters) {
             this.lat = lat;
             this.lng = lng;
             this.bearing = bearing;
             this.onRoute = onRoute;
+            this.segmentIndex = segmentIndex;
+            this.segmentT = segmentT;
+            this.progressMeters = progressMeters;
         }
+    }
+
+
+    private double routeProgressMeters(int index) {
+        synchronized (routePoints) {
+            if (routeCumulativeMeters.isEmpty()) return 0d;
+            int i = Math.max(0, Math.min(index, routeCumulativeMeters.size() - 1));
+            return routeCumulativeMeters.get(i);
+        }
+    }
+
+    private SnapPoint advanceAlongRoute(SnapPoint base, double metersAhead) {
+        synchronized (routePoints) {
+            if (!base.onRoute || routePoints.size() < 2 || metersAhead <= 0d) return base;
+
+            double targetProgress = base.progressMeters + metersAhead;
+            int i = Math.max(0, Math.min(base.segmentIndex, routePoints.size() - 2));
+
+            while (i < routePoints.size() - 2 &&
+                    routeProgressMeters(i + 1) < targetProgress) {
+                i++;
+            }
+
+            double[] a = routePoints.get(i);
+            double[] b = routePoints.get(i + 1);
+            double startM = routeProgressMeters(i);
+            double segM = Math.max(0.01d, meters(a[0], a[1], b[0], b[1]));
+            double t = Math.max(0d, Math.min(1d, (targetProgress - startM) / segM));
+            double lat = a[0] + (b[0] - a[0]) * t;
+            double lng = a[1] + (b[1] - a[1]) * t;
+            double brg = bearing(a[0], a[1], b[0], b[1]);
+            return new SnapPoint(lat, lng, brg, true, i, t,
+                    Math.min(targetProgress, routeProgressMeters(routePoints.size() - 1)));
+        }
+    }
+
+    private void updateInstructionBanner(double progressMeters) {
+        if (instructionBadge == null) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastInstructionUiAt < 250L) return;
+        lastInstructionUiAt = now;
+
+        JSONObject next = null;
+        double remaining = Double.MAX_VALUE;
+        for (int i = 0; i < routeManeuvers.length(); i++) {
+            JSONObject m = routeManeuvers.optJSONObject(i);
+            if (m == null) continue;
+            double at = m.optDouble("distance_from_start", -1d);
+            if (at < 0d) continue;
+            double d = at - progressMeters;
+            if (d >= -8d && d < remaining) {
+                remaining = Math.max(0d, d);
+                next = m;
+            }
+        }
+
+        if (next == null) {
+            instructionBadge.setText("↑ Terus ikuti rute");
+            return;
+        }
+
+        String modifier = next.optString("modifier", "").toLowerCase(Locale.US);
+        String type = next.optString("type", "").toLowerCase(Locale.US);
+        String road = next.optString("name", "").trim();
+
+        String arrow = "↑";
+        String action = "Terus lurus";
+        if (modifier.contains("left")) {
+            arrow = "↰";
+            action = "Belok kiri";
+        } else if (modifier.contains("right")) {
+            arrow = "↱";
+            action = "Belok kanan";
+        } else if (modifier.contains("uturn")) {
+            arrow = "↶";
+            action = "Putar balik";
+        } else if (type.contains("arrive")) {
+            arrow = "⚑";
+            action = "Tiba di tujuan";
+        }
+
+        String distText;
+        if (remaining >= 1000d) distText = String.format(Locale.US, "%.1f km", remaining / 1000d);
+        else if (remaining >= 100d) distText = String.format(Locale.US, "%.0f m", Math.round(remaining / 50d) * 50d);
+        else distText = String.format(Locale.US, "%.0f m", Math.round(remaining / 10d) * 10d);
+
+        String text = arrow + " " + distText + " • " + action;
+        if (!road.isEmpty()) text += "\n" + road;
+        instructionBadge.setText(text);
     }
 
     private String routeGeoJson(String pointsJson) throws Exception {
