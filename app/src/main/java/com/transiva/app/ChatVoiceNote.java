@@ -366,6 +366,13 @@ public final class ChatVoiceNote {
         }
     }
 
+    private static String timerLabel(long elapsedMs) {
+        long safeMs = Math.max(0L, elapsedMs);
+        long totalSeconds = safeMs / 1000L;
+        long hundredths = (safeMs % 1000L) / 10L;
+        return String.format(Locale.US, "%d.%02d", totalSeconds, hundredths);
+    }
+
     private static String durationLabel(long durationMs) {
         long total = Math.max(0, durationMs / 1000L);
         return String.format(Locale.US, "%d:%02d", total / 60L, total % 60L);
