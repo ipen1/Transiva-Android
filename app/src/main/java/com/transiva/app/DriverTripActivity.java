@@ -122,6 +122,12 @@ public class DriverTripActivity extends Activity {
         renderOrder();
         refreshButtons();
         startLocationWatch();
+
+        // Warm StableRouteEngine cache before the driver taps Navigasi.
+        // When a valid location already exists, native navigation can reuse it instantly.
+        mainHandler.postDelayed(() -> {
+            if(valid(lastDriverLat,lastDriverLng)) requestStableRoute(true);
+        }, 250L);
     }
     @Override protected void onResume(){ super.onResume(); if(order != null) startLocationWatch(); }
     @Override protected void onPause(){ stopLocationWatch(); super.onPause(); }
