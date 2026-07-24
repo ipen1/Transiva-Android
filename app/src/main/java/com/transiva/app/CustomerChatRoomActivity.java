@@ -109,6 +109,7 @@ public class CustomerChatRoomActivity extends Activity {
     private boolean sending;
     private boolean uploading;
     private boolean destroyed;
+    private boolean chatVisible;
     private int lastId;
     private boolean firstLoad = true;
     private final SparseArray<TextView> receiptViews = new SparseArray<>();
@@ -524,7 +525,7 @@ public class CustomerChatRoomActivity extends Activity {
         setupVoiceRecorder();
 
         sendButton.setOnClickListener(
-                view -> sendMessage()
+                view -> { view.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); sendMessage(); }
         );
 
         input.setOnEditorActionListener(
@@ -1411,7 +1412,7 @@ public class CustomerChatRoomActivity extends Activity {
                                 roomId,
                                 StandardCharsets.UTF_8.name()
                         )
-                                + "&viewer_type=customer";
+;
 
                 if (requestedLastId > 0) {
                     endpoint +=
@@ -1570,6 +1571,31 @@ public class CustomerChatRoomActivity extends Activity {
         if (added || reset) {
             scrollBottom();
         }
+
+        if (chatVisible && hasWindowFocus() && lastId > 0) {
+            markMessagesReadThrough(lastId);
+        }
+    }
+
+    private void markMessagesReadThrough(int readThroughId) {
+        if (!chatVisible || !hasWindowFocus() || readThroughId <= 0 || destroyed) return;
+
+        new Thread(() -> {
+            try {
+                // Beri waktu singkat agar pesan benar-benar sempat tampil di layar.
+                Thread.sleep(350L);
+                if (!chatVisible || !hasWindowFocus() || destroyed) return;
+
+                String endpoint = GET_CHAT_URL
+                        + "?room_id=" + URLEncoder.encode(roomId, StandardCharsets.UTF_8.name())
+                        + "&viewer_type=customer"
+                        + "&mark_read=1"
+                        + "&read_through_id=" + readThroughId;
+                CustomerMessageApi.get(endpoint);
+            } catch (Exception ignored) {
+                // Read receipt will be retried on the next visible refresh.
+            }
+        }, "chat-read-ack").start();
     }
 
     private void addBubble(JSONObject message, boolean animate) {
@@ -2408,19 +2434,22 @@ public class CustomerChatRoomActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        chatVisible = true;
         CustomerAppSettings.apply(this);
 
-        CustomerChatNotificationPoller.setOpenRoom(
-                roomId
-        );
+        CustomerChatNotificationPoller.setOpenRoom(roomId);
+        mainHandler.removeCallbacks(refreshRunnable);
+        if (!readOnly) {
+            loadMessages(false);
+            mainHandler.postDelayed(refreshRunnable, REFRESH_MS);
+        }
     }
 
     @Override
     protected void onPause() {
-        CustomerChatNotificationPoller.clearOpenRoom(
-                roomId
-        );
-
+        chatVisible = false;
+        mainHandler.removeCallbacks(refreshRunnable);
+        CustomerChatNotificationPoller.clearOpenRoom(roomId);
         super.onPause();
     }
 

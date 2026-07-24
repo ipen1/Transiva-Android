@@ -10,11 +10,15 @@ import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.media.MediaRecorder;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.TextView;
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -51,6 +55,39 @@ public final class ChatVoiceNote {
             long startedAt;
             boolean recording;
             boolean cancelArmed;
+            final Handler timerHandler = new Handler(Looper.getMainLooper());
+            PopupWindow timerPopup;
+            TextView timerText;
+            final Runnable timerTick = new Runnable() {
+                @Override public void run() {
+                    if (!recording || timerText == null) return;
+                    long elapsed = Math.max(0L, System.currentTimeMillis() - startedAt);
+                    timerText.setText(timerLabel(elapsed));
+                    timerHandler.postDelayed(this, 40L);
+                }
+            };
+
+            private void showTimerPopup(Activity activity, Button anchor) {
+                dismissTimerPopup();
+                timerText = new TextView(activity);
+                timerText.setText("0.00");
+                timerText.setTextSize(13);
+                timerText.setGravity(Gravity.CENTER);
+                timerText.setTextColor(Color.parseColor("#FFFFFF"));
+                timerText.setPadding(dp(activity, 10), dp(activity, 5), dp(activity, 10), dp(activity, 5));
+                timerText.setBackground(background("#0F172A", "#0F172A"));
+                timerPopup = new PopupWindow(timerText, dp(activity, 72), dp(activity, 34), false);
+                timerPopup.setClippingEnabled(false);
+                int x = (anchor.getWidth() - dp(activity, 72)) / 2;
+                int y = -(anchor.getHeight() + dp(activity, 44));
+                timerPopup.showAsDropDown(anchor, x, y);
+            }
+
+            private void dismissTimerPopup() {
+                try { if (timerPopup != null) timerPopup.dismiss(); } catch (Exception ignored) {}
+                timerPopup = null;
+                timerText = null;
+            }
 
             @Override
             public boolean onTouch(View view, MotionEvent event) {
@@ -87,6 +124,10 @@ public final class ChatVoiceNote {
                             cancelArmed = false;
                             downX = event.getRawX();
                             startedAt = System.currentTimeMillis();
+                            button.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                            showTimerPopup(activity, button);
+                            timerHandler.removeCallbacks(timerTick);
+                            timerHandler.post(timerTick);
                             listener.onState("Merekam… geser kiri untuk batal", true, false);
                         } catch (Exception e) {
                             safeRelease(recorder);
@@ -118,6 +159,8 @@ public final class ChatVoiceNote {
                         long duration = Math.max(0, System.currentTimeMillis() - startedAt);
                         boolean cancel = cancelArmed || event.getActionMasked() == MotionEvent.ACTION_CANCEL;
                         recording = false;
+                        timerHandler.removeCallbacks(timerTick);
+                        dismissTimerPopup();
                         try {
                             recorder.stop();
                         } catch (Exception ignored) {
@@ -130,6 +173,10 @@ public final class ChatVoiceNote {
                             if (output != null) output.delete();
                             listener.onState(cancel ? "Voice note dibatalkan" : "Rekaman terlalu singkat", false, false);
                         } else {
+                            button.performHapticFeedback(
+                                    android.os.Build.VERSION.SDK_INT >= 30
+                                            ? HapticFeedbackConstants.CONFIRM
+                                            : HapticFeedbackConstants.VIRTUAL_KEY);
                             listener.onState("Mengirim voice note…", false, false);
                             listener.onReady(output, duration);
                         }

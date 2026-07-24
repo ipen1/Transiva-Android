@@ -98,6 +98,7 @@ public class DriverChatRoomActivity extends Activity {
     private boolean sending;
     private boolean uploading;
     private boolean destroyed;
+    private boolean chatVisible;
     private int lastId;
     private boolean firstLoad = true;
     private final SparseArray<TextView> receiptViews = new SparseArray<>();
@@ -105,7 +106,7 @@ public class DriverChatRoomActivity extends Activity {
     private final Runnable refreshRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!destroyed && !readOnly) {
+            if (!destroyed && !readOnly && chatVisible && hasWindowFocus()) {
                 loadMessages(false);
                 main.postDelayed(this, REFRESH_MS);
             }
@@ -284,7 +285,7 @@ public class DriverChatRoomActivity extends Activity {
         voiceLp.setMargins(dp(7), 0, 0, 0); inputCard.addView(voiceButton, voiceLp);
         setupVoiceRecorder();
 
-        sendButton.setOnClickListener(v -> sendMessage());
+        sendButton.setOnClickListener(v -> { v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); sendMessage(); });
         input.setOnEditorActionListener((v, actionId, event) -> {
             boolean enter = event != null
                     && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
@@ -664,7 +665,7 @@ public class DriverChatRoomActivity extends Activity {
                         roomId,
                         StandardCharsets.UTF_8.name()
                 )
-                        + "&viewer_type=driver";
+;
 
                 if (requestedLastId > 0) {
                     endpoint += "&last_id=" + requestedLastId;
@@ -757,6 +758,31 @@ public class DriverChatRoomActivity extends Activity {
 
         firstLoad = false;
         if (added || reset) scrollBottom();
+
+        if (chatVisible && hasWindowFocus() && lastId > 0) {
+            markMessagesReadThrough(lastId);
+        }
+    }
+
+    private void markMessagesReadThrough(int readThroughId) {
+        if (!chatVisible || !hasWindowFocus() || readThroughId <= 0 || destroyed) return;
+
+        new Thread(() -> {
+            try {
+                // Beri waktu singkat agar pesan benar-benar sempat tampil di layar.
+                Thread.sleep(350L);
+                if (!chatVisible || !hasWindowFocus() || destroyed) return;
+
+                String endpoint = GET_CHAT_URL
+                        + "?room_id=" + URLEncoder.encode(roomId, StandardCharsets.UTF_8.name())
+                        + "&viewer_type=driver"
+                        + "&mark_read=1"
+                        + "&read_through_id=" + readThroughId;
+                DriverMessageApi.get(session, endpoint);
+            } catch (Exception ignored) {
+                // Read receipt will be retried on the next visible refresh.
+            }
+        }, "chat-read-ack").start();
     }
 
     private void addBubble(JSONObject message, boolean animate) {
@@ -1203,11 +1229,19 @@ public class DriverChatRoomActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        chatVisible = true;
         DriverChatNotificationPoller.setOpenRoom(roomId);
+        main.removeCallbacks(refreshRunnable);
+        if (!readOnly) {
+            loadMessages(false);
+            main.postDelayed(refreshRunnable, REFRESH_MS);
+        }
     }
 
     @Override
     protected void onPause() {
+        chatVisible = false;
+        main.removeCallbacks(refreshRunnable);
         DriverChatNotificationPoller.clearOpenRoom(roomId);
         super.onPause();
     }
