@@ -92,6 +92,11 @@ public class DriverTripActivity extends Activity {
     private String pendingRoutePoints = "";
     private double pendingRouteKm = 0d;
     private double pendingRouteSeconds = 0d;
+    private double currentSpeedKmh = 0d;
+    private double averageSpeedKmh = 0d;
+    private double speedSampleSum = 0d;
+    private long speedSampleCount = 0L;
+    private Location lastSpeedLocation = null;
 
     private final Runnable locationPostRunnable = new Runnable(){
         @Override public void run(){
@@ -280,7 +285,7 @@ public class DriverTripActivity extends Activity {
                 "var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+mode+"';var vehicleType='"+vehicle+"';"+
                 "var bikeIconData='"+bikeIcon+"',carIconData='"+carIcon+"',pickupPinData='"+pickupPin+"',destPinData='"+destPin+"';"+
                 "var map=null,pickupMarker=null,destMarker=null,driverMarker=null,routeLine=null,routePts=[],lastRouteKey='',drawing=false,animId=null,lastDriver=[0,0],lastDeg=0,driverRaw=null,routeProgress=0;"+
-                "function valid(a,b){a=+a;b=+b;return isFinite(a)&&isFinite(b)&&a!==0&&b!==0;}function esc(s){return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}"+
+                "function valid(a,b){a=+a;b=+b;return isFinite(a)&&isFinite(b)&&a!==0&&b!==0;}function setSpeed(k,a){var e=document.getElementById('speedHud');if(e)e.innerHTML=Math.round(Math.max(0,+k||0))+' km/j<small>Rata-rata '+Math.round(Math.max(0,+a||0))+' km/j</small>';}window.setSpeed=setSpeed;function esc(s){return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');}"+
                 "function init(){if(typeof L==='undefined'){setTimeout(init,300);return;}if(map)return;map=L.map('map',{zoomControl:true,attributionControl:false,preferCanvas:true}).setView(["+cLat+","+cLng+"],16);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,crossOrigin:true,attribution:''}).addTo(map);if(valid(pickup[0],pickup[1]))pickupMarker=L.marker(pickup,{icon:pinIcon('pickup'),zIndexOffset:600}).addTo(map).bindPopup('Lokasi Pickup');if(valid(dest[0],dest[1]))destMarker=L.marker(dest,{icon:pinIcon('delivery'),zIndexOffset:600}).addTo(map).bindPopup('Tujuan Pengantaran');setTimeout(function(){try{map.invalidateSize(true);}catch(e){}},500);}"+
                 "function setBadge(t){var b=document.getElementById('badge');if(b)b.innerHTML=t;}function targetPoint(){return targetMode==='delivery'?dest:pickup;}function targetLabel(){return targetMode==='delivery'?'tujuan pengantaran':'lokasi pickup';}"+
                 "function pinIcon(type){var data=type==='pickup'?pickupPinData:destPinData;if(data&&data.length>20){return L.divIcon({html:'<img class=pinImg src='+data+'>',className:'',iconSize:[48,48],iconAnchor:[24,44],popupAnchor:[0,-42]});}return L.divIcon({html:'<div class=\"pin '+(type==='pickup'?'pickup':'delivery')+'\">'+(type==='pickup'?'👤':'⌂')+'</div>',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-22]});}"+
@@ -451,6 +456,8 @@ public class DriverTripActivity extends Activity {
         lastAcceptedAt = System.currentTimeMillis();
         lastDriverLat = newLat;
         lastDriverLng = newLng;
+        updateSpeedMetrics(accepted);
+        pushSpeedToMap();
 
         // Route calculation starts as soon as we have a valid location.
         // It no longer waits for the WebView/Leaflet page to finish loading.
@@ -639,6 +646,36 @@ public class DriverTripActivity extends Activity {
                 order == null ? "" : order.optString("source_table"), orderKind).toLowerCase(Locale.US);
         return source.equals("pickup_orders") || source.contains("pickup");
     }
+
+    private void updateSpeedMetrics(Location loc){
+        if(loc==null) return;
+        double instant=0d;
+        if(loc.hasSpeed() && loc.getSpeed()>=0f){
+            instant=loc.getSpeed()*3.6d;
+        }else if(lastSpeedLocation!=null){
+            long dt=loc.getTime()-lastSpeedLocation.getTime();
+            if(dt>300L && dt<15000L){
+                instant=(lastSpeedLocation.distanceTo(loc)/(dt/1000d))*3.6d;
+            }
+        }
+        if(!Double.isFinite(instant) || instant<0d) instant=0d;
+        if(instant>180d) instant=180d;
+        currentSpeedKmh=currentSpeedKmh<=0d?instant:(currentSpeedKmh*0.62d+instant*0.38d);
+        if(currentSpeedKmh>=1d){
+            speedSampleSum+=currentSpeedKmh;
+            speedSampleCount++;
+            averageSpeedKmh=speedSampleSum/Math.max(1L,speedSampleCount);
+        }
+        lastSpeedLocation=new Location(loc);
+    }
+
+    private void pushSpeedToMap(){
+        if(mapView==null || !mapReady || Build.VERSION.SDK_INT<19) return;
+        try{
+            mapView.evaluateJavascript("if(window.setSpeed)setSpeed("+currentSpeedKmh+","+averageSpeedKmh+");",null);
+        }catch(Exception ignored){}
+    }
+
     private void postDriverLocation(double lat, double lng, boolean force){
         if(!valid(lat, lng) || driverUsername.length() == 0) return;
 

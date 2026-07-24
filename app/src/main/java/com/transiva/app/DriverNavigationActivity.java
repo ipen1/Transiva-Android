@@ -74,6 +74,11 @@ public class DriverNavigationActivity extends Activity {
     private String prefetchedRoutePoints = "";
     private double prefetchedRouteKm = 0d;
     private double prefetchedRouteSeconds = 0d;
+    private double currentSpeedKmh = 0d;
+    private double averageSpeedKmh = 0d;
+    private double speedSampleSum = 0d;
+    private long speedSampleCount = 0L;
+    private Location lastSpeedLocation = null;
 
     @Override protected void onCreate(Bundle b){
         super.onCreate(b);
@@ -257,21 +262,21 @@ public class DriverNavigationActivity extends Activity {
         return "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"+
                 "<link rel='stylesheet' href='https://transiva.my.id/js/leaflet.css?v=native_route_1'>"+
                 "<script src='https://transiva.my.id/js/leaflet.js?v=native_route_1'></script>"+
-                "<style>html,body,#map{height:100%;margin:0;background:#EAF4FF;overflow:hidden}.leaflet-control-attribution,.leaflet-control-zoom{display:none!important}.leaflet-container{font-family:Arial,sans-serif;background:#EAF4FF}.motorWrap{width:64px;height:64px;display:flex;align-items:center;justify-content:center}.motorWrap img{width:62px;height:62px;transform-origin:center center;filter:drop-shadow(0 6px 12px rgba(0,0,0,.35))}.topBadge{position:absolute;z-index:999;top:20px;left:76px;right:14px;background:rgba(255,255,255,.96);border:1px solid #D7E6F8;border-radius:18px;padding:12px 14px;color:#0B3A78;font-size:14px;font-weight:800;box-shadow:0 8px 24px rgba(15,23,42,.18)}.centerDot{position:absolute;z-index:998;left:50%;top:50%;width:8px;height:8px;margin-left:-4px;margin-top:-4px;border-radius:50%;background:#087CFF;box-shadow:0 0 0 10px rgba(8,124,255,.16);pointer-events:none}</style></head><body><div id='map'></div><div id='badge' class='topBadge'>Menyiapkan navigasi...</div><div class='centerDot'></div><script>"+
-                "var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+targetMode+"';var lastDriver=[0,0];var currentPos=null;var currentDeg=0;var routePts=[];var routeLine1=null;var routeLine2=null;var driverMarker=null;var lastRouteKey='';var routeProgress=0;var animToken=0;var vehicleType='"+vehicleType+"';"+
-                "var map=L.map('map',{zoomControl:false,attributionControl:false,dragging:true,tap:true}).setView(["+cLat+","+cLng+"],18);"+
+                "<style>html,body{height:100%;margin:0;background:#EAF4FF;overflow:hidden}#viewport{position:absolute;inset:0;overflow:hidden;background:#EAF4FF}#mapRotator{position:absolute;left:-22%;top:-22%;width:144%;height:144%;transform-origin:50% 50%;transition:transform .22s linear;will-change:transform}#map{height:100%;width:100%}.leaflet-control-attribution,.leaflet-control-zoom{display:none!important}.leaflet-container{font-family:Arial,sans-serif;background:#EAF4FF}.motorWrap{width:64px;height:64px;display:flex;align-items:center;justify-content:center}.motorWrap img{width:62px;height:62px;transform-origin:center center;filter:drop-shadow(0 6px 12px rgba(0,0,0,.35))}.topBadge{position:absolute;z-index:999;top:20px;left:76px;right:14px;background:rgba(255,255,255,.96);border:1px solid #D7E6F8;border-radius:18px;padding:12px 14px;color:#0B3A78;font-size:14px;font-weight:800;box-shadow:0 8px 24px rgba(15,23,42,.18)}.centerDot{position:absolute;z-index:998;left:50%;top:50%;width:8px;height:8px;margin-left:-4px;margin-top:-4px;border-radius:50%;background:#087CFF;box-shadow:0 0 0 10px rgba(8,124,255,.16);pointer-events:none}.speedBadge{position:absolute;z-index:1001;left:16px;bottom:24px;background:rgba(7,20,38,.88);color:white;border-radius:18px;padding:10px 14px;font:800 18px Arial;box-shadow:0 5px 18px rgba(0,0,0,.2)}.speedBadge small{font-size:11px;font-weight:600;opacity:.85;display:block;margin-top:2px}</style></head><body><div id='viewport'><div id='mapRotator'><div id='map'></div></div></div><div id='badge' class='topBadge'>Menyiapkan navigasi...</div><div id='speed' class='speedBadge'>0 km/j<small>Rata-rata 0 km/j</small></div><div class='centerDot'></div><script>"+
+                "var mapHeading=0;var pickup=["+pLat+","+pLng+"];var dest=["+dLat+","+dLng+"];var targetMode='"+targetMode+"';var lastDriver=[0,0];var currentPos=null;var currentDeg=0;var routePts=[];var routeLine1=null;var routeLine2=null;var driverMarker=null;var lastRouteKey='';var routeProgress=0;var animToken=0;var vehicleType='"+vehicleType+"';"+
+                "var map=L.map('map',{zoomControl:false,attributionControl:false,dragging:false,tap:false,touchZoom:false,doubleClickZoom:false,scrollWheelZoom:false,boxZoom:false,keyboard:false}).setView(["+cLat+","+cLng+"],18);"+
                 "L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20}).addTo(map);"+
                 "var pickupIcon=L.icon({iconUrl:'file:///android_res/drawable/map_pickup_pin.png',iconSize:[58,58],iconAnchor:[29,55]});var destIcon=L.icon({iconUrl:'file:///android_res/drawable/map_destination_pin.png',iconSize:[58,58],iconAnchor:[29,55]});"+
                 "function motorIcon(deg){return L.divIcon({className:'',iconSize:[64,64],iconAnchor:[32,32],html:'<div class=\"motorWrap\"><img src=\"file:///android_res/drawable/map_motor_top.png\" style=\"transform:rotate('+deg+'deg)\"></div>'});}"+
                 "if(pickup[0]&&pickup[1])L.marker(pickup,{icon:pickupIcon}).addTo(map);if(dest[0]&&dest[1])L.marker(dest,{icon:destIcon}).addTo(map);"+
                 "function setBadge(t){var b=document.getElementById('badge');if(b)b.innerHTML=t;}function targetPoint(){return targetMode==='delivery'?dest:pickup;}function rad(x){return x*Math.PI/180;}"+
                 "function dist(a,b,c,d){var R=6371000;var p1=rad(a),p2=rad(c),dp=rad(c-a),dl=rad(d-b);var q=Math.sin(dp/2)*Math.sin(dp/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);return R*2*Math.atan2(Math.sqrt(q),Math.sqrt(1-q));}"+
-                "function bear(a,b,c,d){var y=Math.sin(rad(d-b))*Math.cos(rad(c));var x=Math.cos(rad(a))*Math.sin(rad(c))-Math.sin(rad(a))*Math.cos(rad(c))*Math.cos(rad(d-b));return (Math.atan2(y,x)*180/Math.PI+360)%360;}"+
+                "function bear(a,b,c,d){var y=Math.sin(rad(d-b))*Math.cos(rad(c));var x=Math.cos(rad(a))*Math.sin(rad(c))-Math.sin(rad(a))*Math.cos(rad(c))*Math.cos(rad(d-b));return (Math.atan2(y,x)*180/Math.PI+360)%360;}function setHeading(deg){if(!isFinite(deg))return;deg=((+deg%360)+360)%360;var diff=deg-mapHeading;if(diff>180)diff-=360;if(diff<-180)diff+=360;mapHeading+=diff;var r=document.getElementById('mapRotator');if(r)r.style.transform='rotate('+(-mapHeading)+'deg)';}function setSpeed(kmh,avg){var e=document.getElementById('speed');if(e)e.innerHTML=Math.round(Math.max(0,+kmh||0))+' km/j<small>Rata-rata '+Math.round(Math.max(0,+avg||0))+' km/j</small>';}window.setSpeed=setSpeed;"+
                 "function nearestOnRoute(a,b){if(!routePts||routePts.length<2)return [a,b,currentDeg];var cos=Math.cos(rad(a));if(!isFinite(cos)||Math.abs(cos)<.00001)cos=1;var px=b*cos,py=a,best=[a,b,currentDeg],bd=1e99,bestI=routeProgress;var start=Math.max(0,routeProgress-2),end=Math.min(routePts.length-2,routeProgress+50);for(var i=start;i<=end;i++){var A=routePts[i],B=routePts[i+1],ax=A[1]*cos,ay=A[0],bx=B[1]*cos,by=B[0],vx=bx-ax,vy=by-ay,wx=px-ax,wy=py-ay,len=vx*vx+vy*vy,t=len?((wx*vx+wy*vy)/len):0;if(t<0)t=0;if(t>1)t=1;var qx=ax+vx*t,qy=ay+vy*t,dx=px-qx,dy=py-qy,dd=dx*dx+dy*dy;if(dd<bd){bd=dd;best=[qy,qx/cos,bear(A[0],A[1],B[0],B[1])];bestI=i;}}if(Math.sqrt(bd)*111320>80)return [a,b,currentDeg];if(bestI>=routeProgress)routeProgress=bestI;return best;}"+
                 "function animateTo(pos,deg){animToken++;var token=animToken;if(!driverMarker){currentPos=pos;currentDeg=isFinite(deg)?deg:0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg)}).addTo(map);map.setView(pos,18,{animate:false});return;}var ll=driverMarker.getLatLng(),from=[ll.lat,ll.lng];if(dist(from[0],from[1],pos[0],pos[1])>500)from=pos;var d=dist(from[0],from[1],pos[0],pos[1]);var dur=Math.max(900,Math.min(1700,1050+d*28));var start=performance.now();function step(now){if(token!==animToken)return;var t=Math.min(1,(now-start)/dur);var lat=from[0]+(pos[0]-from[0])*t,lng=from[1]+(pos[1]-from[1])*t;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(isFinite(deg)?deg:currentDeg));map.panTo([lat,lng],{animate:false});if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=isFinite(deg)?deg:currentDeg;}}requestAnimationFrame(step);}"+
                 "function applyNativeRoute(pts,km,sec){try{if(typeof pts==='string')pts=JSON.parse(pts);if(!pts||pts.length<2)return;routePts=pts;routeProgress=0;if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A',lineCap:'round',lineJoin:'round'}).addTo(map);routeLine2=L.polyline(routePts,{weight:6,opacity:.96,color:'#087CFF',lineCap:'round',lineJoin:'round'}).addTo(map);try{routeLine1.bringToBack();routeLine2.bringToBack();}catch(e){}var mins=Math.max(1,Math.round((+sec||0)/60));setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+(+km||0).toFixed(1)+' km • '+mins+' menit');if(lastDriver[0]&&lastDriver[1]){var s=nearestOnRoute(lastDriver[0],lastDriver[1]);animateTo([s[0],s[1]],s[2]);}}catch(e){}}"+
                 "window.applyNativeRoute=applyNativeRoute;window.routePending=function(){if(routePts.length<2)setBadge(targetMode==='delivery'?'Membuat rute ke tujuan...':'Membuat rute ke pickup...');};"+
-                "window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];var s=nearestOnRoute(a,b),pos=[s[0],s[1]],finalDeg=isFinite(s[2])?s[2]:(isFinite(deg)?deg:currentDeg);animateTo(pos,finalDeg);};"+
+                "window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];var s=nearestOnRoute(a,b),pos=[s[0],s[1]],finalDeg=isFinite(s[2])?s[2]:(isFinite(deg)?deg:currentDeg);setHeading(finalDeg);animateTo(pos,finalDeg);};"+
                 "</script></body></html>";
     }
 
@@ -292,6 +297,8 @@ public class DriverNavigationActivity extends Activity {
                     lastAcceptedLocation = new Location(accepted);
                     lastDriverLat = accepted.getLatitude();
                     lastDriverLng = accepted.getLongitude();
+                    updateSpeedMetrics(accepted);
+                    pushSpeedToMap();
                     if(fix.upload) uploadLocation(accepted);
                     if(fix.render){
                         updateMap();
@@ -308,7 +315,7 @@ public class DriverNavigationActivity extends Activity {
             try{
                 Location last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
                 if(last == null) last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-                if(last != null){ SmoothLocationEngine.Fix fix=smoothLocation.offer(last); if(fix!=null){ Location a=fix.location; lastAcceptedLocation=new Location(a); lastDriverLat=a.getLatitude(); lastDriverLng=a.getLongitude(); updateMap(); renderedDriverLat=lastDriverLat; renderedDriverLng=lastDriverLng; if(fix.upload) uploadLocation(a); }}
+                if(last != null){ SmoothLocationEngine.Fix fix=smoothLocation.offer(last); if(fix!=null){ Location a=fix.location; lastAcceptedLocation=new Location(a); lastDriverLat=a.getLatitude(); lastDriverLng=a.getLongitude(); updateSpeedMetrics(a); pushSpeedToMap(); updateMap(); renderedDriverLat=lastDriverLat; renderedDriverLng=lastDriverLng; if(fix.upload) uploadLocation(a); }}
             }catch(Exception ignored){}
         }catch(Exception ignored){}
     }
@@ -319,6 +326,36 @@ public class DriverNavigationActivity extends Activity {
     }
 
     
+
+    private void updateSpeedMetrics(Location loc){
+        if(loc==null) return;
+        double instant=0d;
+        if(loc.hasSpeed() && loc.getSpeed()>=0f){
+            instant=loc.getSpeed()*3.6d;
+        }else if(lastSpeedLocation!=null){
+            long dt=loc.getTime()-lastSpeedLocation.getTime();
+            if(dt>300L && dt<15000L){
+                instant=(lastSpeedLocation.distanceTo(loc)/(dt/1000d))*3.6d;
+            }
+        }
+        if(!Double.isFinite(instant) || instant<0d) instant=0d;
+        if(instant>180d) instant=180d;
+        // Low-pass speed meter to suppress 0/20/0/20 oscillation at slow GPS speeds.
+        currentSpeedKmh = currentSpeedKmh<=0d ? instant : (currentSpeedKmh*0.62d + instant*0.38d);
+        if(currentSpeedKmh>=1d){
+            speedSampleSum += currentSpeedKmh;
+            speedSampleCount++;
+            averageSpeedKmh = speedSampleSum / Math.max(1L,speedSampleCount);
+        }
+        lastSpeedLocation=new Location(loc);
+    }
+
+    private void pushSpeedToMap(){
+        if(mapView==null || Build.VERSION.SDK_INT<19) return;
+        final String js="if(window.setSpeed)setSpeed("+currentSpeedKmh+","+averageSpeedKmh+");";
+        mainHandler.post(() -> { try{ mapView.evaluateJavascript(js,null); }catch(Exception ignored){} });
+    }
+
     private void uploadLocation(Location loc){
         if(loc == null) return;
         final double lat = loc.getLatitude(), lng = loc.getLongitude();
@@ -335,7 +372,9 @@ public class DriverNavigationActivity extends Activity {
                 body.put("longitude",lng);
                 body.put("driver_type",vehicleType);
                 body.put("accuracy", loc.hasAccuracy()?loc.getAccuracy():JSONObject.NULL);
-                body.put("speed", loc.hasSpeed()?loc.getSpeed():JSONObject.NULL);
+                body.put("speed", currentSpeedKmh);
+                body.put("speed_kmh", currentSpeedKmh);
+                body.put("average_speed_kmh", averageSpeedKmh);
                 body.put("bearing", loc.hasBearing()?loc.getBearing():JSONObject.NULL);
                 body.put("location_time", loc.getTime());
                 body.put("order_id", first(order.optString("order_id"), order.optString("id"), ""));

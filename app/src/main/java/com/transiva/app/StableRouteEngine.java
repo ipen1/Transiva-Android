@@ -17,8 +17,12 @@ import java.util.Locale;
  */
 public final class StableRouteEngine {
     private static final String OSRM = "https://router.project-osrm.org/route/v1/driving/";
-    private static final int CONNECT_TIMEOUT_MS = 7000;
-    private static final int READ_TIMEOUT_MS = 10000;
+    private static final int CONNECT_TIMEOUT_MS = 3500;
+    private static final int READ_TIMEOUT_MS = 5500;
+    private static final long CACHE_TTL_MS = 60000L;
+    private static volatile Result cacheResult;
+    private static volatile double cacheFromLat, cacheFromLng, cacheToLat, cacheToLng;
+    private static volatile long cacheAt;
 
     private StableRouteEngine() {}
 
@@ -43,13 +47,16 @@ public final class StableRouteEngine {
             throw new IllegalArgumentException("Invalid route coordinates");
         }
 
+        Result cached = getCached(fromLat, fromLng, toLat, toLng);
+        if (cached != null) return cached;
+
         Exception last = null;
-        for (int attempt = 0; attempt < 3; attempt++) {
+        for (int attempt = 0; attempt < 2; attempt++) {
             HttpURLConnection connection = null;
             try {
                 String endpoint = OSRM
                         + String.format(Locale.US, "%.7f,%.7f;%.7f,%.7f", fromLng, fromLat, toLng, toLat)
-                        + "?overview=full&geometries=geojson&steps=false";
+                        + "?overview=simplified&geometries=geojson&steps=false&alternatives=false";
                 connection = (HttpURLConnection) new URL(endpoint).openConnection();
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -92,13 +99,18 @@ public final class StableRouteEngine {
                 }
                 if (points.length() < 2) throw new IllegalStateException("Route points empty");
 
-                return new Result(points,
+                Result result = new Result(points,
                         route.optDouble("distance", 0d),
                         route.optDouble("duration", 0d));
+                cacheResult = result;
+                cacheFromLat = fromLat; cacheFromLng = fromLng;
+                cacheToLat = toLat; cacheToLng = toLng;
+                cacheAt = System.currentTimeMillis();
+                return result;
             } catch (Exception e) {
                 last = e;
-                if (attempt < 2) {
-                    try { Thread.sleep(350L * (attempt + 1)); } catch (InterruptedException ie) {
+                if (attempt < 1) {
+                    try { Thread.sleep(180L); } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw ie;
                     }
@@ -108,6 +120,24 @@ public final class StableRouteEngine {
             }
         }
         throw last != null ? last : new IllegalStateException("Route failed");
+    }
+
+
+    private static Result getCached(double fromLat, double fromLng, double toLat, double toLng) {
+        Result r = cacheResult;
+        if (r == null || System.currentTimeMillis() - cacheAt > CACHE_TTL_MS) return null;
+        if (meters(fromLat, fromLng, cacheFromLat, cacheFromLng) > 45d) return null;
+        if (meters(toLat, toLng, cacheToLat, cacheToLng) > 20d) return null;
+        return r;
+    }
+
+    private static double meters(double lat1, double lng1, double lat2, double lng2) {
+        double r = 6371000d;
+        double p1 = Math.toRadians(lat1), p2 = Math.toRadians(lat2);
+        double dp = Math.toRadians(lat2 - lat1), dl = Math.toRadians(lng2 - lng1);
+        double a = Math.sin(dp/2d)*Math.sin(dp/2d) +
+                Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2d)*Math.sin(dl/2d);
+        return r * 2d * Math.atan2(Math.sqrt(a), Math.sqrt(1d-a));
     }
 
     private static String readAll(InputStream stream) throws Exception {
