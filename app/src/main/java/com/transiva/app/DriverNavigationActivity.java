@@ -112,6 +112,7 @@ public class DriverNavigationActivity extends Activity {
 
     private boolean styleReady;
     private boolean routeInFlight;
+    private boolean userAdjustedZoom = false;
     private String pendingRouteGeoJson = "";
     private double pendingRouteKm;
     private double pendingRouteSeconds;
@@ -220,12 +221,12 @@ public class DriverNavigationActivity extends Activity {
 
         MapLibreMapOptions options = MapLibreMapOptions.createFromAttributes(this)
                 .compassEnabled(false)
-                .attributionEnabled(true)
+                .attributionEnabled(false)
                 .logoEnabled(false)
                 .rotateGesturesEnabled(false)
                 .tiltGesturesEnabled(false)
                 .scrollGesturesEnabled(false)
-                .zoomGesturesEnabled(false);
+                .zoomGesturesEnabled(true);
 
         mapView = new MapView(this, options);
         page.addView(mapView, new FrameLayout.LayoutParams(-1, -1));
@@ -235,6 +236,9 @@ public class DriverNavigationActivity extends Activity {
             map.getUiSettings().setCompassEnabled(false);
             map.getUiSettings().setRotateGesturesEnabled(false);
             map.getUiSettings().setTiltGesturesEnabled(false);
+            map.getUiSettings().setZoomGesturesEnabled(true);
+            map.getUiSettings().setAttributionEnabled(false);
+            map.getUiSettings().setLogoEnabled(false);
             map.setStyle(new Style.Builder().fromUri(MAP_STYLE), s -> {
                 style = s;
                 styleReady = true;
@@ -281,6 +285,16 @@ public class DriverNavigationActivity extends Activity {
         speedLp.bottomMargin = dp(28);
         speedLp.gravity = Gravity.BOTTOM | Gravity.LEFT;
         page.addView(speedBadge, speedLp);
+
+        TextView attribution = new TextView(this);
+        attribution.setText("© OpenStreetMap contributors");
+        attribution.setTextColor(Color.parseColor("#7A475569"));
+        attribution.setTextSize(8);
+        FrameLayout.LayoutParams attrLp = new FrameLayout.LayoutParams(-2, -2);
+        attrLp.gravity = Gravity.BOTTOM | Gravity.RIGHT;
+        attrLp.rightMargin = dp(8);
+        attrLp.bottomMargin = dp(6);
+        page.addView(attribution, attrLp);
 
         setContentView(page);
     }
@@ -342,7 +356,8 @@ public class DriverNavigationActivity extends Activity {
 
         if (valid(driverLat, driverLng) && driverMarker == null) {
             String drawable = vehicleType.equals("car") ? "map_car_top" : "map_motor_top";
-            Icon icon = iconFromDrawable(f, drawable, android.R.drawable.ic_menu_directions);
+            Icon icon = iconFromDrawableScaled(f, drawable,
+                    android.R.drawable.ic_menu_directions, dp(56), dp(56));
             driverMarker = map.addMarker(new MarkerOptions()
                     .position(new LatLng(driverLat, driverLng))
                     .icon(icon));
@@ -354,6 +369,17 @@ public class DriverNavigationActivity extends Activity {
         if (id <= 0) id = fallback;
         Bitmap b = BitmapFactory.decodeResource(getResources(), id);
         return factory.fromBitmap(b);
+    }
+
+    private Icon iconFromDrawableScaled(IconFactory factory, String name, int fallback,
+                                        int widthPx, int heightPx) {
+        int id = getResources().getIdentifier(name, "drawable", getPackageName());
+        if (id <= 0) id = fallback;
+        Bitmap raw = BitmapFactory.decodeResource(getResources(), id);
+        if (raw == null) return factory.defaultMarker();
+        Bitmap scaled = Bitmap.createScaledBitmap(raw,
+                Math.max(1, widthPx), Math.max(1, heightPx), true);
+        return factory.fromBitmap(scaled);
     }
 
     private void startLocationWatch() {
@@ -440,6 +466,7 @@ public class DriverNavigationActivity extends Activity {
         displayLat += (targetLat - displayLat) * fraction;
         displayLng += (targetLng - displayLng) * fraction;
         updateNativePosition(false);
+        updateRemainingRouteLine();
     }
 
     private void updateNativePosition(boolean immediate) {
@@ -455,9 +482,16 @@ public class DriverNavigationActivity extends Activity {
         double cameraBearing = routePoints.size() >= 2 && Double.isFinite(snappedBearing)
                 ? snappedBearing
                 : (Double.isFinite(currentBearing) ? currentBearing : 0d);
+        double zoom = 18.4d;
+        try {
+            if (map != null && map.getCameraPosition() != null && map.getCameraPosition().zoom > 2d) {
+                zoom = map.getCameraPosition().zoom;
+            }
+        } catch (Exception ignored) {}
+
         CameraPosition cp = new CameraPosition.Builder()
                 .target(new LatLng(lat, lng))
-                .zoom(18.4)
+                .zoom(zoom)
                 .bearing(cameraBearing)
                 .tilt(42d)
                 .build();
@@ -526,7 +560,7 @@ public class DriverNavigationActivity extends Activity {
                 lastRouteLocation = rl;
 
                 main.post(() -> {
-                    drawPendingRoute();
+                    updateRemainingRouteLine();
                     // Reproject immediately so the vehicle cannot remain beside the road
                     // after the first route arrives.
                     if (valid(driverLat, driverLng)) {
@@ -563,11 +597,66 @@ public class DriverNavigationActivity extends Activity {
         requestRoute(false);
     }
 
+
+    /**
+     * Keep only the untraveled section visible.
+     * The already-passed route is removed from the GeoJSON source as routeProgressIndex advances.
+     */
+    private void updateRemainingRouteLine() {
+        if (!styleReady || style == null) return;
+        String geo = remainingRouteGeoJson();
+        if (geo == null || geo.isEmpty()) return;
+        try {
+            GeoJsonSource s = style.getSourceAs(ROUTE_SOURCE);
+            if (s != null) s.setGeoJson(geo);
+        } catch (Exception ignored) {}
+    }
+
+    private String remainingRouteGeoJson() {
+        synchronized (routePoints) {
+            if (routePoints.size() < 2) return pendingRouteGeoJson;
+            try {
+                JSONArray coords = new JSONArray();
+
+                // Include current projected position first so the blue line starts at the vehicle.
+                if (displayInitialized && valid(displayLat, displayLng)) {
+                    JSONArray c0 = new JSONArray();
+                    c0.put(displayLng);
+                    c0.put(displayLat);
+                    coords.put(c0);
+                }
+
+                int start = Math.max(0, Math.min(routeProgressIndex + 1, routePoints.size() - 1));
+                for (int i = start; i < routePoints.size(); i++) {
+                    double[] rp = routePoints.get(i);
+                    JSONArray c = new JSONArray();
+                    c.put(rp[1]);
+                    c.put(rp[0]);
+                    coords.put(c);
+                }
+
+                if (coords.length() < 2) return pendingRouteGeoJson;
+
+                JSONObject geometry = new JSONObject();
+                geometry.put("type", "LineString");
+                geometry.put("coordinates", coords);
+
+                JSONObject feature = new JSONObject();
+                feature.put("type", "Feature");
+                feature.put("properties", new JSONObject());
+                feature.put("geometry", geometry);
+                return feature.toString();
+            } catch (Exception e) {
+                return pendingRouteGeoJson;
+            }
+        }
+    }
+
     private void drawPendingRoute() {
         if (!styleReady || style == null || pendingRouteGeoJson.isEmpty()) return;
         try {
             GeoJsonSource s = style.getSourceAs(ROUTE_SOURCE);
-            if (s != null) s.setGeoJson(pendingRouteGeoJson);
+            if (s != null) s.setGeoJson(remainingRouteGeoJson());
         } catch (Exception ignored) {}
     }
 
@@ -644,7 +733,11 @@ public class DriverNavigationActivity extends Activity {
 
             // Do not jump backward because of GPS/network noise.
             if (bestIndex >= routeProgressIndex - 1) {
+                int oldProgress = routeProgressIndex;
                 routeProgressIndex = Math.max(routeProgressIndex, bestIndex);
+                if (routeProgressIndex != oldProgress) {
+                    main.post(this::updateRemainingRouteLine);
+                }
             }
 
             return new SnapPoint(bestLat, bestLng, bestBearing, true);
