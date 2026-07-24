@@ -160,7 +160,10 @@ public class DriverNavigationActivity extends Activity {
         // Never leave the user on the preparation screen indefinitely.
         // Keep the empty map hidden while a valid route is being prepared.
         // The safety timeout only prevents a permanent block on a routing outage.
-        mainHandler.postDelayed(this::openNavigationMapOnce, 9000L);
+        // Fast fallback: route-first is preferred, but never keep the user waiting long.
+        // If OSRM has not answered yet, open the map at 3.8s and paint the route
+        // immediately when the same in-flight request completes.
+        mainHandler.postDelayed(this::openNavigationMapOnce, 3800L);
 
         final String mode=routeTargetMode();
         final double toLat=mode.equals("delivery") ? coord("delivery_lat","destination_lat") : coord("pickup_lat","user_lat");
@@ -173,6 +176,7 @@ public class DriverNavigationActivity extends Activity {
         }
 
         final double fromLat=lastDriverLat, fromLng=lastDriverLng;
+        routeRequestInFlight = true;
         new Thread(() -> {
             try{
                 StableRouteEngine.Result r=StableRouteEngine.fetch(fromLat,fromLng,toLat,toLng);
@@ -186,6 +190,7 @@ public class DriverNavigationActivity extends Activity {
             }catch(Exception ignored){
                 // Map still opens after the timeout/fallback and normal rerouting continues.
             }finally{
+                routeRequestInFlight=false;
                 prefetchFinished=true;
                 mainHandler.post(this::openNavigationMapOnce);
             }
@@ -239,7 +244,7 @@ public class DriverNavigationActivity extends Activity {
         }catch(Exception ignored){}
         mapView.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view, String url){
-                mainHandler.postDelayed(() -> { applyPrefetchedRoute(); updateMap(); if(prefetchedRoutePoints.isEmpty()) requestStableRoute(true); }, 40);
+                mainHandler.postDelayed(() -> { applyPrefetchedRoute(); updateMap(); if(prefetchedRoutePoints.isEmpty() && !routeRequestInFlight) requestStableRoute(true); }, 20);
             }
         });
         mapView.loadDataWithBaseURL("https://transiva.my.id/", fullMapHtml(), "text/html", "UTF-8", null);

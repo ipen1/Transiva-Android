@@ -17,9 +17,9 @@ import java.util.Locale;
  */
 public final class StableRouteEngine {
     private static final String OSRM = "https://router.project-osrm.org/route/v1/driving/";
-    private static final int CONNECT_TIMEOUT_MS = 2500;
-    private static final int READ_TIMEOUT_MS = 4000;
-    private static final long CACHE_TTL_MS = 300000L;
+    private static final int CONNECT_TIMEOUT_MS = 3000;
+    private static final int READ_TIMEOUT_MS = 5000;
+    private static final long CACHE_TTL_MS = 180000L;
     private static volatile Result cacheResult;
     private static volatile double cacheFromLat, cacheFromLng, cacheToLat, cacheToLng;
     private static volatile long cacheAt;
@@ -56,7 +56,7 @@ public final class StableRouteEngine {
             try {
                 String endpoint = OSRM
                         + String.format(Locale.US, "%.7f,%.7f;%.7f,%.7f", fromLng, fromLat, toLng, toLat)
-                        + "?overview=full&geometries=polyline6&steps=false&alternatives=false";
+                        + "?overview=full&geometries=geojson&steps=false&alternatives=false";
                 connection = (HttpURLConnection) new URL(endpoint).openConnection();
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -79,8 +79,24 @@ public final class StableRouteEngine {
                     throw new IllegalStateException("No route returned");
                 }
                 JSONObject route = routes.getJSONObject(0);
-                String geometry = route.optString("geometry", "");
-                JSONArray points = decodePolyline6(geometry);
+                JSONObject geometry = route.optJSONObject("geometry");
+                JSONArray coordinates = geometry == null ? null : geometry.optJSONArray("coordinates");
+                if (coordinates == null || coordinates.length() < 2) {
+                    throw new IllegalStateException("Route geometry empty");
+                }
+
+                JSONArray points = new JSONArray();
+                for (int i = 0; i < coordinates.length(); i++) {
+                    JSONArray lngLat = coordinates.optJSONArray(i);
+                    if (lngLat == null || lngLat.length() < 2) continue;
+                    double lng = lngLat.optDouble(0, Double.NaN);
+                    double lat = lngLat.optDouble(1, Double.NaN);
+                    if (Double.isNaN(lat) || Double.isNaN(lng)) continue;
+                    JSONArray latLng = new JSONArray();
+                    latLng.put(lat);
+                    latLng.put(lng);
+                    points.put(latLng);
+                }
                 if (points.length() < 2) throw new IllegalStateException("Route points empty");
 
                 Result result = new Result(points,
@@ -106,50 +122,10 @@ public final class StableRouteEngine {
         throw last != null ? last : new IllegalStateException("Route failed");
     }
 
-
-
-    /**
-     * Decode OSRM polyline6. Full overview keeps the route exactly on the OSM
-     * road geometry while transferring much less data than full GeoJSON.
-     */
-    private static JSONArray decodePolyline6(String encoded) throws Exception {
-        JSONArray out = new JSONArray();
-        if (encoded == null || encoded.isEmpty()) return out;
-        int index = 0, lat = 0, lng = 0;
-        final int len = encoded.length();
-        while (index < len) {
-            int result = 0, shift = 0, b;
-            do {
-                if (index >= len) return out;
-                b = encoded.charAt(index++) - 63;
-                result |= (b & 0x1f) << shift;
-                shift += 5;
-            } while (b >= 0x20);
-            int dLat = ((result & 1) != 0) ? ~(result >> 1) : (result >> 1);
-            lat += dLat;
-
-            result = 0; shift = 0;
-            do {
-                if (index >= len) return out;
-                b = encoded.charAt(index++) - 63;
-                result |= (b & 0x1f) << shift;
-                shift += 5;
-            } while (b >= 0x20);
-            int dLng = ((result & 1) != 0) ? ~(result >> 1) : (result >> 1);
-            lng += dLng;
-
-            JSONArray p = new JSONArray();
-            p.put(lat / 1_000_000d);
-            p.put(lng / 1_000_000d);
-            out.put(p);
-        }
-        return out;
-    }
-
     private static Result getCached(double fromLat, double fromLng, double toLat, double toLng) {
         Result r = cacheResult;
         if (r == null || System.currentTimeMillis() - cacheAt > CACHE_TTL_MS) return null;
-        if (meters(fromLat, fromLng, cacheFromLat, cacheFromLng) > 120d) return null;
+        if (meters(fromLat, fromLng, cacheFromLat, cacheFromLng) > 80d) return null;
         if (meters(toLat, toLng, cacheToLat, cacheToLng) > 30d) return null;
         return r;
     }
