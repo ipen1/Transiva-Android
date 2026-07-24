@@ -16,6 +16,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.SparseArray;
+import android.view.animation.DecelerateInterpolator;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -98,6 +100,7 @@ public class DriverChatRoomActivity extends Activity {
     private boolean destroyed;
     private int lastId;
     private boolean firstLoad = true;
+    private final SparseArray<TextView> receiptViews = new SparseArray<>();
 
     private final Runnable refreshRunnable = new Runnable() {
         @Override
@@ -183,14 +186,13 @@ public class DriverChatRoomActivity extends Activity {
         header.setBackground(roundStroke(
                 "#FFFFFF", "#DCE8F6", 18, 1));
 
-        Button back = new Button(this);
-        back.setText("‹");
-        back.setAllCaps(false);
-        back.setTextSize(26);
-        back.setTextColor(Color.parseColor("#0B7CFF"));
-        back.setBackground(round("#EAF4FF", 14));
+        TextView back = text("←", 24, "#0B7CFF", true);
+        back.setGravity(Gravity.CENTER);
+        back.setIncludeFontPadding(false);
+        back.setPadding(0, 0, 0, dp(1));
+        back.setBackground(round("#EAF4FF", 15));
         back.setOnClickListener(v -> finish());
-        header.addView(back, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        header.addView(back, new LinearLayout.LayoutParams(dp(46), dp(46)));
 
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
@@ -630,7 +632,9 @@ public class DriverChatRoomActivity extends Activity {
     private PendingText addPendingText(String content) {
         LinearLayout wrapper = messageWrapper(true);
         TextView bubble = text(content, 13, "#FFFFFF", false); bubble.setPadding(dp(13), dp(9), dp(13), dp(9)); bubble.setBackground(gradient("#086BFF", "#2EA2FF", 17)); wrapper.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
-        TextView state = text("Pending…", 9, "#94A3B8", false); state.setPadding(dp(7), dp(2), dp(7), 0); wrapper.addView(state, new LinearLayout.LayoutParams(-2, -2)); scrollBottom(); return new PendingText(wrapper, state);
+        TextView state = text("Pending…", 9, "#94A3B8", false); state.setPadding(dp(7), dp(2), dp(7), 0); wrapper.addView(state, new LinearLayout.LayoutParams(-2, -2));
+        animateMessage(wrapper, true);
+        scrollBottom(); return new PendingText(wrapper, state);
     }
 
     private static final class PendingText { final LinearLayout root; final TextView state; PendingText(LinearLayout root, TextView state){this.root=root;this.state=state;} void markNetworkPending(){state.setText("Pending • jaringan");} }
@@ -672,7 +676,7 @@ public class DriverChatRoomActivity extends Activity {
                 main.post(() -> {
                     loading = false;
                     progress.setVisibility(View.GONE);
-                    handleResponse(response, requestedLastId == 0);
+                    handleResponse(response, firstLoad);
                 });
 
             } catch (Exception error) {
@@ -725,7 +729,10 @@ public class DriverChatRoomActivity extends Activity {
         JSONArray array = response.optJSONArray("messages");
         if (array == null) return;
 
-        if (reset) messagesBox.removeAllViews();
+        if (reset) {
+            messagesBox.removeAllViews();
+            receiptViews.clear();
+        }
 
         boolean added = false;
 
@@ -734,10 +741,13 @@ public class DriverChatRoomActivity extends Activity {
             if (message == null) continue;
 
             int id = message.optInt("id", 0);
-            if (!reset && id <= lastId) continue;
+            if (!reset && id <= lastId) {
+                updateReceipt(message);
+                continue;
+            }
             if (id > lastId) lastId = id;
 
-            addBubble(message);
+            addBubble(message, !firstLoad);
             added = true;
         }
 
@@ -749,7 +759,7 @@ public class DriverChatRoomActivity extends Activity {
         if (added || reset) scrollBottom();
     }
 
-    private void addBubble(JSONObject message) {
+    private void addBubble(JSONObject message, boolean animate) {
         String sender = CustomerMessageStatus.normalize(
                 message.optString("sender_type", ""));
         boolean mine = sender.equals("driver");
@@ -820,12 +830,52 @@ public class DriverChatRoomActivity extends Activity {
         String time = formatTime(
                 message.optString("created_at", ""));
         if (!time.isEmpty()) {
-            TextView view = text(time, 9, "#94A3B8", false);
+            String receiptText = mine
+                    ? (message.optString("read_at", "").trim().isEmpty()
+                    ? "  ✓ Terkirim" : "  ✓✓ Dibaca")
+                    : "";
+            TextView view = text(time + receiptText, 9, "#94A3B8", false);
             view.setPadding(dp(7), dp(3), dp(7), 0);
             wrapper.addView(
                     view,
                     new LinearLayout.LayoutParams(-2, -2));
+            if (mine) receiptViews.put(message.optInt("id", 0), view);
         }
+
+        if (animate) animateMessage(wrapper, mine);
+    }
+
+    private void updateReceipt(JSONObject message) {
+        int id = message.optInt("id", 0);
+        TextView receipt = receiptViews.get(id);
+        if (receipt == null) return;
+
+        String sender = CustomerMessageStatus.normalize(message.optString("sender_type", ""));
+        if (!"driver".equals(sender)) return;
+
+        String time = formatTime(message.optString("created_at", ""));
+        boolean read = !message.optString("read_at", "").trim().isEmpty();
+        String next = time + (read ? "  ✓✓ Dibaca" : "  ✓ Terkirim");
+        if (!next.contentEquals(receipt.getText())) {
+            receipt.setText(next);
+            receipt.setAlpha(0.35f);
+            receipt.animate().alpha(1f).setDuration(220).start();
+        }
+    }
+
+    private void animateMessage(View view, boolean mine) {
+        view.setAlpha(0f);
+        view.setTranslationX(dp(mine ? 18 : -18));
+        view.setScaleX(0.97f);
+        view.setScaleY(0.97f);
+        view.animate()
+                .alpha(1f)
+                .translationX(0f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(260)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
     }
 
     private LinearLayout messageWrapper(boolean mine) {
@@ -858,7 +908,11 @@ public class DriverChatRoomActivity extends Activity {
                 Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
 
                 if (bitmap != null) {
-                    main.post(() -> view.setImageBitmap(bitmap));
+                    main.post(() -> {
+                        view.setAlpha(0f);
+                        view.setImageBitmap(bitmap);
+                        view.animate().alpha(1f).setDuration(180).start();
+                    });
                 }
             } catch (Exception ignored) {
             } finally {

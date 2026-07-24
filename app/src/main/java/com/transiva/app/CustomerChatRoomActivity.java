@@ -21,6 +21,8 @@ import android.os.Bundle;
 import android.provider.MediaStore;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.SparseArray;
+import android.view.animation.DecelerateInterpolator;
 import android.os.Environment;
 import android.text.InputType;
 import android.view.Gravity;
@@ -109,6 +111,7 @@ public class CustomerChatRoomActivity extends Activity {
     private boolean destroyed;
     private int lastId;
     private boolean firstLoad = true;
+    private final SparseArray<TextView> receiptViews = new SparseArray<>();
 
     private Uri cameraPhotoUri;
     private File cameraPhotoFile;
@@ -296,27 +299,18 @@ public class CustomerChatRoomActivity extends Activity {
                 )
         );
 
-        Button back = new Button(this);
-        back.setText("‹");
-        back.setAllCaps(false);
-        back.setTextSize(26);
-        back.setTextColor(
-                Color.parseColor("#0B7CFF")
-        );
-
-        back.setBackground(
-                round("#EAF4FF", 14)
-        );
-
-        back.setOnClickListener(
-                view -> finish()
-        );
+        TextView back = text("←", 24, "#0B7CFF", true);
+        back.setGravity(Gravity.CENTER);
+        back.setIncludeFontPadding(false);
+        back.setPadding(0, 0, 0, dp(1));
+        back.setBackground(round("#EAF4FF", 15));
+        back.setOnClickListener(view -> finish());
 
         header.addView(
                 back,
                 new LinearLayout.LayoutParams(
-                        dp(42),
-                        dp(42)
+                        dp(46),
+                        dp(46)
                 )
         );
 
@@ -1382,7 +1376,9 @@ public class CustomerChatRoomActivity extends Activity {
         LinearLayout wrapper = new LinearLayout(this); wrapper.setOrientation(LinearLayout.VERTICAL); wrapper.setGravity(Gravity.RIGHT);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.setMargins(0, dp(4), 0, dp(4)); messagesBox.addView(wrapper, lp);
         TextView bubble = text(content, 13, "#FFFFFF", false); bubble.setPadding(dp(13), dp(9), dp(13), dp(9)); bubble.setBackground(gradient("#086BFF", "#2EA2FF", 17)); wrapper.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
-        TextView state = text("Pending…", 9, "#94A3B8", false); state.setPadding(dp(7), dp(2), dp(7), 0); wrapper.addView(state, new LinearLayout.LayoutParams(-2, -2)); scrollBottom();
+        TextView state = text("Pending…", 9, "#94A3B8", false); state.setPadding(dp(7), dp(2), dp(7), 0); wrapper.addView(state, new LinearLayout.LayoutParams(-2, -2));
+        animateMessage(wrapper, true);
+        scrollBottom();
         return new PendingText(wrapper, state);
     }
 
@@ -1432,7 +1428,7 @@ public class CustomerChatRoomActivity extends Activity {
 
                     handleResponse(
                             response,
-                            requestedLastId == 0
+                            firstLoad
                     );
                 });
 
@@ -1528,6 +1524,7 @@ public class CustomerChatRoomActivity extends Activity {
 
         if (reset) {
             messagesBox.removeAllViews();
+            receiptViews.clear();
         }
 
         boolean added = false;
@@ -1547,6 +1544,7 @@ public class CustomerChatRoomActivity extends Activity {
             int id = message.optInt("id", 0);
 
             if (!reset && id <= lastId) {
+                updateReceipt(message);
                 continue;
             }
 
@@ -1554,7 +1552,7 @@ public class CustomerChatRoomActivity extends Activity {
                 lastId = id;
             }
 
-            addBubble(message);
+            addBubble(message, !firstLoad);
             added = true;
         }
 
@@ -1574,7 +1572,7 @@ public class CustomerChatRoomActivity extends Activity {
         }
     }
 
-    private void addBubble(JSONObject message) {
+    private void addBubble(JSONObject message, boolean animate) {
         String sender = CustomerMessageStatus.normalize(
                 message.optString("sender_type", "")
         );
@@ -1724,7 +1722,43 @@ public class CustomerChatRoomActivity extends Activity {
                     timestamp,
                     new LinearLayout.LayoutParams(-2, -2)
             );
+            if (mine) receiptViews.put(message.optInt("id", 0), timestamp);
         }
+
+        if (animate) animateMessage(wrapper, mine);
+    }
+
+    private void updateReceipt(JSONObject message) {
+        int id = message.optInt("id", 0);
+        TextView receipt = receiptViews.get(id);
+        if (receipt == null) return;
+
+        String sender = CustomerMessageStatus.normalize(message.optString("sender_type", ""));
+        if (!"customer".equals(sender)) return;
+
+        String time = formatTime(message.optString("created_at", ""));
+        boolean read = !message.optString("read_at", "").trim().isEmpty();
+        String next = time + (read ? "  ✓✓ Dibaca" : "  ✓ Terkirim");
+        if (!next.contentEquals(receipt.getText())) {
+            receipt.setText(next);
+            receipt.setAlpha(0.35f);
+            receipt.animate().alpha(1f).setDuration(220).start();
+        }
+    }
+
+    private void animateMessage(View view, boolean mine) {
+        view.setAlpha(0f);
+        view.setTranslationX(dp(mine ? 18 : -18));
+        view.setScaleX(0.97f);
+        view.setScaleY(0.97f);
+        view.animate()
+                .alpha(1f)
+                .translationX(0f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(260)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
     }
 
     private void loadRemoteImage(ImageView target, String imageUrl) {
@@ -1750,8 +1784,11 @@ public class CustomerChatRoomActivity extends Activity {
 
             Bitmap result = bitmap;
             mainHandler.post(() -> {
-                if (result != null) target.setImageBitmap(result);
-                else target.setImageResource(
+                if (result != null) {
+                    target.setAlpha(0f);
+                    target.setImageBitmap(result);
+                    target.animate().alpha(1f).setDuration(180).start();
+                } else target.setImageResource(
                         android.R.drawable.ic_menu_report_image
                 );
             });
