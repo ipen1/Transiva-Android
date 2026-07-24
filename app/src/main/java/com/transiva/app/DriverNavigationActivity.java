@@ -475,7 +475,7 @@ public class DriverNavigationActivity extends Activity {
         double fraction = distance > 40f ? 0.38d : (distance > 10f ? 0.20d : 0.13d);
         // Low-pass interpolation makes slow movement continuous instead of move/stop/move.
         // Never teleport visually to a fresh GPS sample unless this is initial acquisition.
-        float visualAlpha = Math.max(0.08f, Math.min(POSITION_EASE_ALPHA, fraction));
+        float visualAlpha = (float) Math.max(0.08d, Math.min((double) POSITION_EASE_ALPHA, fraction));
         displayLat = easePosition(displayLat, targetLat, visualAlpha);
         displayLng = easePosition(displayLng, targetLng, visualAlpha);
         updateNativePosition(false);
