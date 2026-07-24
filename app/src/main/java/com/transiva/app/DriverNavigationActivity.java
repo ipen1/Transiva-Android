@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -163,6 +164,8 @@ public class DriverNavigationActivity extends Activity {
     private boolean displayInitialized;
     private long lastFixRealtimeMs = 0L;
     private long lastInstructionUiAt = 0L;
+    private int lastRenderedRouteIndex = -1;
+    private long lastRouteLineUpdateAt = 0L;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -284,7 +287,8 @@ public class DriverNavigationActivity extends Activity {
         back.setTextSize(38);
         back.setTextColor(Color.parseColor("#0B3A78"));
         back.setGravity(Gravity.CENTER);
-        back.setBackgroundColor(Color.WHITE);
+        back.setBackground(roundRect(Color.parseColor("#FCFFFFFF"), 20));
+        back.setElevation(dp(8));
         back.setOnClickListener(v -> finish());
         FrameLayout.LayoutParams backLp = new FrameLayout.LayoutParams(dp(54), dp(54));
         backLp.leftMargin = dp(16);
@@ -293,12 +297,14 @@ public class DriverNavigationActivity extends Activity {
 
         routeBadge = new TextView(this);
         routeBadge.setText(targetMode.equals("delivery") ? "Menyiapkan rute ke tujuan…" : "Menyiapkan rute ke pickup…");
-        routeBadge.setTextColor(Color.parseColor("#0B3A78"));
-        routeBadge.setTextSize(16);
+        routeBadge.setTextColor(Color.parseColor("#082F63"));
+        routeBadge.setTextSize(17);
+        routeBadge.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         routeBadge.setGravity(Gravity.CENTER_VERTICAL);
-        routeBadge.setPadding(dp(18), 0, dp(18), 0);
-        routeBadge.setBackground(roundRect(Color.WHITE, 26));
-        FrameLayout.LayoutParams routeLp = new FrameLayout.LayoutParams(-1, dp(58));
+        routeBadge.setPadding(dp(20), 0, dp(20), 0);
+        routeBadge.setBackground(roundRect(Color.parseColor("#FCFFFFFF"), 26));
+        routeBadge.setElevation(dp(8));
+        FrameLayout.LayoutParams routeLp = new FrameLayout.LayoutParams(-1, dp(62));
         routeLp.leftMargin = dp(84);
         routeLp.rightMargin = dp(18);
         routeLp.topMargin = dp(18);
@@ -306,15 +312,17 @@ public class DriverNavigationActivity extends Activity {
 
         instructionBadge = new TextView(this);
         instructionBadge.setText("↑ Ikuti rute");
-        instructionBadge.setTextColor(Color.parseColor("#0B3A78"));
-        instructionBadge.setTextSize(14);
+        instructionBadge.setTextColor(Color.parseColor("#0A356C"));
+        instructionBadge.setTextSize(15);
+        instructionBadge.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         instructionBadge.setGravity(Gravity.CENTER_VERTICAL);
-        instructionBadge.setPadding(dp(16), dp(8), dp(16), dp(8));
-        instructionBadge.setBackground(roundRect(Color.parseColor("#F2FFFFFF"), 20));
-        FrameLayout.LayoutParams instructionLp = new FrameLayout.LayoutParams(-1, dp(52));
+        instructionBadge.setPadding(dp(18), dp(8), dp(18), dp(8));
+        instructionBadge.setBackground(roundRect(Color.parseColor("#FAFFFFFF"), 20));
+        instructionBadge.setElevation(dp(6));
+        FrameLayout.LayoutParams instructionLp = new FrameLayout.LayoutParams(-1, dp(54));
         instructionLp.leftMargin = dp(84);
         instructionLp.rightMargin = dp(18);
-        instructionLp.topMargin = dp(82);
+        instructionLp.topMargin = dp(86);
         page.addView(instructionBadge, instructionLp);
 
         speedBadge = new TextView(this);
@@ -383,7 +391,8 @@ public class DriverNavigationActivity extends Activity {
             double pLat = coord("pickup_lat", "user_lat");
             double pLng = coord("pickup_lng", "user_lng");
             if (valid(pLat, pLng) && pickupMarker == null) {
-                Icon icon = iconFromDrawable(f, "map_pickup_pin", android.R.drawable.ic_menu_mylocation);
+                Icon icon = iconFromDrawableScaled(f, "map_pickup_pin",
+                        android.R.drawable.ic_menu_mylocation, dp(34), dp(34));
                 pickupMarker = map.addMarker(new MarkerOptions().position(new LatLng(pLat, pLng)).icon(icon));
             }
         } catch (Exception ignored) {}
@@ -392,7 +401,8 @@ public class DriverNavigationActivity extends Activity {
             double dLat = coord("delivery_lat", "destination_lat");
             double dLng = coord("delivery_lng", "destination_lng");
             if (valid(dLat, dLng) && deliveryMarker == null) {
-                Icon icon = iconFromDrawable(f, "map_destination_pin", android.R.drawable.ic_menu_mylocation);
+                Icon icon = iconFromDrawableScaled(f, "map_destination_pin",
+                        android.R.drawable.ic_menu_mylocation, dp(34), dp(34));
                 deliveryMarker = map.addMarker(new MarkerOptions().position(new LatLng(dLat, dLng)).icon(icon));
             }
         } catch (Exception ignored) {}
@@ -501,7 +511,7 @@ public class DriverNavigationActivity extends Activity {
             snappedBearing = target.bearing;
             displayInitialized = true;
             updateNativePosition(true);
-            updateRemainingRouteLine();
+            maybeUpdateRemainingRouteLine();
             updateInstructionBanner(target.progressMeters);
             return;
         }
@@ -520,7 +530,7 @@ public class DriverNavigationActivity extends Activity {
             updateNativePosition(false);
         }
 
-        updateRemainingRouteLine();
+        maybeUpdateRemainingRouteLine();
         updateInstructionBanner(target.progressMeters);
     }
 
@@ -619,6 +629,7 @@ public class DriverNavigationActivity extends Activity {
                 StableRouteEngine.Result r = StableRouteEngine.fetch(fromLat, fromLng, toLat, toLng);
                 pendingRouteGeoJson = routeGeoJson(r.pointsJson());
                 setRoutePoints(r.latLngPoints);
+                lastRenderedRouteIndex = -1;
                 routeManeuvers = r.maneuvers == null ? new JSONArray() : r.maneuvers;
                 pendingRouteKm = r.distanceMeters / 1000d;
                 pendingRouteSeconds = r.durationSeconds;
@@ -631,7 +642,7 @@ public class DriverNavigationActivity extends Activity {
                 lastRouteLocation = rl;
 
                 main.post(() -> {
-                    updateRemainingRouteLine();
+                    updateRemainingRouteLine(true);
                     // Reproject immediately so the vehicle cannot remain beside the road
                     // after the first route arrives.
                     if (valid(driverLat, driverLng)) {
@@ -680,31 +691,48 @@ public class DriverNavigationActivity extends Activity {
      * Keep only the untraveled section visible.
      * The already-passed route is removed from the GeoJSON source as routeProgressIndex advances.
      */
-    private void updateRemainingRouteLine() {
+    /**
+     * Route source updates are intentionally throttled.
+     * Rebuilding GeoJSON every 16 ms caused the blue route to blink on some GPUs.
+     * We only cut the traveled route when the matched segment changes.
+     */
+    private void maybeUpdateRemainingRouteLine() {
+        long now = SystemClock.elapsedRealtime();
+        if (routeProgressIndex == lastRenderedRouteIndex) return;
+        if (now - lastRouteLineUpdateAt < 180L) return;
+        updateRemainingRouteLine(false);
+    }
+
+    private void updateRemainingRouteLine(boolean force) {
         if (!styleReady || style == null) return;
+        if (!force && routeProgressIndex == lastRenderedRouteIndex) return;
+
         String geo = remainingRouteGeoJson();
         if (geo == null || geo.isEmpty()) return;
         try {
             GeoJsonSource s = style.getSourceAs(ROUTE_SOURCE);
-            if (s != null) s.setGeoJson(geo);
+            if (s != null) {
+                s.setGeoJson(geo);
+                lastRenderedRouteIndex = routeProgressIndex;
+                lastRouteLineUpdateAt = SystemClock.elapsedRealtime();
+            }
         } catch (Exception ignored) {}
     }
 
+    /**
+     * Start at the matched route segment instead of the continuously animated
+     * vehicle coordinate. This keeps the line stable while still deleting all
+     * route segments already passed.
+     */
     private String remainingRouteGeoJson() {
         synchronized (routePoints) {
             if (routePoints.size() < 2) return pendingRouteGeoJson;
             try {
                 JSONArray coords = new JSONArray();
 
-                // Include current projected position first so the blue line starts at the vehicle.
-                if (displayInitialized && valid(displayLat, displayLng)) {
-                    JSONArray c0 = new JSONArray();
-                    c0.put(displayLng);
-                    c0.put(displayLat);
-                    coords.put(c0);
-                }
+                int start = Math.max(0,
+                        Math.min(routeProgressIndex, routePoints.size() - 1));
 
-                int start = Math.max(0, Math.min(routeProgressIndex + 1, routePoints.size() - 1));
                 for (int i = start; i < routePoints.size(); i++) {
                     double[] rp = routePoints.get(i);
                     JSONArray c = new JSONArray();
@@ -732,10 +760,7 @@ public class DriverNavigationActivity extends Activity {
 
     private void drawPendingRoute() {
         if (!styleReady || style == null || pendingRouteGeoJson.isEmpty()) return;
-        try {
-            GeoJsonSource s = style.getSourceAs(ROUTE_SOURCE);
-            if (s != null) s.setGeoJson(remainingRouteGeoJson());
-        } catch (Exception ignored) {}
+        updateRemainingRouteLine(true);
     }
 
 
@@ -828,7 +853,7 @@ public class DriverNavigationActivity extends Activity {
                 int oldProgress = routeProgressIndex;
                 routeProgressIndex = Math.max(routeProgressIndex, bestIndex);
                 if (routeProgressIndex != oldProgress) {
-                    main.post(this::updateRemainingRouteLine);
+                    main.post(this::maybeUpdateRemainingRouteLine);
                 }
             }
 
