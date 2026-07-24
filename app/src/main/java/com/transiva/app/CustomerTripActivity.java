@@ -71,7 +71,6 @@ public class CustomerTripActivity extends Activity {
     private TextView driverNameText;
     private TextView driverTypeText;
     private TextView driverPlateText;
-    private TextView driverRatingText;
     private TextView tripInfoText;
     private ImageView driverPhotoView;
     private ProgressBar progressBar;
@@ -92,12 +91,12 @@ public class CustomerTripActivity extends Activity {
     private double deliveryLat = 0;
     private double deliveryLng = 0;
     private double lastDriverLat = 0;
+    private final RemoteLocationSmoother remoteLocationSmoother = new RemoteLocationSmoother();
     private double lastDriverLng = 0;
     private double lastBearing = 0;
 
     private String lastDriverName = "Driver";
     private String lastStatus = "";
-    private String lastDriverPhotoUrl = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -232,11 +231,9 @@ public class CustomerTripActivity extends Activity {
         driverNameText = text("Driver", 15, "#0B3A78", true);
         driverTypeText = text("🏍️ Motor / Bike", 12, "#2563EB", true);
         driverPlateText = text("🔢 Plat: -", 12, "#64748B", false);
-        driverRatingText = text("⭐ Driver baru", 12, "#64748B", false);
         info.addView(driverNameText);
         info.addView(driverTypeText);
         info.addView(driverPlateText);
-        info.addView(driverRatingText);
 
         statusText = text("Menghubungkan lokasi driver...", 13, "#334155", true);
         statusText.setPadding(dp(4), dp(10), dp(4), dp(8));
@@ -327,7 +324,7 @@ public class CustomerTripActivity extends Activity {
                 "</style></head><body><div id='map'></div><script>" +
 
                 "var map=null,pickup=null,delivery=null,driver=null,line=null;" +
-                "var lastRouteKey='',drawing=false,lastRouteTime=0,routePts=[],driverAnim=null,currentVehicleType='';" +
+                "var lastRouteKey='',drawing=false,lastRouteTime=0,routePts=[],routeProgress=0,driverAnim=null,currentVehicleType='';" +
                 "var carIconData='" + carIcon + "',bikeIconData='" + bikeIcon + "',driverRaw=null;" +
                 "function ready(){try{AndroidTrip.onMapReady();}catch(e){}}" +
                 "function esc(s){return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;');}" +
@@ -344,15 +341,15 @@ public class CustomerTripActivity extends Activity {
                 "function setPickup(lat,lng,label){if(!map||!valid(lat,lng))return;var p=[+lat,+lng];if(pickup){pickup.setLatLng(p);}else{pickup=L.marker(p,{icon:iconPin('pickup','👤'),zIndexOffset:600}).addTo(map);}pickup.bindPopup('<div class=popup>'+esc(label||'Lokasi Pickup')+'</div>');}" +
                 "function setDelivery(lat,lng,label){if(!map||!valid(lat,lng))return;var p=[+lat,+lng];if(delivery){delivery.setLatLng(p);}else{delivery=L.marker(p,{icon:iconPin('delivery','⌂'),zIndexOffset:600}).addTo(map);}delivery.bindPopup('<div class=popup>'+esc(label||'Lokasi Delivery')+'</div>');}" +
                 "function bearingOf(a,b){try{var lat1=a[0]*Math.PI/180,lat2=b[0]*Math.PI/180;var dLng=(b[1]-a[1])*Math.PI/180;var y=Math.sin(dLng)*Math.cos(lat2);var x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLng);var br=(Math.atan2(y,x)*180/Math.PI)%360;return br<0?br+360:br;}catch(e){return null;}}" +
-                "function snapToRoute(lat,lng){lat=+lat;lng=+lng;if(!routePts||routePts.length<2)return{lat:lat,lng:lng,bearing:null};var cos=Math.cos(lat*Math.PI/180);if(!isFinite(cos)||Math.abs(cos)<0.000001)cos=1;var px=lng*cos,py=lat,bestD=999999999,bx=lng,by=lat,bi=0;for(var i=0;i<routePts.length-1;i++){var a=routePts[i],b=routePts[i+1];var ax=a[1]*cos,ay=a[0],cx=b[1]*cos,cy=b[0];var vx=cx-ax,vy=cy-ay;var wx=px-ax,wy=py-ay;var len=vx*vx+vy*vy;var t=len?((wx*vx+wy*vy)/len):0;if(t<0)t=0;if(t>1)t=1;var qx=ax+vx*t,qy=ay+vy*t;var dx=px-qx,dy=py-qy;var dd=dx*dx+dy*dy;if(dd<bestD){bestD=dd;bx=qx/cos;by=qy;bi=i;}}var br=bearingOf(routePts[bi],routePts[Math.min(bi+1,routePts.length-1)]);return{lat:by,lng:bx,bearing:br};}" +
+                "function snapToRoute(lat,lng){lat=+lat;lng=+lng;if(!routePts||routePts.length<2)return{lat:lat,lng:lng,bearing:null};var cos=Math.cos(lat*Math.PI/180);if(!isFinite(cos)||Math.abs(cos)<0.000001)cos=1;var px=lng*cos,py=lat,bestD=999999999,bx=lng,by=lat,bi=routeProgress;var start=Math.max(0,routeProgress-2),end=Math.min(routePts.length-2,routeProgress+80);for(var i=start;i<=end;i++){var a=routePts[i],b=routePts[i+1];var ax=a[1]*cos,ay=a[0],cx=b[1]*cos,cy=b[0];var vx=cx-ax,vy=cy-ay,wx=px-ax,wy=py-ay;var len=vx*vx+vy*vy,t=len?((wx*vx+wy*vy)/len):0;if(t<0)t=0;if(t>1)t=1;var qx=ax+vx*t,qy=ay+vy*t,dx=px-qx,dy=py-qy,dd=dx*dx+dy*dy;if(dd<bestD){bestD=dd;bx=qx/cos;by=qy;bi=i;}}var meters=Math.sqrt(bestD)*111320;if(meters>80)return{lat:lat,lng:lng,bearing:null};if(bi>=routeProgress)routeProgress=bi;var br=bearingOf(routePts[bi],routePts[Math.min(bi+1,routePts.length-1)]);return{lat:by,lng:bx,bearing:br};}" +
                 "function rotateVehicle(bearing){if(!driver)return;var el=driver.getElement();if(!el)return;var img=el.querySelector('.vehicle')||el.querySelector('.vehicleFallback');if(img){img.style.transform='rotate('+(+bearing||0)+'deg)';}}" +
                 "function animateDriverTo(target,bearing){if(!driver)return;if(driverAnim)clearInterval(driverAnim);var start=driver.getLatLng();var steps=24,i=0;driverAnim=setInterval(function(){i++;var f=i/steps;var ilat=start.lat+(target.lat-start.lat)*f;var ilng=start.lng+(target.lng-start.lng)*f;var s=snapToRoute(ilat,ilng);driver.setLatLng([s.lat,s.lng]);rotateVehicle((s.bearing!==null&&s.bearing!==undefined)?s.bearing:bearing);if(i>=steps){clearInterval(driverAnim);driverAnim=null;driver.setLatLng(target);rotateVehicle(bearing);}},45);}" +
                 "function setDriver(lat,lng,bearing,type,name,status){if(!map||!valid(lat,lng))return;type=(type==='car')?'car':'motor';lat=+lat;lng=+lng;bearing=+bearing||0;driverRaw={lat:lat,lng:lng,bearing:bearing,type:type,name:name,status:status};var s=snapToRoute(lat,lng);var useBearing=(s.bearing!==null&&s.bearing!==undefined)?s.bearing:bearing;var target=L.latLng(s.lat,s.lng);if(!driver){driver=L.marker(target,{icon:vehicleIcon(type),zIndexOffset:9999}).addTo(map);currentVehicleType=type;rotateVehicle(useBearing);}else{if(currentVehicleType!==type){driver.setIcon(vehicleIcon(type));currentVehicleType=type;}animateDriverTo(target,useBearing);}driver.bindPopup('<div class=popup><b>'+esc(name||'Driver')+'</b><br>'+esc(status||'Dalam perjalanan')+'</div>');}" +
                 "function clearLine(){if(line&&map){map.removeLayer(line);line=null;}routePts=[];}" +
                 "function fitAll(){if(!map)return;var p=[];if(driver)p.push(driver.getLatLng());if(pickup)p.push(pickup.getLatLng());if(delivery)p.push(delivery.getLatLng());if(p.length===1)map.setView(p[0],16,{animate:true});else if(p.length>1)map.fitBounds(L.latLngBounds(p),{padding:[55,55],maxZoom:16,animate:true});setTimeout(function(){try{map.invalidateSize(true);}catch(e){}},250);}" +
                 "function fitTrip(){fitAll();}" +
-                "function drawStraight(a,b,color){if(!map)return;clearLine();routePts=[a,b];line=L.polyline(routePts,{color:color||'#2563eb',weight:5,opacity:.8,dashArray:'8,8',lineCap:'round'}).addTo(map);try{line.bringToBack();}catch(e){}if(driverRaw){setDriver(driverRaw.lat,driverRaw.lng,driverRaw.bearing,driverRaw.type,driverRaw.name,driverRaw.status);}}" +
-                "function drawRoute(dLat,dLng,tLat,tLng,status){if(!map||!valid(dLat,dLng)||!valid(tLat,tLng))return;dLat=+dLat;dLng=+dLng;tLat=+tLat;tLng=+tLng;var now=Date.now();var key=dLat.toFixed(4)+','+dLng.toFixed(4)+','+tLat.toFixed(4)+','+tLng.toFixed(4)+','+status;if(drawing||key===lastRouteKey||now-lastRouteTime<7000)return;drawing=true;lastRouteKey=key;lastRouteTime=now;var color=status==='on_delivery'?'#16a34a':(status==='arrived_pickup'?'#f59e0b':'#2563eb');var url='https://router.project-osrm.org/route/v1/driving/'+dLng+','+dLat+';'+tLng+','+tLat+'?overview=full&geometries=geojson';var ctrl=null,timer=null;try{ctrl=new AbortController();timer=setTimeout(function(){try{ctrl.abort();}catch(e){}},7000);}catch(e){}fetch(url,ctrl?{signal:ctrl.signal}:{}).then(function(r){return r.json();}).then(function(j){if(timer)clearTimeout(timer);if(!j||!j.routes||!j.routes[0])throw new Error('no route');var cs=j.routes[0].geometry.coordinates,pts=[];for(var i=0;i<cs.length;i++){pts.push([cs[i][1],cs[i][0]]);}clearLine();routePts=pts;line=L.polyline(routePts,{color:color,weight:5,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(map);try{line.bringToBack();}catch(e){}if(driverRaw){setDriver(driverRaw.lat,driverRaw.lng,driverRaw.bearing,driverRaw.type,driverRaw.name,driverRaw.status);}try{AndroidTrip.onRoute(j.routes[0].distance/1000,j.routes[0].duration);}catch(e){}}).catch(function(){drawStraight([dLat,dLng],[tLat,tLng],color);}).finally(function(){drawing=false;fitAll();});}" +
+                "function drawStraight(a,b,color){if(!map)return;clearLine();routePts=[a,b];routeProgress=0;line=L.polyline(routePts,{color:color||'#2563eb',weight:5,opacity:.8,dashArray:'8,8',lineCap:'round'}).addTo(map);try{line.bringToBack();}catch(e){}if(driverRaw){setDriver(driverRaw.lat,driverRaw.lng,driverRaw.bearing,driverRaw.type,driverRaw.name,driverRaw.status);}}" +
+                "function drawRoute(dLat,dLng,tLat,tLng,status){if(!map||!valid(dLat,dLng)||!valid(tLat,tLng))return;dLat=+dLat;dLng=+dLng;tLat=+tLat;tLng=+tLng;var now=Date.now();var key=dLat.toFixed(4)+','+dLng.toFixed(4)+','+tLat.toFixed(4)+','+tLng.toFixed(4)+','+status;if(drawing||key===lastRouteKey||now-lastRouteTime<7000)return;drawing=true;lastRouteKey=key;lastRouteTime=now;var color=status==='on_delivery'?'#16a34a':(status==='arrived_pickup'?'#f59e0b':'#2563eb');var url='https://router.project-osrm.org/route/v1/driving/'+dLng+','+dLat+';'+tLng+','+tLat+'?overview=full&geometries=geojson';var ctrl=null,timer=null;try{ctrl=new AbortController();timer=setTimeout(function(){try{ctrl.abort();}catch(e){}},7000);}catch(e){}fetch(url,ctrl?{signal:ctrl.signal}:{}).then(function(r){return r.json();}).then(function(j){if(timer)clearTimeout(timer);if(!j||!j.routes||!j.routes[0])throw new Error('no route');var cs=j.routes[0].geometry.coordinates,pts=[];for(var i=0;i<cs.length;i++){pts.push([cs[i][1],cs[i][0]]);}clearLine();routePts=pts;routeProgress=0;line=L.polyline(routePts,{color:color,weight:5,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(map);try{line.bringToBack();}catch(e){}if(driverRaw){setDriver(driverRaw.lat,driverRaw.lng,driverRaw.bearing,driverRaw.type,driverRaw.name,driverRaw.status);}try{AndroidTrip.onRoute(j.routes[0].distance/1000,j.routes[0].duration);}catch(e){}}).catch(function(){drawStraight([dLat,dLng],[tLat,tLng],color);}).finally(function(){drawing=false;fitAll();});}" +
                 "init();setTimeout(init,1000);" +
                 "</script></body></html>";
     }
@@ -427,19 +424,7 @@ public class CustomerTripActivity extends Activity {
                 driver.optString("vehicle_plate", ""),
                 driver.optString("plat", ""),
                 order.optString("driver_plate", ""),
-                res.optString("driver_plate", ""),
                 "-"
-        );
-        String driverPhoto = firstNonEmpty(
-                driver.optString("driver_photo", ""),
-                driver.optString("photo", ""),
-                order.optString("driver_photo", ""),
-                res.optString("driver_photo", "")
-        );
-        double driverRating = firstPositiveDouble(
-                driver.optDouble("rating", 0),
-                order.optDouble("driver_rating", 0),
-                res.optDouble("driver_rating", 0)
         );
 
         activeDriverType = resolveDriverType(order, driver);
@@ -482,10 +467,6 @@ public class CustomerTripActivity extends Activity {
         driverNameText.setText(driverName);
         driverTypeText.setText("car".equals(activeDriverType) ? "🚘 Mobil / Car" : "🏍️ Motor / Bike");
         driverPlateText.setText("🔢 Plat: " + plate);
-        driverRatingText.setText(driverRating > 0
-                ? "⭐ " + String.format(Locale.US, "%.1f", driverRating)
-                : "⭐ Driver baru");
-        loadDriverPhoto(driverPhoto);
         setStatusText(status, driverName, hasDriverLocation);
 
         saveTripPrefs();
@@ -504,65 +485,15 @@ public class CustomerTripActivity extends Activity {
                 if (distanceMeters(lastDriverLat, lastDriverLng, lat, lng) > 2) bearing = moveBearing;
             }
 
-            lastBearing = smoothBearing(lastBearing, bearing);
-            lastDriverLat = lat;
-            lastDriverLng = lng;
+            RemoteLocationSmoother.Point stable = remoteLocationSmoother.offer(lat, lng, bearing);
+            if(stable != null){
+                lastBearing = smoothBearing(lastBearing, stable.bearing);
+                lastDriverLat = stable.lat;
+                lastDriverLng = stable.lng;
+            }
         }
 
         pushAllMarkersToMap();
-    }
-
-    private void loadDriverPhoto(String rawUrl) {
-        if (driverPhotoView == null) return;
-
-        String value = firstNonEmpty(rawUrl, "").trim();
-        if (value.length() == 0 || "null".equalsIgnoreCase(value)) {
-            lastDriverPhotoUrl = "";
-            driverPhotoView.setImageResource(android.R.drawable.ic_menu_myplaces);
-            return;
-        }
-
-        final String photoUrl = value.startsWith("http://") || value.startsWith("https://")
-                ? value
-                : BASE_URL + (value.startsWith("/") ? value.substring(1) : value);
-
-        // Tracking berjalan tiap 3 detik. Jangan download foto yang sama berulang kali.
-        if (photoUrl.equals(lastDriverPhotoUrl)) return;
-        lastDriverPhotoUrl = photoUrl;
-
-        new Thread(() -> {
-            HttpURLConnection conn = null;
-            try {
-                conn = (HttpURLConnection) new URL(photoUrl).openConnection();
-                conn.setConnectTimeout(12000);
-                conn.setReadTimeout(12000);
-                conn.setUseCaches(true);
-                conn.connect();
-
-                if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) {
-                    throw new IllegalStateException("HTTP " + conn.getResponseCode());
-                }
-
-                try (InputStream in = conn.getInputStream()) {
-                    final Bitmap bitmap = BitmapFactory.decodeStream(in);
-                    if (bitmap != null) {
-                        mainHandler.post(() -> {
-                            if (driverPhotoView != null && photoUrl.equals(lastDriverPhotoUrl)) {
-                                driverPhotoView.setImageBitmap(bitmap);
-                            }
-                        });
-                    }
-                }
-            } catch (Exception ignored) {
-                mainHandler.post(() -> {
-                    if (driverPhotoView != null && photoUrl.equals(lastDriverPhotoUrl)) {
-                        driverPhotoView.setImageResource(android.R.drawable.ic_menu_myplaces);
-                    }
-                });
-            } finally {
-                if (conn != null) conn.disconnect();
-            }
-        }).start();
     }
 
     private void pushAllMarkersToMap() {
@@ -599,14 +530,6 @@ public class CustomerTripActivity extends Activity {
         if (!validCoord(lastDriverLat, lastDriverLng) && (validCoord(pickupLat, pickupLng) || validCoord(deliveryLat, deliveryLng))) {
             tripInfoText.setText("Titik pickup dan delivery siap. Menunggu lokasi driver terbaru...");
         }
-    }
-
-    private double firstPositiveDouble(double... values) {
-        if (values == null) return 0;
-        for (double value : values) {
-            if (value > 0) return value;
-        }
-        return 0;
     }
 
     private String resolveDriverType(JSONObject order, JSONObject driver) {

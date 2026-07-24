@@ -38,8 +38,8 @@ public class LocationService extends Service {
     private static final String TAG = "DriverLocationService";
     private static final String CHANNEL_ID = "driver_location_native";
     private static final int NOTIFICATION_ID = 2206;
-    private static final long MIN_INTERVAL = 10000L;
-    private static final float MIN_DISTANCE = 20f;
+    private static final long MIN_INTERVAL = 2500L;
+    private static final float MIN_DISTANCE = 1f;
     private static final long MAX_AGE = 60000L;
     private static final float MAX_ACCURACY = 150f;
 
@@ -49,6 +49,7 @@ public class LocationService extends Service {
     private final ExecutorService sender = Executors.newSingleThreadExecutor();
     private long lastSentAt;
     private Location lastSent;
+    private final SmoothLocationEngine smoothLocation = new SmoothLocationEngine(2500L);
 
     private final LocationListener listener = new LocationListener() {
         @Override public void onLocationChanged(Location location) {
@@ -162,19 +163,19 @@ public class LocationService extends Service {
             return;
         }
         if (!usable(location)) return;
+        SmoothLocationEngine.Fix fix = smoothLocation.offer(location);
+        if (fix == null || !fix.upload) return;
 
+        Location accepted = fix.location;
         long now = System.currentTimeMillis();
-        if (now - lastSentAt < MIN_INTERVAL) return;
-        if (lastSent != null && lastSent.distanceTo(location) < MIN_DISTANCE) return;
-
         lastSentAt = now;
-        lastSent = new Location(location);
+        lastSent = new Location(accepted);
         session.saveLastLocation(
-                String.valueOf(location.getLatitude()),
-                String.valueOf(location.getLongitude())
+                String.valueOf(accepted.getLatitude()),
+                String.valueOf(accepted.getLongitude())
         );
 
-        sender.execute(() -> send(location));
+        sender.execute(() -> send(accepted));
     }
 
     private void send(Location location) {
@@ -243,7 +244,7 @@ public class LocationService extends Service {
         }
         if (age < 0 || age > MAX_AGE) return false;
 
-        return Build.VERSION.SDK_INT < 18 || !location.isFromMockProvider();
+        return true; // mock-provider juga diterima agar simulasi/debug mengikuti jalur yang sama.
     }
 
     private boolean hasPermission() {
