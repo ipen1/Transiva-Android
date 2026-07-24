@@ -40,6 +40,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.maplibre.android.style.layers.PropertyFactory.lineCap;
 import static org.maplibre.android.style.layers.PropertyFactory.lineColor;
@@ -113,6 +115,22 @@ public class DriverNavigationActivity extends Activity {
     private String pendingRouteGeoJson = "";
     private double pendingRouteKm;
     private double pendingRouteSeconds;
+    private final List<double[]> routePoints = new ArrayList<>();
+    private int routeProgressIndex = 0;
+    private double snappedBearing = 0d;
+    private long lastRouteSuccessAt = 0L;
+    private int routeFailureCount = 0;
+
+    private final Runnable routeRetryTick = new Runnable() {
+        @Override public void run() {
+            if (!isFinishing()) {
+                if (routePoints.size() < 2 || System.currentTimeMillis() - lastRouteSuccessAt > 30000L) {
+                    requestRoute(true);
+                }
+                main.postDelayed(this, routePoints.size() < 2 ? 2200L : 10000L);
+            }
+        }
+    };
 
     private final Runnable animationTick = new Runnable() {
         @Override public void run() {
@@ -148,6 +166,7 @@ public class DriverNavigationActivity extends Activity {
         requestRoute(true);
         startLocationWatch();
         main.post(animationTick);
+        main.postDelayed(routeRetryTick, 2200L);
     }
 
     private void readOrder() {
@@ -399,20 +418,27 @@ public class DriverNavigationActivity extends Activity {
     private void animateTowardLatestFix() {
         if (!valid(driverLat, driverLng) || map == null || !styleReady) return;
         if (!displayInitialized) {
-            displayLat = driverLat;
-            displayLng = driverLng;
+            SnapPoint initial = snapToRoute(driverLat, driverLng);
+            displayLat = initial.lat;
+            displayLng = initial.lng;
+            if (initial.onRoute) snappedBearing = initial.bearing;
             displayInitialized = true;
             updateNativePosition(true);
             return;
         }
 
-        float distance = meters(displayLat, displayLng, driverLat, driverLng);
-        if (distance < 0.35f) return;
+        SnapPoint target = snapToRoute(driverLat, driverLng);
+        double targetLat = target.lat;
+        double targetLng = target.lng;
+        if (target.onRoute) snappedBearing = target.bearing;
 
-        // About 12-18 frames to reach a normal slow-moving fix.
-        double fraction = distance > 35f ? 0.34d : (distance > 8f ? 0.18d : 0.12d);
-        displayLat += (driverLat - displayLat) * fraction;
-        displayLng += (driverLng - displayLng) * fraction;
+        float distance = meters(displayLat, displayLng, targetLat, targetLng);
+        if (distance < 0.25f) return;
+
+        // Continuous native interpolation toward the route-matched target.
+        double fraction = distance > 40f ? 0.38d : (distance > 10f ? 0.20d : 0.13d);
+        displayLat += (targetLat - displayLat) * fraction;
+        displayLng += (targetLng - displayLng) * fraction;
         updateNativePosition(false);
     }
 
@@ -426,7 +452,9 @@ public class DriverNavigationActivity extends Activity {
 
         if (driverMarker != null) driverMarker.setPosition(new LatLng(lat, lng));
 
-        double cameraBearing = Double.isFinite(currentBearing) ? currentBearing : 0d;
+        double cameraBearing = routePoints.size() >= 2 && Double.isFinite(snappedBearing)
+                ? snappedBearing
+                : (Double.isFinite(currentBearing) ? currentBearing : 0d);
         CameraPosition cp = new CameraPosition.Builder()
                 .target(new LatLng(lat, lng))
                 .zoom(18.4)
@@ -486,8 +514,11 @@ public class DriverNavigationActivity extends Activity {
             try {
                 StableRouteEngine.Result r = StableRouteEngine.fetch(fromLat, fromLng, toLat, toLng);
                 pendingRouteGeoJson = routeGeoJson(r.pointsJson());
+                setRoutePoints(r.latLngPoints);
                 pendingRouteKm = r.distanceMeters / 1000d;
                 pendingRouteSeconds = r.durationSeconds;
+                lastRouteSuccessAt = System.currentTimeMillis();
+                routeFailureCount = 0;
 
                 Location rl = new Location("route");
                 rl.setLatitude(fromLat);
@@ -496,13 +527,25 @@ public class DriverNavigationActivity extends Activity {
 
                 main.post(() -> {
                     drawPendingRoute();
+                    // Reproject immediately so the vehicle cannot remain beside the road
+                    // after the first route arrives.
+                    if (valid(driverLat, driverLng)) {
+                        SnapPoint s = snapToRoute(driverLat, driverLng);
+                        displayLat = s.lat;
+                        displayLng = s.lng;
+                        displayInitialized = true;
+                        if (s.onRoute) snappedBearing = s.bearing;
+                        updateNativePosition(true);
+                    }
                     int mins = Math.max(1, (int) Math.ceil(pendingRouteSeconds / 60d));
                     routeBadge.setText(String.format(Locale.US, "%s • %.1f km • %d menit",
                             targetMode.equals("delivery") ? "Menuju tujuan" : "Menuju pickup",
                             pendingRouteKm, mins));
                 });
             } catch (Exception ignored) {
-                main.post(() -> routeBadge.setText("Rute belum tersedia • mencoba kembali…"));
+                routeFailureCount++;
+                main.post(() -> routeBadge.setText(
+                        routeFailureCount <= 1 ? "Menyiapkan rute…" : "Rute belum tersedia • mencoba kembali…"));
             } finally {
                 routeInFlight = false;
             }
@@ -510,6 +553,13 @@ public class DriverNavigationActivity extends Activity {
     }
 
     private void maybeRefreshRoute() {
+        if (routePoints.size() >= 2) {
+            SnapPoint s = snapToRoute(driverLat, driverLng);
+            if (!s.onRoute) {
+                requestRoute(true);
+                return;
+            }
+        }
         requestRoute(false);
     }
 
@@ -519,6 +569,97 @@ public class DriverNavigationActivity extends Activity {
             GeoJsonSource s = style.getSourceAs(ROUTE_SOURCE);
             if (s != null) s.setGeoJson(pendingRouteGeoJson);
         } catch (Exception ignored) {}
+    }
+
+
+    private void setRoutePoints(JSONArray points) {
+        synchronized (routePoints) {
+            routePoints.clear();
+            routeProgressIndex = 0;
+            if (points == null) return;
+            for (int i = 0; i < points.length(); i++) {
+                JSONArray p = points.optJSONArray(i);
+                if (p == null || p.length() < 2) continue;
+                double lat = p.optDouble(0, Double.NaN);
+                double lng = p.optDouble(1, Double.NaN);
+                if (valid(lat, lng)) routePoints.add(new double[]{lat, lng});
+            }
+        }
+    }
+
+    /**
+     * Lightweight route map-matching.
+     * Projects the raw GPS fix onto the nearest route segment and keeps progress
+     * mostly forward so GPS noise cannot pull the vehicle back to an old segment.
+     */
+    private SnapPoint snapToRoute(double lat, double lng) {
+        synchronized (routePoints) {
+            if (routePoints.size() < 2 || !valid(lat, lng)) {
+                return new SnapPoint(lat, lng, currentBearing, false);
+            }
+
+            int start = Math.max(0, routeProgressIndex - 3);
+            int end = Math.min(routePoints.size() - 2, routeProgressIndex + 140);
+
+            double latScale = 111320d;
+            double lngScale = 111320d * Math.max(0.15d, Math.cos(Math.toRadians(lat)));
+            double px = lng * lngScale;
+            double py = lat * latScale;
+
+            double bestDist2 = Double.MAX_VALUE;
+            double bestLat = lat, bestLng = lng, bestBearing = currentBearing;
+            int bestIndex = routeProgressIndex;
+
+            for (int i = start; i <= end; i++) {
+                double[] a = routePoints.get(i);
+                double[] b = routePoints.get(i + 1);
+
+                double ax = a[1] * lngScale, ay = a[0] * latScale;
+                double bx = b[1] * lngScale, by = b[0] * latScale;
+                double vx = bx - ax, vy = by - ay;
+                double len2 = vx * vx + vy * vy;
+                double t = len2 <= 0.000001d ? 0d :
+                        ((px - ax) * vx + (py - ay) * vy) / len2;
+                t = Math.max(0d, Math.min(1d, t));
+
+                double qx = ax + vx * t;
+                double qy = ay + vy * t;
+                double dx = px - qx, dy = py - qy;
+                double d2 = dx * dx + dy * dy;
+
+                if (d2 < bestDist2) {
+                    bestDist2 = d2;
+                    bestLng = qx / lngScale;
+                    bestLat = qy / latScale;
+                    bestBearing = bearing(a[0], a[1], b[0], b[1]);
+                    bestIndex = i;
+                }
+            }
+
+            double distanceToRoute = Math.sqrt(bestDist2);
+            // If GPS is extremely far from the route, use raw position and ask for reroute.
+            if (distanceToRoute > 90d) {
+                return new SnapPoint(lat, lng, currentBearing, false);
+            }
+
+            // Do not jump backward because of GPS/network noise.
+            if (bestIndex >= routeProgressIndex - 1) {
+                routeProgressIndex = Math.max(routeProgressIndex, bestIndex);
+            }
+
+            return new SnapPoint(bestLat, bestLng, bestBearing, true);
+        }
+    }
+
+    private static final class SnapPoint {
+        final double lat, lng, bearing;
+        final boolean onRoute;
+        SnapPoint(double lat, double lng, double bearing, boolean onRoute) {
+            this.lat = lat;
+            this.lng = lng;
+            this.bearing = bearing;
+            this.onRoute = onRoute;
+        }
     }
 
     private String routeGeoJson(String pointsJson) throws Exception {
@@ -700,6 +841,8 @@ public class DriverNavigationActivity extends Activity {
 
     @Override protected void onDestroy() {
         stopLocationWatch();
+        main.removeCallbacks(animationTick);
+        main.removeCallbacks(routeRetryTick);
         main.removeCallbacksAndMessages(null);
         if (mapView != null) mapView.onDestroy();
         super.onDestroy();
