@@ -81,11 +81,14 @@ public final class SmoothLocationEngine {
     }
 
     private static float renderThreshold(Location l) {
+        // Visual marker must stay alive even at walking / slow mock-GPS speed.
+        // The JS layer performs interpolation, so Java only suppresses tiny GPS jitter.
         float acc = accuracy(l);
         float speed = l.hasSpeed() ? Math.max(0f, l.getSpeed()) : 0f;
-        if (speed < 1.2f) return acc <= 20f ? 4f : 6f;
-        if (speed < 8f) return 5f;
-        return 7f;
+        if (speed < 0.8f) return acc <= 15f ? 1.5f : 2.5f;
+        if (speed < 5f) return 1.8f;
+        if (speed < 15f) return 2.5f;
+        return 3.5f;
     }
 
     private static boolean isUsable(Location l) {

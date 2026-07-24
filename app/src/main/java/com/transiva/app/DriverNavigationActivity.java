@@ -69,6 +69,11 @@ public class DriverNavigationActivity extends Activity {
     private long lastRouteRequestAt = 0L;
     private double lastRouteFromLat = 0d, lastRouteFromLng = 0d;
     private String lastRouteMode = "";
+    private volatile boolean navigationOpened = false;
+    private volatile boolean prefetchFinished = false;
+    private String prefetchedRoutePoints = "";
+    private double prefetchedRouteKm = 0d;
+    private double prefetchedRouteSeconds = 0d;
 
     @Override protected void onCreate(Bundle b){
         super.onCreate(b);
@@ -81,11 +86,10 @@ public class DriverNavigationActivity extends Activity {
         session = new SessionManager(this);
         loadData();
         loadDriverIdentity();
-        buildView();
-        startLocationWatch();
+        prepareRouteBeforeOpeningMap();
     }
 
-    @Override protected void onResume(){ super.onResume(); startLocationWatch(); }
+    @Override protected void onResume(){ super.onResume(); if(navigationOpened) startLocationWatch(); }
     @Override protected void onPause(){ stopLocationWatch(); super.onPause(); }
     @Override protected void onDestroy(){ stopLocationWatch(); try{ if(mapView != null) mapView.destroy(); }catch(Exception ignored){} super.onDestroy(); }
 
@@ -111,6 +115,102 @@ public class DriverNavigationActivity extends Activity {
         }catch(Exception ignored){}
     }
 
+
+    /**
+     * Build the first route BEFORE showing the navigation map.
+     * This removes the old behaviour where the blue route appeared only after
+     * the driver had already moved several metres.
+     */
+    private void prepareRouteBeforeOpeningMap(){
+        showRoutePreparingScreen();
+
+        // Prefer the coordinate sent by DriverTripActivity. If it is missing,
+        // try a recent Android last-known fix without blocking the UI.
+        if(!valid(lastDriverLat,lastDriverLng)){
+            try{
+                if(Build.VERSION.SDK_INT < 23 ||
+                        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED){
+                    LocationManager lm=(LocationManager)getSystemService(LOCATION_SERVICE);
+                    Location gps=null, net=null;
+                    try{ if(lm!=null) gps=lm.getLastKnownLocation(LocationManager.GPS_PROVIDER); }catch(Exception ignored){}
+                    try{ if(lm!=null) net=lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER); }catch(Exception ignored){}
+                    Location best=gps!=null?gps:net;
+                    if(gps!=null && net!=null){
+                        float ga=gps.hasAccuracy()?gps.getAccuracy():9999f;
+                        float na=net.hasAccuracy()?net.getAccuracy():9999f;
+                        best=ga<=na?gps:net;
+                    }
+                    if(best!=null && valid(best.getLatitude(),best.getLongitude())){
+                        lastDriverLat=best.getLatitude();
+                        lastDriverLng=best.getLongitude();
+                    }
+                }
+            }catch(Exception ignored){}
+        }
+
+        // Never leave the user on the preparation screen indefinitely.
+        mainHandler.postDelayed(this::openNavigationMapOnce, 5500L);
+
+        final String mode=routeTargetMode();
+        final double toLat=mode.equals("delivery") ? coord("delivery_lat","destination_lat") : coord("pickup_lat","user_lat");
+        final double toLng=mode.equals("delivery") ? coord("delivery_lng","destination_lng") : coord("pickup_lng","user_lng");
+
+        if(!valid(lastDriverLat,lastDriverLng) || !valid(toLat,toLng)){
+            prefetchFinished=true;
+            openNavigationMapOnce();
+            return;
+        }
+
+        final double fromLat=lastDriverLat, fromLng=lastDriverLng;
+        new Thread(() -> {
+            try{
+                StableRouteEngine.Result r=StableRouteEngine.fetch(fromLat,fromLng,toLat,toLng);
+                prefetchedRoutePoints=r.pointsJson();
+                prefetchedRouteKm=r.distanceMeters/1000d;
+                prefetchedRouteSeconds=r.durationSeconds;
+                lastRouteFromLat=fromLat;
+                lastRouteFromLng=fromLng;
+                lastRouteMode=mode;
+                lastRouteRequestAt=System.currentTimeMillis();
+            }catch(Exception ignored){
+                // Map still opens after the timeout/fallback and normal rerouting continues.
+            }finally{
+                prefetchFinished=true;
+                mainHandler.post(this::openNavigationMapOnce);
+            }
+        },"transiva-nav-prefetch").start();
+    }
+
+    private void showRoutePreparingScreen(){
+        FrameLayout page=new FrameLayout(this);
+        page.setBackgroundColor(Color.parseColor("#F3F8FF"));
+        TextView t=new TextView(this);
+        t.setText("Menyiapkan rute perjalanan…");
+        t.setTextColor(Color.parseColor("#0B3A78"));
+        t.setTextSize(18);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(dp(24),dp(24),dp(24),dp(24));
+        page.addView(t,new FrameLayout.LayoutParams(-1,-1));
+        setContentView(page);
+    }
+
+    private void openNavigationMapOnce(){
+        if(navigationOpened || isFinishing()) return;
+        navigationOpened=true;
+        buildView();
+        startLocationWatch();
+    }
+
+    private void applyPrefetchedRoute(){
+        if(mapView==null || Build.VERSION.SDK_INT<19) return;
+        if(prefetchedRoutePoints==null || prefetchedRoutePoints.length()<4) return;
+        final String js="if(window.applyNativeRoute)applyNativeRoute("+
+                JSONObject.quote(prefetchedRoutePoints)+","+
+                prefetchedRouteKm+","+
+                prefetchedRouteSeconds+");";
+        try{ mapView.evaluateJavascript(js,null); }catch(Exception ignored){}
+    }
+
     private void buildView(){
         FrameLayout page = new FrameLayout(this);
         page.setBackgroundColor(Color.WHITE);
@@ -128,7 +228,7 @@ public class DriverNavigationActivity extends Activity {
         }catch(Exception ignored){}
         mapView.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view, String url){
-                mainHandler.postDelayed(() -> { updateMap(); requestStableRoute(true); }, 250);
+                mainHandler.postDelayed(() -> { applyPrefetchedRoute(); updateMap(); if(prefetchedRoutePoints.isEmpty()) requestStableRoute(true); }, 120);
             }
         });
         mapView.loadDataWithBaseURL("https://transiva.my.id/", fullMapHtml(), "text/html", "UTF-8", null);
@@ -168,7 +268,7 @@ public class DriverNavigationActivity extends Activity {
                 "function dist(a,b,c,d){var R=6371000;var p1=rad(a),p2=rad(c),dp=rad(c-a),dl=rad(d-b);var q=Math.sin(dp/2)*Math.sin(dp/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);return R*2*Math.atan2(Math.sqrt(q),Math.sqrt(1-q));}"+
                 "function bear(a,b,c,d){var y=Math.sin(rad(d-b))*Math.cos(rad(c));var x=Math.cos(rad(a))*Math.sin(rad(c))-Math.sin(rad(a))*Math.cos(rad(c))*Math.cos(rad(d-b));return (Math.atan2(y,x)*180/Math.PI+360)%360;}"+
                 "function nearestOnRoute(a,b){if(!routePts||routePts.length<2)return [a,b,currentDeg];var cos=Math.cos(rad(a));if(!isFinite(cos)||Math.abs(cos)<.00001)cos=1;var px=b*cos,py=a,best=[a,b,currentDeg],bd=1e99,bestI=routeProgress;var start=Math.max(0,routeProgress-2),end=Math.min(routePts.length-2,routeProgress+50);for(var i=start;i<=end;i++){var A=routePts[i],B=routePts[i+1],ax=A[1]*cos,ay=A[0],bx=B[1]*cos,by=B[0],vx=bx-ax,vy=by-ay,wx=px-ax,wy=py-ay,len=vx*vx+vy*vy,t=len?((wx*vx+wy*vy)/len):0;if(t<0)t=0;if(t>1)t=1;var qx=ax+vx*t,qy=ay+vy*t,dx=px-qx,dy=py-qy,dd=dx*dx+dy*dy;if(dd<bd){bd=dd;best=[qy,qx/cos,bear(A[0],A[1],B[0],B[1])];bestI=i;}}if(Math.sqrt(bd)*111320>80)return [a,b,currentDeg];if(bestI>=routeProgress)routeProgress=bestI;return best;}"+
-                "function animateTo(pos,deg){animToken++;var token=animToken;if(!driverMarker){currentPos=pos;currentDeg=isFinite(deg)?deg:0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg)}).addTo(map);map.setView(pos,18,{animate:false});return;}var ll=driverMarker.getLatLng(),from=[ll.lat,ll.lng];if(dist(from[0],from[1],pos[0],pos[1])>500)from=pos;var start=performance.now(),dur=650;function step(now){if(token!==animToken)return;var t=Math.min(1,(now-start)/dur),e=1-Math.pow(1-t,3),lat=from[0]+(pos[0]-from[0])*e,lng=from[1]+(pos[1]-from[1])*e;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(isFinite(deg)?deg:currentDeg));map.panTo([lat,lng],{animate:false});if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=isFinite(deg)?deg:currentDeg;}}requestAnimationFrame(step);}"+
+                "function animateTo(pos,deg){animToken++;var token=animToken;if(!driverMarker){currentPos=pos;currentDeg=isFinite(deg)?deg:0;driverMarker=L.marker(pos,{icon:motorIcon(currentDeg)}).addTo(map);map.setView(pos,18,{animate:false});return;}var ll=driverMarker.getLatLng(),from=[ll.lat,ll.lng];if(dist(from[0],from[1],pos[0],pos[1])>500)from=pos;var d=dist(from[0],from[1],pos[0],pos[1]);var dur=Math.max(900,Math.min(1700,1050+d*28));var start=performance.now();function step(now){if(token!==animToken)return;var t=Math.min(1,(now-start)/dur);var lat=from[0]+(pos[0]-from[0])*t,lng=from[1]+(pos[1]-from[1])*t;driverMarker.setLatLng([lat,lng]);driverMarker.setIcon(motorIcon(isFinite(deg)?deg:currentDeg));map.panTo([lat,lng],{animate:false});if(t<1)requestAnimationFrame(step);else{currentPos=pos;currentDeg=isFinite(deg)?deg:currentDeg;}}requestAnimationFrame(step);}"+
                 "function applyNativeRoute(pts,km,sec){try{if(typeof pts==='string')pts=JSON.parse(pts);if(!pts||pts.length<2)return;routePts=pts;routeProgress=0;if(routeLine1)map.removeLayer(routeLine1);if(routeLine2)map.removeLayer(routeLine2);routeLine1=L.polyline(routePts,{weight:10,opacity:.22,color:'#003B7A',lineCap:'round',lineJoin:'round'}).addTo(map);routeLine2=L.polyline(routePts,{weight:6,opacity:.96,color:'#087CFF',lineCap:'round',lineJoin:'round'}).addTo(map);try{routeLine1.bringToBack();routeLine2.bringToBack();}catch(e){}var mins=Math.max(1,Math.round((+sec||0)/60));setBadge((targetMode==='delivery'?'Menuju tujuan':'Menuju pickup')+' • '+(+km||0).toFixed(1)+' km • '+mins+' menit');if(lastDriver[0]&&lastDriver[1]){var s=nearestOnRoute(lastDriver[0],lastDriver[1]);animateTo([s[0],s[1]],s[2]);}}catch(e){}}"+
                 "window.applyNativeRoute=applyNativeRoute;window.routePending=function(){if(routePts.length<2)setBadge(targetMode==='delivery'?'Membuat rute ke tujuan...':'Membuat rute ke pickup...');};"+
                 "window.updateDrv=function(a,b,deg){if(!a||!b)return;lastDriver=[a,b];var s=nearestOnRoute(a,b),pos=[s[0],s[1]],finalDeg=isFinite(s[2])?s[2]:(isFinite(deg)?deg:currentDeg);animateTo(pos,finalDeg);};"+
@@ -203,8 +303,8 @@ public class DriverNavigationActivity extends Activity {
                 @Override public void onProviderEnabled(String p){}
                 @Override public void onProviderDisabled(String p){}
             };
-            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1500, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
-            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1800, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 900, 0, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1400, 0, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
             try{
                 Location last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
                 if(last == null) last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);

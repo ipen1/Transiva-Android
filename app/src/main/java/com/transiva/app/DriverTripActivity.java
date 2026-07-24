@@ -89,6 +89,9 @@ public class DriverTripActivity extends Activity {
     private long lastRouteRequestAt = 0L;
     private double lastRouteFromLat = 0d, lastRouteFromLng = 0d;
     private String lastNativeRouteMode = "";
+    private String pendingRoutePoints = "";
+    private double pendingRouteKm = 0d;
+    private double pendingRouteSeconds = 0d;
 
     private final Runnable locationPostRunnable = new Runnable(){
         @Override public void run(){
@@ -251,7 +254,11 @@ public class DriverTripActivity extends Activity {
         mapView.setWebViewClient(new WebViewClient(){
             @Override public void onPageFinished(WebView view, String url){
                 mapReady = true;
-                mainHandler.postDelayed(() -> { updateMap(); requestStableRoute(true); }, 250);
+                mainHandler.postDelayed(() -> {
+                    applyPendingRoute();
+                    updateMap();
+                    if(pendingRoutePoints.isEmpty()) requestStableRoute(true);
+                }, 120);
             }
         });
         mapView.loadDataWithBaseURL("https://transiva.my.id/", mapHtml(), "text/html", "UTF-8", null); LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-1, dp(230)); mp.setMargins(0,dp(8),0,0); c.addView(mapView, mp); add(c,0,0,0,dp(12));
@@ -288,7 +295,7 @@ public class DriverTripActivity extends Activity {
                 "window.applyNativeRoute=applyNativeRoute;"+
                 "function drawRoute(a,b,force){if(routePts.length<2)setBadge('Membuat rute ke '+targetLabel()+'...');}"+
                 "function setDriver(lat,lng,deg,type,skipRoute){if(!map||!valid(lat,lng))return;type=type==='car'?'car':'motor';vehicleType=type;driverRaw={lat:+lat,lng:+lng,deg:+deg||0,type:type};var t=targetPoint();if(routePts.length<2&&valid(t[0],t[1]))drawStraight([+lat,+lng],t,'#087CFF',true);var s=snapToRoute(lat,lng);var useDeg=(s.bearing!==null&&s.bearing!==undefined)?s.bearing:(+deg||lastDeg);lastDeg=useDeg;var target=L.latLng(s.lat,s.lng);if(!driverMarker){driverMarker=L.marker(target,{icon:vehicleIcon(type,useDeg),zIndexOffset:9999}).addTo(map).bindPopup(type==='car'?'Posisi Driver Mobil':'Posisi Driver Motor');}else{animateDriverTo(target,useDeg,type);}if(!skipRoute)drawRoute(+lat,+lng,false);}"+
-                "function animateDriverTo(target,deg,type){if(animId)cancelAnimationFrame(animId);var cur=driverMarker.getLatLng(),from=[cur.lat,cur.lng],to=[target.lat,target.lng],start=null,duration=850;driverMarker.setIcon(vehicleIcon(type,deg));function lerp(x,y,t){return x+(y-x)*t;}function ease(t){return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;}function step(ts){if(!start)start=ts;var t=Math.min(1,(ts-start)/duration),e=ease(t),la=lerp(from[0],to[0],e),ln=lerp(from[1],to[1],e),s=snapToRoute(la,ln),bd=(s.bearing!==null&&s.bearing!==undefined)?s.bearing:deg;driverMarker.setLatLng([s.lat,s.lng]);rotateVehicle(bd);if(t<1)animId=requestAnimationFrame(step);else{animId=null;driverMarker.setLatLng(target);rotateVehicle(deg);}}animId=requestAnimationFrame(step);}"+
+                "function animateDriverTo(target,deg,type){if(animId)cancelAnimationFrame(animId);var cur=driverMarker.getLatLng(),from=[cur.lat,cur.lng],to=[target.lat,target.lng],start=null;var metres=dist(from[0],from[1],to[0],to[1]);var duration=Math.max(900,Math.min(1700,1050+metres*28));driverMarker.setIcon(vehicleIcon(type,deg));function lerp(x,y,t){return x+(y-x)*t;}function step(ts){if(!start)start=ts;var t=Math.min(1,(ts-start)/duration),la=lerp(from[0],to[0],t),ln=lerp(from[1],to[1],t),s=snapToRoute(la,ln),bd=(s.bearing!==null&&s.bearing!==undefined)?s.bearing:deg;driverMarker.setLatLng([s.lat,s.lng]);rotateVehicle(bd);if(t<1)animId=requestAnimationFrame(step);else{animId=null;driverMarker.setLatLng(target);rotateVehicle(deg);}}animId=requestAnimationFrame(step);}"+
                 "window.setVehicleType=function(t){vehicleType=t==='car'?'car':'motor';if(driverRaw){driverRaw.type=vehicleType;if(driverMarker)driverMarker.setIcon(vehicleIcon(vehicleType,lastDeg));}};"+
                 "window.setTargetMode=function(m){targetMode=m==='delivery'?'delivery':'pickup';lastRouteKey='';if(driverRaw){var t=targetPoint();if(valid(t[0],t[1]))drawRoute(driverRaw.lat,driverRaw.lng,true);}};"+
                 "window.focusTarget=function(m){targetMode=m==='delivery'?'delivery':'pickup';lastRouteKey='';if(driverRaw)drawRoute(driverRaw.lat,driverRaw.lng,true);else{var t=targetPoint();if(valid(t[0],t[1]))map.setView(t,17);}};"+
@@ -377,8 +384,8 @@ public class DriverTripActivity extends Activity {
                 Location last = getBestLastKnownLocation();
                 if(last != null && isFreshEnough(last)) onDriverLocationChanged(last);
             }
-            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
-            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1500, 1, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            try{ locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 900, 0, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
+            try{ locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1400, 0, locationListener, Looper.getMainLooper()); }catch(Exception ignored){}
             locationWatchRunning = true;
             mainHandler.removeCallbacks(locationPostRunnable);
             mainHandler.post(locationPostRunnable);
@@ -445,6 +452,10 @@ public class DriverTripActivity extends Activity {
         lastDriverLat = newLat;
         lastDriverLng = newLng;
 
+        // Route calculation starts as soon as we have a valid location.
+        // It no longer waits for the WebView/Leaflet page to finish loading.
+        requestStableRoute(false);
+
         if(fix.render){
             updateMap();
             renderedDriverLat = newLat;
@@ -476,7 +487,7 @@ public class DriverTripActivity extends Activity {
         }catch(Exception ignored){}
     }
     private void requestStableRoute(boolean force){
-        if(mapView == null || !mapReady || !valid(lastDriverLat,lastDriverLng)) return;
+        if(mapView == null || !valid(lastDriverLat,lastDriverLng)) return;
         final String mode=routeTargetMode();
         final double toLat=mode.equals("delivery")?coord("delivery_lat","destination_lat"):coord("pickup_lat","user_lat");
         final double toLng=mode.equals("delivery")?coord("delivery_lng","destination_lng"):coord("pickup_lng","user_lng");
@@ -491,9 +502,24 @@ public class DriverTripActivity extends Activity {
                 StableRouteEngine.Result r=StableRouteEngine.fetch(fromLat,fromLng,toLat,toLng);
                 lastRouteFromLat=fromLat; lastRouteFromLng=fromLng; lastNativeRouteMode=mode;
                 final String pts=r.pointsJson(); final double km=r.distanceMeters/1000d,sec=r.durationSeconds;
-                mainHandler.post(() -> { try{ mapView.evaluateJavascript("if(window.applyNativeRoute)applyNativeRoute("+JSONObject.quote(pts)+","+km+","+sec+");",null); }catch(Exception ignored){} });
+                pendingRoutePoints=pts;
+                pendingRouteKm=km;
+                pendingRouteSeconds=sec;
+                mainHandler.post(this::applyPendingRoute);
             }catch(Exception ignored){} finally{ routeRequestInFlight=false; }
         },"transiva-route-trip").start();
+    }
+
+    private void applyPendingRoute(){
+        if(mapView==null || !mapReady || Build.VERSION.SDK_INT<19) return;
+        if(pendingRoutePoints==null || pendingRoutePoints.length()<4) return;
+        try{
+            mapView.evaluateJavascript(
+                    "if(window.applyNativeRoute)applyNativeRoute("+
+                            JSONObject.quote(pendingRoutePoints)+","+
+                            pendingRouteKm+","+
+                            pendingRouteSeconds+");", null);
+        }catch(Exception ignored){}
     }
 
     private void refreshButtons(){
