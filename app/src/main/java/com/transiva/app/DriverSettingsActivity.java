@@ -1,6 +1,7 @@
 package com.transiva.app;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -73,6 +74,33 @@ public class DriverSettingsActivity extends Activity {
                 }
         ));
         root.addView(card);
+
+        TextView updateSection = text("Pembaruan", 13, "#0B3A78", true);
+        LinearLayout.LayoutParams updateSectionLp = new LinearLayout.LayoutParams(-1, -2);
+        updateSectionLp.setMargins(0, dp(18), 0, dp(8));
+        root.addView(updateSection, updateSectionLp);
+
+        LinearLayout updateCard = new LinearLayout(this);
+        updateCard.setOrientation(LinearLayout.VERTICAL);
+        updateCard.setPadding(dp(16), dp(16), dp(16), dp(16));
+        updateCard.setBackground(round("#FFFFFF", 20));
+        updateCard.setElevation(dp(2));
+        LinearLayout updateRow = new LinearLayout(this);
+        updateRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout updateLabels = new LinearLayout(this);
+        updateLabels.setOrientation(LinearLayout.VERTICAL);
+        updateLabels.addView(text("Cek Pembaruan Aplikasi", 15, "#0B3A78", true));
+        updateLabels.addView(text("Versi terpasang " + AppUpdateClient.installedVersionName(this), 11, "#64748B", false));
+        updateRow.addView(updateLabels, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView updateArrow = text("›", 30, "#0B7CFF", true);
+        updateRow.addView(updateArrow);
+        updateRow.setOnClickListener(v -> {
+            Intent intent = new Intent(this, UpdateDownloadActivity.class);
+            intent.putExtra(UpdateDownloadActivity.EXTRA_ROLE, "driver");
+            startActivity(intent);
+        });
+        updateCard.addView(updateRow);
+        root.addView(updateCard);
 
         TextView note = text(
                 "Mode Normal menggunakan tampilan terang. Mode Malam menggunakan latar gelap dan tetap tersimpan saat aplikasi dibuka kembali.",

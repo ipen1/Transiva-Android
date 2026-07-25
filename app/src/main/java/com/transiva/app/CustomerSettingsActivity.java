@@ -85,6 +85,25 @@ public class CustomerSettingsActivity extends Activity {
         }));
         root.addView(preferenceCard);
 
+        root.addView(sectionTitle("Pembaruan"), marginTop(18));
+        LinearLayout updateCard = card();
+        LinearLayout updateRow = new LinearLayout(this);
+        updateRow.setGravity(Gravity.CENTER_VERTICAL);
+        updateRow.setPadding(0, dp(4), 0, dp(4));
+        LinearLayout updateLabels = new LinearLayout(this);
+        updateLabels.setOrientation(LinearLayout.VERTICAL);
+        updateLabels.addView(text("Cek Pembaruan Aplikasi", 15, "#0B3A78", true));
+        updateLabels.addView(text("Versi terpasang " + AppUpdateClient.installedVersionName(this), 11, "#64748B", false));
+        updateRow.addView(updateLabels, new LinearLayout.LayoutParams(0, -2, 1));
+        updateRow.addView(text("›", 30, "#0B7CFF", true));
+        updateRow.setOnClickListener(v -> {
+            Intent intent = new Intent(this, UpdateDownloadActivity.class);
+            intent.putExtra(UpdateDownloadActivity.EXTRA_ROLE, "customer");
+            startActivity(intent);
+        });
+        updateCard.addView(updateRow);
+        root.addView(updateCard);
+
         root.addView(sectionTitle("Perangkat Terhubung"), marginTop(18));
         LinearLayout deviceCard = card();
         deviceName = text("Memeriksa perangkat...", 16, "#0B3A78", true);
