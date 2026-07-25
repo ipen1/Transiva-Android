@@ -79,6 +79,15 @@ public class DriverNavigationActivity extends Activity {
     private static final long ROUTE_REFRESH_MS = 15000L;
     private static final float ROUTE_REFRESH_DISTANCE_M = 35f;
 
+    // Navigation map-matching stability. These values are intentionally conservative:
+    // on dual-carriageway / parallel roads we prefer continuity over jumping to a
+    // geometrically-nearer segment several dozen metres ahead.
+    private static final double ROUTE_MATCH_BACKWARD_ALLOWANCE_M = 8d;
+    private static final double ROUTE_MATCH_FORWARD_BASE_M = 42d;
+    private static final double ROUTE_MATCH_MAX_DISTANCE_M = 65d;
+    private static final double ROUTE_LINE_CUT_AHEAD_M = 4.5d;
+    private static final double ROUTE_LINE_PROGRESS_STEP_M = 3.0d;
+
     private final Handler main = new Handler(Looper.getMainLooper());
     private final SmoothLocationEngine smoothLocation = new SmoothLocationEngine(1800L);
 
@@ -140,6 +149,42 @@ public class DriverNavigationActivity extends Activity {
     private double snappedBearing = 0d;
     private long lastRouteSuccessAt = 0L;
     private int routeFailureCount = 0;
+
+    // Continuous route progress (metres), not only a segment index. This is the
+    // key to preventing lane/parallel-road hopping and route-line leftovers.
+    private double lastMatchedProgressMeters = Double.NaN;
+    private int lastMatchedSegmentIndex = 0;
+    private double lastMatchedSegmentT = 0d;
+    private double lastMatchedLat = Double.NaN;
+    private double lastMatchedLng = Double.NaN;
+    private double lastMatchedRawLat = Double.NaN;
+    private double lastMatchedRawLng = Double.NaN;
+    private long lastMatchRealtimeMs = 0L;
+    private double visualRouteProgressMeters = Double.NaN;
+    private int visualRouteSegmentIndex = 0;
+    private double lastRenderedRouteProgressMeters = Double.NaN;
+
+    // Route loading progress. OSRM itself does not expose byte-level route progress,
+    // so this is a staged UI progress that advances while connect/compute/parse/draw run.
+    private int routeLoadingPercent = 0;
+    private long routeLoadingStartedAt = 0L;
+
+    private final Runnable routeLoadingTick = new Runnable() {
+        @Override public void run() {
+            if (!routeInFlight || isFinishing()) return;
+            long elapsed = Math.max(0L, SystemClock.elapsedRealtime() - routeLoadingStartedAt);
+            int target;
+            if (elapsed < 500L) target = 18;
+            else if (elapsed < 1200L) target = 38;
+            else if (elapsed < 2500L) target = 58;
+            else if (elapsed < 4500L) target = 74;
+            else target = 88;
+
+            if (routeLoadingPercent < target) routeLoadingPercent++;
+            showRouteLoading(routeLoadingPercent);
+            main.postDelayed(this, 90L);
+        }
+    };
 
     private final Runnable routeRetryTick = new Runnable() {
         @Override public void run() {
@@ -505,6 +550,11 @@ public class DriverNavigationActivity extends Activity {
             target = advanceAlongRoute(base, lookAheadMeters);
         }
 
+        if (target.onRoute) {
+            visualRouteProgressMeters = target.progressMeters;
+            visualRouteSegmentIndex = target.segmentIndex;
+        }
+
         if (!displayInitialized) {
             displayLat = target.lat;
             displayLng = target.lng;
@@ -622,14 +672,26 @@ public class DriverNavigationActivity extends Activity {
 
         routeInFlight = true;
         lastRouteRequestAt = now;
+        routeLoadingPercent = 4;
+        routeLoadingStartedAt = SystemClock.elapsedRealtime();
+        showRouteLoading(routeLoadingPercent);
+        main.removeCallbacks(routeLoadingTick);
+        main.post(routeLoadingTick);
+
         final double fromLat = driverLat, fromLng = driverLng;
 
         new Thread(() -> {
             try {
                 StableRouteEngine.Result r = StableRouteEngine.fetch(fromLat, fromLng, toLat, toLng);
+                main.post(() -> {
+                    routeLoadingPercent = Math.max(routeLoadingPercent, 72);
+                    showRouteLoading(routeLoadingPercent);
+                });
+
                 pendingRouteGeoJson = routeGeoJson(r.pointsJson());
                 setRoutePoints(r.latLngPoints);
                 lastRenderedRouteIndex = -1;
+                lastRenderedRouteProgressMeters = Double.NaN;
                 routeManeuvers = r.maneuvers == null ? new JSONArray() : r.maneuvers;
                 pendingRouteKm = r.distanceMeters / 1000d;
                 pendingRouteSeconds = r.durationSeconds;
@@ -642,37 +704,53 @@ public class DriverNavigationActivity extends Activity {
                 lastRouteLocation = rl;
 
                 main.post(() -> {
-                    updateRemainingRouteLine(true);
-                    // Reproject immediately so the vehicle cannot remain beside the road
-                    // after the first route arrives.
+                    routeLoadingPercent = 90;
+                    showRouteLoading(routeLoadingPercent);
+
+                    // Match first, then cut the route line from the matched progress.
+                    // This avoids drawing the old segment behind/under the vehicle.
                     if (valid(driverLat, driverLng)) {
-                        SnapPoint s = snapToRoute(driverLat, driverLng);
-                        displayLat = s.lat;
-                        displayLng = s.lng;
+                        SnapPoint match = snapToRoute(driverLat, driverLng);
+                        displayLat = match.lat;
+                        displayLng = match.lng;
                         displayInitialized = true;
-                        if (s.onRoute) snappedBearing = s.bearing;
+                        if (match.onRoute) snappedBearing = match.bearing;
                         updateNativePosition(true);
                     }
-                    int mins = Math.max(1, (int) Math.ceil(pendingRouteSeconds / 60d));
-                    routeBadge.setText(String.format(Locale.US, "%s • %.1f km • %d menit",
-                            targetMode.equals("delivery") ? "Menuju tujuan" : "Menuju pickup",
-                            pendingRouteKm, mins));
+                    updateRemainingRouteLine(true);
+
+                    routeLoadingPercent = 100;
+                    showRouteLoading(100);
+                    final int mins = Math.max(1, (int) Math.ceil(pendingRouteSeconds / 60d));
+                    main.postDelayed(() -> {
+                        if (!isFinishing() && routePoints.size() >= 2) {
+                            routeBadge.setText(String.format(Locale.US, "%s • %.1f km • %d menit",
+                                    targetMode.equals("delivery") ? "Menuju tujuan" : "Menuju pickup",
+                                    pendingRouteKm, mins));
+                        }
+                    }, 260L);
                 });
             } catch (Exception ignored) {
                 routeFailureCount++;
                 main.post(() -> {
-                    // Never erase a working navigation summary because a background
-                    // refresh failed. Only show an error before the first route exists.
                     if (routePoints.size() < 2) {
                         routeBadge.setText(routeFailureCount <= 1
-                                ? "Menyiapkan rute…"
+                                ? "OSRM belum merespons • mencoba kembali…"
                                 : "Rute belum tersedia • mencoba kembali…");
                     }
                 });
             } finally {
                 routeInFlight = false;
+                main.post(() -> main.removeCallbacks(routeLoadingTick));
             }
         }, "transiva-native-route").start();
+    }
+
+    private void showRouteLoading(int percent) {
+        if (routeBadge == null) return;
+        int p = Math.max(0, Math.min(100, percent));
+        String target = targetMode.equals("delivery") ? "tujuan" : "pickup";
+        routeBadge.setText(String.format(Locale.US, "Membuat rute ke %s • %d%%", target, p));
     }
 
     private void maybeRefreshRoute() {
@@ -698,42 +776,83 @@ public class DriverNavigationActivity extends Activity {
      */
     private void maybeUpdateRemainingRouteLine() {
         long now = SystemClock.elapsedRealtime();
-        if (routeProgressIndex == lastRenderedRouteIndex) return;
-        if (now - lastRouteLineUpdateAt < 180L) return;
+        if (now - lastRouteLineUpdateAt < 220L) return;
+
+        double lineProgress = Double.isNaN(visualRouteProgressMeters)
+                ? lastMatchedProgressMeters : visualRouteProgressMeters;
+        int lineSegment = Double.isNaN(visualRouteProgressMeters)
+                ? lastMatchedSegmentIndex : visualRouteSegmentIndex;
+        boolean segmentChanged = lineSegment != lastRenderedRouteIndex;
+        boolean progressed = Double.isNaN(lastRenderedRouteProgressMeters) ||
+                (!Double.isNaN(lineProgress) &&
+                        lineProgress - lastRenderedRouteProgressMeters >= ROUTE_LINE_PROGRESS_STEP_M);
+        if (!segmentChanged && !progressed) return;
         updateRemainingRouteLine(false);
     }
 
     private void updateRemainingRouteLine(boolean force) {
         if (!styleReady || style == null) return;
-        if (!force && routeProgressIndex == lastRenderedRouteIndex) return;
+        if (!force) {
+            double lineProgress = Double.isNaN(visualRouteProgressMeters)
+                    ? lastMatchedProgressMeters : visualRouteProgressMeters;
+            int lineSegment = Double.isNaN(visualRouteProgressMeters)
+                    ? lastMatchedSegmentIndex : visualRouteSegmentIndex;
+            boolean segmentChanged = lineSegment != lastRenderedRouteIndex;
+            boolean progressed = Double.isNaN(lastRenderedRouteProgressMeters) ||
+                    (!Double.isNaN(lineProgress) &&
+                            lineProgress - lastRenderedRouteProgressMeters >= ROUTE_LINE_PROGRESS_STEP_M);
+            if (!segmentChanged && !progressed) return;
+        }
 
         String geo = remainingRouteGeoJson();
         if (geo == null || geo.isEmpty()) return;
         try {
-            GeoJsonSource s = style.getSourceAs(ROUTE_SOURCE);
-            if (s != null) {
-                s.setGeoJson(geo);
-                lastRenderedRouteIndex = routeProgressIndex;
+            GeoJsonSource source = style.getSourceAs(ROUTE_SOURCE);
+            if (source != null) {
+                source.setGeoJson(geo);
+                lastRenderedRouteIndex = Double.isNaN(visualRouteProgressMeters)
+                        ? lastMatchedSegmentIndex : visualRouteSegmentIndex;
+                lastRenderedRouteProgressMeters = Double.isNaN(visualRouteProgressMeters)
+                        ? lastMatchedProgressMeters : visualRouteProgressMeters;
                 lastRouteLineUpdateAt = SystemClock.elapsedRealtime();
             }
         } catch (Exception ignored) {}
     }
 
     /**
-     * Start at the matched route segment instead of the continuously animated
-     * vehicle coordinate. This keeps the line stable while still deleting all
-     * route segments already passed.
+     * Build only the route still in front of the vehicle. The first coordinate
+     * is interpolated from continuous matched progress (+ a tiny visual cut),
+     * not from the beginning of the current segment. Therefore a blue tail can
+     * no longer remain behind or directly underneath the vehicle icon.
      */
     private String remainingRouteGeoJson() {
         synchronized (routePoints) {
             if (routePoints.size() < 2) return pendingRouteGeoJson;
             try {
+                double progress = !Double.isNaN(visualRouteProgressMeters)
+                        ? visualRouteProgressMeters
+                        : (Double.isNaN(lastMatchedProgressMeters)
+                            ? routeProgressMeters(Math.max(0, routeProgressIndex))
+                            : lastMatchedProgressMeters);
+                double total = routeProgressMeters(routePoints.size() - 1);
+                double lineStartProgress = Math.max(0d, Math.min(total, progress + ROUTE_LINE_CUT_AHEAD_M));
+
+                int seg = segmentForProgressLocked(lineStartProgress);
+                double[] a = routePoints.get(seg);
+                double[] b = routePoints.get(Math.min(seg + 1, routePoints.size() - 1));
+                double segStart = routeCumulativeMeters.get(seg);
+                double segMeters = Math.max(0.01d, meters(a[0], a[1], b[0], b[1]));
+                double t = Math.max(0d, Math.min(1d, (lineStartProgress - segStart) / segMeters));
+                double startLat = a[0] + (b[0] - a[0]) * t;
+                double startLng = a[1] + (b[1] - a[1]) * t;
+
                 JSONArray coords = new JSONArray();
+                JSONArray first = new JSONArray();
+                first.put(startLng);
+                first.put(startLat);
+                coords.put(first);
 
-                int start = Math.max(0,
-                        Math.min(routeProgressIndex, routePoints.size() - 1));
-
-                for (int i = start; i < routePoints.size(); i++) {
+                for (int i = seg + 1; i < routePoints.size(); i++) {
                     double[] rp = routePoints.get(i);
                     JSONArray c = new JSONArray();
                     c.put(rp[1]);
@@ -741,12 +860,11 @@ public class DriverNavigationActivity extends Activity {
                     coords.put(c);
                 }
 
-                if (coords.length() < 2) return pendingRouteGeoJson;
+                if (coords.length() < 2) return emptyFeatureCollection();
 
                 JSONObject geometry = new JSONObject();
                 geometry.put("type", "LineString");
                 geometry.put("coordinates", coords);
-
                 JSONObject feature = new JSONObject();
                 feature.put("type", "Feature");
                 feature.put("properties", new JSONObject());
@@ -756,6 +874,21 @@ public class DriverNavigationActivity extends Activity {
                 return pendingRouteGeoJson;
             }
         }
+    }
+
+    private int segmentForProgressLocked(double progressMeters) {
+        if (routePoints.size() < 2 || routeCumulativeMeters.isEmpty()) return 0;
+        int lo = 0, hi = routePoints.size() - 2;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            double start = routeCumulativeMeters.get(mid);
+            double end = mid + 1 < routeCumulativeMeters.size()
+                    ? routeCumulativeMeters.get(mid + 1) : start;
+            if (progressMeters < start) hi = mid - 1;
+            else if (progressMeters > end) lo = mid + 1;
+            else return mid;
+        }
+        return Math.max(0, Math.min(routePoints.size() - 2, lo));
     }
 
     private void drawPendingRoute() {
@@ -769,6 +902,17 @@ public class DriverNavigationActivity extends Activity {
             routePoints.clear();
             routeCumulativeMeters.clear();
             routeProgressIndex = 0;
+            lastMatchedProgressMeters = Double.NaN;
+            lastMatchedSegmentIndex = 0;
+            lastMatchedSegmentT = 0d;
+            lastMatchedLat = Double.NaN;
+            lastMatchedLng = Double.NaN;
+            lastMatchedRawLat = Double.NaN;
+            lastMatchedRawLng = Double.NaN;
+            lastMatchRealtimeMs = 0L;
+            visualRouteProgressMeters = Double.NaN;
+            visualRouteSegmentIndex = 0;
+            lastRenderedRouteProgressMeters = Double.NaN;
             double cumulative = 0d;
             if (points == null) return;
 
@@ -799,70 +943,169 @@ public class DriverNavigationActivity extends Activity {
     private SnapPoint snapToRoute(double lat, double lng) {
         synchronized (routePoints) {
             if (routePoints.size() < 2 || !valid(lat, lng)) {
-                return new SnapPoint(lat, lng, currentBearing, false, routeProgressIndex, 0d, routeProgressMeters(routeProgressIndex));
+                return new SnapPoint(lat, lng, currentBearing, false, routeProgressIndex, 0d,
+                        routeProgressMeters(routeProgressIndex));
             }
 
-            int start = Math.max(0, routeProgressIndex - 3);
-            int end = Math.min(routePoints.size() - 2, routeProgressIndex + 140);
+            // animateTowardLatestFix() runs at ~60 FPS, while GPS is much slower.
+            // Re-use the same route match for an unchanged raw fix; otherwise the
+            // continuity limiter could be applied dozens of times to one GPS sample.
+            if (!Double.isNaN(lastMatchedRawLat) && !Double.isNaN(lastMatchedRawLng) &&
+                    !Double.isNaN(lastMatchedProgressMeters) &&
+                    meters(lat, lng, lastMatchedRawLat, lastMatchedRawLng) < 0.20f) {
+                return new SnapPoint(lastMatchedLat, lastMatchedLng, snappedBearing, true,
+                        lastMatchedSegmentIndex, lastMatchedSegmentT, lastMatchedProgressMeters);
+            }
+
+            final long nowRt = SystemClock.elapsedRealtime();
+            final double previousProgress = lastMatchedProgressMeters;
+            final double speedMps = Math.max(0d, currentSpeedKmh / 3.6d);
+            final double dtSec = lastMatchRealtimeMs <= 0L ? 1d
+                    : Math.max(0.25d, Math.min(8d, (nowRt - lastMatchRealtimeMs) / 1000d));
+            final double maxForward = Math.max(ROUTE_MATCH_FORWARD_BASE_M, speedMps * dtSec * 2.2d + 22d);
+
+            int startIndex;
+            int endIndex;
+            if (Double.isNaN(previousProgress)) {
+                startIndex = 0;
+                endIndex = Math.min(routePoints.size() - 2, 220);
+            } else {
+                startIndex = Math.max(0, segmentForProgressLocked(
+                        Math.max(0d, previousProgress - ROUTE_MATCH_BACKWARD_ALLOWANCE_M - 18d)) - 2);
+                endIndex = Math.min(routePoints.size() - 2, segmentForProgressLocked(
+                        previousProgress + maxForward + 55d) + 3);
+            }
 
             double latScale = 111320d;
             double lngScale = 111320d * Math.max(0.15d, Math.cos(Math.toRadians(lat)));
             double px = lng * lngScale;
             double py = lat * latScale;
 
-            double bestDist2 = Double.MAX_VALUE;
+            double bestScore = Double.MAX_VALUE;
+            double bestDistance = Double.MAX_VALUE;
             double bestLat = lat, bestLng = lng, bestBearing = currentBearing;
-            int bestIndex = routeProgressIndex;
+            int bestIndex = Math.max(0, Math.min(routeProgressIndex, routePoints.size() - 2));
             double bestT = 0d;
+            double bestProgress = Double.isNaN(previousProgress) ? 0d : previousProgress;
 
-            for (int i = start; i <= end; i++) {
+            boolean useHeading = Double.isFinite(currentBearing) && currentSpeedKmh >= 4d;
+
+            for (int i = startIndex; i <= endIndex; i++) {
                 double[] a = routePoints.get(i);
                 double[] b = routePoints.get(i + 1);
-
                 double ax = a[1] * lngScale, ay = a[0] * latScale;
                 double bx = b[1] * lngScale, by = b[0] * latScale;
                 double vx = bx - ax, vy = by - ay;
                 double len2 = vx * vx + vy * vy;
-                double t = len2 <= 0.000001d ? 0d :
-                        ((px - ax) * vx + (py - ay) * vy) / len2;
+                double t = len2 <= 0.000001d ? 0d : ((px - ax) * vx + (py - ay) * vy) / len2;
                 t = Math.max(0d, Math.min(1d, t));
 
-                double qx = ax + vx * t;
-                double qy = ay + vy * t;
+                double qx = ax + vx * t, qy = ay + vy * t;
                 double dx = px - qx, dy = py - qy;
-                double d2 = dx * dx + dy * dy;
+                double distance = Math.sqrt(dx * dx + dy * dy);
+                double segMeters = Math.max(0.01d, meters(a[0], a[1], b[0], b[1]));
+                double progress = routeCumulativeMeters.get(i) + segMeters * t;
+                double segBearing = bearing(a[0], a[1], b[0], b[1]);
 
-                if (d2 < bestDist2) {
-                    bestDist2 = d2;
+                double score = distance;
+
+                // Heading strongly separates opposite carriageways / parallel return legs.
+                if (useHeading) {
+                    double hd = bearingDelta(currentBearing, segBearing);
+                    if (hd > 110d) score += 120d;
+                    else if (hd > 70d) score += 45d;
+                    else score += hd * 0.10d;
+                }
+
+                if (!Double.isNaN(previousProgress)) {
+                    double delta = progress - previousProgress;
+                    if (delta < -ROUTE_MATCH_BACKWARD_ALLOWANCE_M) {
+                        score += 150d + Math.abs(delta) * 2.5d;
+                    } else if (delta < 0d) {
+                        score += Math.abs(delta) * 2.0d;
+                    }
+                    if (delta > maxForward) {
+                        score += (delta - maxForward) * 3.0d;
+                    }
+
+                    // Small continuity preference keeps the vehicle on the same
+                    // matched corridor when two lane centre-lines are equally close.
+                    score += Math.abs(i - lastMatchedSegmentIndex) * 0.035d;
+                }
+
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestDistance = distance;
                     bestLng = qx / lngScale;
                     bestLat = qy / latScale;
-                    bestBearing = bearing(a[0], a[1], b[0], b[1]);
+                    bestBearing = segBearing;
                     bestIndex = i;
                     bestT = t;
+                    bestProgress = progress;
                 }
             }
 
-            double distanceToRoute = Math.sqrt(bestDist2);
-            // If GPS is extremely far from the route, use raw position and ask for reroute.
-            if (distanceToRoute > 90d) {
-                return new SnapPoint(lat, lng, currentBearing, false, routeProgressIndex, 0d, routeProgressMeters(routeProgressIndex));
+            if (bestDistance > ROUTE_MATCH_MAX_DISTANCE_M) {
+                return new SnapPoint(lat, lng, currentBearing, false, routeProgressIndex, 0d,
+                        Double.isNaN(previousProgress) ? routeProgressMeters(routeProgressIndex) : previousProgress);
             }
 
-            // Do not jump backward because of GPS/network noise.
-            if (bestIndex >= routeProgressIndex - 1) {
-                int oldProgress = routeProgressIndex;
-                routeProgressIndex = Math.max(routeProgressIndex, bestIndex);
-                if (routeProgressIndex != oldProgress) {
-                    main.post(this::maybeUpdateRemainingRouteLine);
+            // Never visually travel backward due to GPS jitter. Also cap suspicious
+            // forward jumps; after a provider pause the icon catches up smoothly.
+            if (!Double.isNaN(previousProgress)) {
+                if (bestProgress < previousProgress - 1.5d) bestProgress = previousProgress;
+                if (bestProgress > previousProgress + maxForward) bestProgress = previousProgress + maxForward;
+
+                if (Math.abs(bestProgress - (routeCumulativeMeters.get(bestIndex) +
+                        Math.max(0.01d, meters(routePoints.get(bestIndex)[0], routePoints.get(bestIndex)[1],
+                                routePoints.get(bestIndex + 1)[0], routePoints.get(bestIndex + 1)[1])) * bestT)) > 0.5d) {
+                    SnapPoint capped = pointAtRouteProgressLocked(bestProgress);
+                    bestLat = capped.lat;
+                    bestLng = capped.lng;
+                    bestBearing = capped.bearing;
+                    bestIndex = capped.segmentIndex;
+                    bestT = capped.segmentT;
                 }
             }
 
-            double segmentMeters = meters(routePoints.get(bestIndex)[0], routePoints.get(bestIndex)[1],
-                    routePoints.get(bestIndex + 1)[0], routePoints.get(bestIndex + 1)[1]);
-            double progressMeters = routeProgressMeters(bestIndex) + segmentMeters * bestT;
-            return new SnapPoint(bestLat, bestLng, bestBearing, true,
-                    bestIndex, bestT, progressMeters);
+            lastMatchedProgressMeters = bestProgress;
+            lastMatchedSegmentIndex = bestIndex;
+            lastMatchedSegmentT = bestT;
+            lastMatchedLat = bestLat;
+            lastMatchedLng = bestLng;
+            lastMatchedRawLat = lat;
+            lastMatchedRawLng = lng;
+            lastMatchRealtimeMs = nowRt;
+
+            int oldProgress = routeProgressIndex;
+            routeProgressIndex = Math.max(routeProgressIndex, bestIndex);
+            if (routeProgressIndex != oldProgress) main.post(this::maybeUpdateRemainingRouteLine);
+
+            return new SnapPoint(bestLat, bestLng, bestBearing, true, bestIndex, bestT, bestProgress);
         }
+    }
+
+    private SnapPoint pointAtRouteProgressLocked(double progressMeters) {
+        if (routePoints.size() < 2) {
+            return new SnapPoint(driverLat, driverLng, currentBearing, false, 0, 0d, 0d);
+        }
+        double total = routeCumulativeMeters.get(routeCumulativeMeters.size() - 1);
+        double p = Math.max(0d, Math.min(total, progressMeters));
+        int i = segmentForProgressLocked(p);
+        double[] a = routePoints.get(i);
+        double[] b = routePoints.get(i + 1);
+        double start = routeCumulativeMeters.get(i);
+        double segM = Math.max(0.01d, meters(a[0], a[1], b[0], b[1]));
+        double t = Math.max(0d, Math.min(1d, (p - start) / segM));
+        double lat = a[0] + (b[0] - a[0]) * t;
+        double lng = a[1] + (b[1] - a[1]) * t;
+        return new SnapPoint(lat, lng, bearing(a[0], a[1], b[0], b[1]), true, i, t, p);
+    }
+
+    private static double bearingDelta(double a, double b) {
+        if (!Double.isFinite(a) || !Double.isFinite(b)) return 0d;
+        double d = Math.abs(((b - a + 540d) % 360d) - 180d);
+        return Math.max(0d, Math.min(180d, d));
     }
 
     private static final class SnapPoint {
