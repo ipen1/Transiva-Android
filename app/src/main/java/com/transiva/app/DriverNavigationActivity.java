@@ -78,6 +78,14 @@ public class DriverNavigationActivity extends Activity {
     private static final long ROUTE_REFRESH_MS = 15000L;
     private static final float ROUTE_REFRESH_DISTANCE_M = 35f;
 
+    // Auto-reroute is deliberately confirmed over several fixes. This prevents a
+    // single weak-GPS jump from replacing a route that is still correct.
+    private static final double OFF_ROUTE_BASE_DISTANCE_M = 45d;
+    private static final double OFF_ROUTE_HARD_DISTANCE_M = 120d;
+    private static final double OFF_ROUTE_MIN_TRAVEL_M = 24d;
+    private static final long OFF_ROUTE_CONFIRM_MS = 4200L;
+    private static final long REROUTE_COOLDOWN_MS = 12000L;
+
     // Navigation map-matching stability. These values are intentionally conservative:
     // on dual-carriageway / parallel roads we prefer continuity over jumping to a
     // geometrically-nearer segment several dozen metres ahead.
@@ -145,6 +153,14 @@ public class DriverNavigationActivity extends Activity {
     private double snappedBearing = 0d;
     private long lastRouteSuccessAt = 0L;
     private int routeFailureCount = 0;
+
+    // Weak-GPS and sustained route-deviation state.
+    private float lastGpsAccuracyM = 50f;
+    private int offRouteFixCount = 0;
+    private long offRouteStartedAt = 0L;
+    private double offRouteStartLat = Double.NaN;
+    private double offRouteStartLng = Double.NaN;
+    private long lastAutoRerouteAt = 0L;
 
     // Continuous route progress (metres), not only a segment index. This is the
     // key to preventing lane/parallel-road hopping and route-line leftovers.
@@ -497,6 +513,7 @@ public class DriverNavigationActivity extends Activity {
                     driverLat = l.getLatitude();
                     driverLng = l.getLongitude();
                     lastFixRealtimeMs = SystemClock.elapsedRealtime();
+                    lastGpsAccuracyM = l.hasAccuracy() ? Math.max(1f, l.getAccuracy()) : 50f;
                     updateSpeed(l);
 
                     if (l.hasBearing() && l.getSpeed() > 1.2f) currentBearing = l.getBearing();
@@ -504,7 +521,7 @@ public class DriverNavigationActivity extends Activity {
 
                     if (fix.upload) uploadLocation(l);
                     if (fix.render) updateNativePosition(false);
-                    maybeRefreshRoute();
+                    maybeRefreshRoute(l);
                 }
                 @Override public void onStatusChanged(String provider, int status, Bundle extras) {}
                 @Override public void onProviderEnabled(String provider) {}
@@ -546,9 +563,13 @@ public class DriverNavigationActivity extends Activity {
         // measured speed for a short bounded window, so the icon/map does not
         // move-stop-move between 700-1300 ms location samples.
         if (base.onRoute && currentSpeedKmh > 1d && lastFixRealtimeMs > 0L) {
-            double ageSec = Math.max(0d,
-                    Math.min(1.15d, (SystemClock.elapsedRealtime() - lastFixRealtimeMs) / 1000d));
-            double lookAheadMeters = (currentSpeedKmh / 3.6d) * ageSec;
+            // With a weak signal, continue gently along the already-matched route
+            // for a little longer instead of allowing the marker/camera to jump.
+            double maxPredictionSec = lastGpsAccuracyM >= 55f ? 3.2d
+                    : (lastGpsAccuracyM >= 30f ? 2.2d : 1.15d);
+            double ageSec = Math.max(0d, Math.min(maxPredictionSec,
+                    (SystemClock.elapsedRealtime() - lastFixRealtimeMs) / 1000d));
+            double lookAheadMeters = Math.min(35d, (currentSpeedKmh / 3.6d) * ageSec);
             target = advanceAlongRoute(base, lookAheadMeters);
         }
 
@@ -761,15 +782,93 @@ public class DriverNavigationActivity extends Activity {
         routeBadge.setText(String.format(Locale.US, "Membuat rute ke %s • %d%%", target, p));
     }
 
-    private void maybeRefreshRoute() {
-        if (routePoints.size() >= 2) {
-            SnapPoint s = snapToRoute(driverLat, driverLng);
-            if (!s.onRoute) {
-                requestRoute(true);
-                return;
-            }
+    private void maybeRefreshRoute(Location fix) {
+        if (routePoints.size() < 2) {
+            resetOffRouteConfirmation();
+            requestRoute(false);
+            return;
         }
+
+        final long now = SystemClock.elapsedRealtime();
+        final float accuracy = fix != null && fix.hasAccuracy()
+                ? Math.max(1f, fix.getAccuracy()) : lastGpsAccuracyM;
+        final double deviation = nearestRouteDistanceMeters(driverLat, driverLng);
+        final double trigger = Math.max(OFF_ROUTE_BASE_DISTANCE_M, accuracy * 1.35d);
+
+        // A highly inaccurate fix is not enough evidence by itself. Only an
+        // unmistakably large deviation may start confirmation while GPS is weak.
+        if (!Double.isFinite(deviation) ||
+                (accuracy > 85f && deviation < OFF_ROUTE_HARD_DISTANCE_M + 30d) ||
+                deviation < trigger) {
+            resetOffRouteConfirmation();
+            requestRoute(false);
+            return;
+        }
+
+        if (offRouteStartedAt == 0L) {
+            offRouteStartedAt = now;
+            offRouteStartLat = driverLat;
+            offRouteStartLng = driverLng;
+            offRouteFixCount = 1;
+            return;
+        }
+
+        offRouteFixCount++;
+        double traveled = valid(offRouteStartLat, offRouteStartLng)
+                ? meters(offRouteStartLat, offRouteStartLng, driverLat, driverLng) : 0d;
+        long duration = now - offRouteStartedAt;
+
+        int requiredFixes = accuracy >= 55f ? 5 : (accuracy >= 30f ? 4 : 3);
+        long requiredMs = accuracy >= 55f ? 8000L : OFF_ROUTE_CONFIRM_MS;
+        double requiredTravel = accuracy >= 55f ? 35d : OFF_ROUTE_MIN_TRAVEL_M;
+        boolean hardDeviation = deviation >= OFF_ROUTE_HARD_DISTANCE_M && offRouteFixCount >= 2;
+        boolean confirmed = offRouteFixCount >= requiredFixes &&
+                duration >= requiredMs && traveled >= requiredTravel;
+
+        if ((hardDeviation || confirmed) && now - lastAutoRerouteAt >= REROUTE_COOLDOWN_MS) {
+            lastAutoRerouteAt = now;
+            resetOffRouteConfirmation();
+            if (routeBadge != null) routeBadge.setText("Mendeteksi pindah jalur • membuat rute baru…");
+            requestRoute(true);
+            return;
+        }
+
+        // Keep the stable current route while confirmation is in progress.
         requestRoute(false);
+    }
+
+    private void resetOffRouteConfirmation() {
+        offRouteFixCount = 0;
+        offRouteStartedAt = 0L;
+        offRouteStartLat = Double.NaN;
+        offRouteStartLng = Double.NaN;
+    }
+
+    /** Returns raw GPS distance to the nearby route corridor without changing map-match state. */
+    private double nearestRouteDistanceMeters(double lat, double lng) {
+        synchronized (routePoints) {
+            if (routePoints.size() < 2 || !valid(lat, lng)) return Double.POSITIVE_INFINITY;
+            int start = Math.max(0, lastMatchedSegmentIndex - 20);
+            int end = Math.min(routePoints.size() - 2, lastMatchedSegmentIndex + 90);
+            if (Double.isNaN(lastMatchedProgressMeters)) { start = 0; end = routePoints.size() - 2; }
+
+            double latScale = 111320d;
+            double lngScale = 111320d * Math.max(0.15d, Math.cos(Math.toRadians(lat)));
+            double px = lng * lngScale, py = lat * latScale;
+            double best = Double.POSITIVE_INFINITY;
+            for (int i = start; i <= end; i++) {
+                double[] a = routePoints.get(i), b = routePoints.get(i + 1);
+                double ax = a[1] * lngScale, ay = a[0] * latScale;
+                double bx = b[1] * lngScale, by = b[0] * latScale;
+                double vx = bx - ax, vy = by - ay;
+                double len2 = vx * vx + vy * vy;
+                double t = len2 <= 0.000001d ? 0d : ((px - ax) * vx + (py - ay) * vy) / len2;
+                t = Math.max(0d, Math.min(1d, t));
+                double dx = px - (ax + vx * t), dy = py - (ay + vy * t);
+                best = Math.min(best, Math.sqrt(dx * dx + dy * dy));
+            }
+            return best;
+        }
     }
 
 

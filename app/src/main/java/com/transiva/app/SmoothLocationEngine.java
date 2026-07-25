@@ -53,6 +53,15 @@ public final class SmoothLocationEngine {
             float oldAcc = accuracy(accepted);
             float newAcc = accuracy(next);
             if (jump > 80f && newAcc > Math.max(80f, oldAcc * 3f) && dt < 8000L) return null;
+
+            // Weak-provider hysteresis: do not let a fresh but much less accurate
+            // network fix pull a stable GPS trace sideways. A later consistent fix
+            // is still accepted, so navigation recovers naturally in covered areas.
+            if (dt < 6000L && newAcc > Math.max(45f, oldAcc * 2.2f)) {
+                float allowedJump = Math.max(18f, oldAcc * 1.6f);
+                if (jump > allowedJump) return null;
+            }
+            if (dt < 2500L && newAcc >= 35f && jump > Math.max(28f, newAcc * 0.9f)) return null;
         }
 
         accepted = next;
