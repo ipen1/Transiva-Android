@@ -72,14 +72,9 @@ public class AdminVerifyUserActivity extends Activity {
 
         sessionManager = new SessionManager(this);
         adminUsername = safe(sessionManager.getUsername());
-        adminToken = firstNonEmpty(
-                sessionManager.getToken(),
-                sessionManager.getFcmToken(),
-                getSharedPreferences("transiva_fcm", MODE_PRIVATE)
-                        .getString("fcm_token", ""),
-                getSharedPreferences("transiva", MODE_PRIVATE)
-                        .getString("fcm_token", "")
-        );
+        // Token autentikasi native dari login.php. FCM token bukan token sesi
+        // dan tidak boleh dipakai untuk mengakses endpoint admin.
+        adminToken = safe(sessionManager.getToken()).trim();
 
         buildUi();
 
@@ -299,10 +294,6 @@ public class AdminVerifyUserActivity extends Activity {
                         BASE_URL
                                 + "adminGetUnverifiedUsers.php?v="
                                 + System.currentTimeMillis()
-                                + "&admin_username="
-                                + encode(adminUsername)
-                                + "&admin_token="
-                                + encode(adminToken)
                 );
 
                 if (!response.optBoolean("success", false)) {
@@ -551,8 +542,6 @@ public class AdminVerifyUserActivity extends Activity {
             try {
                 JSONObject payload = new JSONObject();
                 payload.put("id", userId);
-                payload.put("admin_username", adminUsername);
-                payload.put("admin_token", adminToken);
 
                 JSONObject response = postJson(
                         BASE_URL + "adminVerifyUserEmail.php",
@@ -677,8 +666,15 @@ public class AdminVerifyUserActivity extends Activity {
             }
 
             if (!adminToken.isEmpty()) {
+                // Endpoint server Transiva memvalidasi token melalui
+                // native_api_tokens menggunakan Bearer token.
                 connection.setRequestProperty(
-                        "X-Admin-Token",
+                        "Authorization",
+                        "Bearer " + adminToken
+                );
+                // Fallback untuk hosting yang menghapus header Authorization.
+                connection.setRequestProperty(
+                        "X-Transiva-Token",
                         adminToken
                 );
             }
