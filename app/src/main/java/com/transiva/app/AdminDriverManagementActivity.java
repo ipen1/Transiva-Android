@@ -1293,6 +1293,17 @@ public class AdminDriverManagementActivity extends Activity {
         if (clean.isEmpty()) return "";
         if (clean.startsWith("http://") || clean.startsWith("https://")) return clean;
         while (clean.startsWith("/")) clean = clean.substring(1);
+
+        // Path foto driver dari API disimpan relatif sebagai uploads/drivers/....
+        // Folder fisiknya berada di public_html/server/uploads/drivers, jadi
+        // URL publik harus melewati /server/. Tetap dukung nilai lama yang
+        // sudah mengandung server/ agar tidak terjadi double prefix.
+        if (clean.startsWith("uploads/")) {
+            return "https://transiva.my.id/server/" + clean;
+        }
+        if (clean.startsWith("server/")) {
+            return "https://transiva.my.id/" + clean;
+        }
         return "https://transiva.my.id/" + clean;
     }
 
