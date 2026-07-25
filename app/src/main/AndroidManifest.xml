@@ -392,6 +392,12 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".MerchantSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".AdminMerchantManagementActivity"
             android:exported="false"
             android:screenOrientation="portrait"
