@@ -105,6 +105,7 @@ public class AdminDashboardActivity extends Activity {
 
         String[][] menu = {
                 {"🛵", "Driver"},
+                {"📡", "Tracker"},
                 {"👥", "Customer"},
                 {"🏪", "Merchant"},
                 {"📍", "Business"},
@@ -168,6 +169,9 @@ public class AdminDashboardActivity extends Activity {
         switch (menuName) {
             case "Driver":
                 intent = new Intent(this, AdminDriverManagementActivity.class);
+                break;
+            case "Tracker":
+                intent = new Intent(this, AdminDriverTrackerActivity.class);
                 break;
             case "Customer":
                 intent = new Intent(this, AdminCustomerManagementActivity.class);
