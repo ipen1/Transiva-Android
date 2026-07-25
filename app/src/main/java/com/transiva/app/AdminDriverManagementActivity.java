@@ -599,6 +599,8 @@ public class AdminDriverManagementActivity extends Activity {
                                     + driver.optString("phone")
                                     + " "
                                     + driver.optString("plate")
+                                    + " " + driver.optString("bpjs_number")
+                                    + " " + driver.optString("bpjs_name")
                     ).toLowerCase(Locale.ROOT);
 
             if (
@@ -794,6 +796,16 @@ public class AdminDriverManagementActivity extends Activity {
                 marginTop(3)
         );
 
+        boolean bpjsActive = readFlag(driver, "bpjs_active", "bpjs_is_active");
+        TextView bpjsLine = text(
+                "BPJS Ketenagakerjaan: " + (bpjsActive ? "Aktif" : "Tidak Aktif")
+                        + (clean(driver.optString("bpjs_number")).isEmpty() ? "" : " • " + driver.optString("bpjs_number")),
+                11,
+                bpjsActive ? "#0A8F4C" : "#C62828",
+                true
+        );
+        card.addView(bpjsLine, marginTop(7));
+
         LinearLayout firstActions =
                 new LinearLayout(this);
 
@@ -881,7 +893,105 @@ public class AdminDriverManagementActivity extends Activity {
                 marginTop(8)
         );
 
+        Button bpjs = outlineButton("Kelola BPJS Ketenagakerjaan");
+        bpjs.setOnClickListener(view -> showBpjsForm(driver));
+        LinearLayout.LayoutParams bpjsLp = new LinearLayout.LayoutParams(-1, dp(46));
+        bpjsLp.setMargins(0, dp(8), 0, 0);
+        card.addView(bpjs, bpjsLp);
+
         return card;
+    }
+
+    private void showBpjsForm(JSONObject driver) {
+        if (driver == null) return;
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(4), dp(4), dp(4), dp(2));
+
+        TextView info = text(
+                "Driver: " + first(driver.optString("name"), driver.optString("username"), "-")
+                        + "\nAktifkan kepesertaan lalu lengkapi data sesuai BPJS Ketenagakerjaan.",
+                11, "#64748B", false
+        );
+        form.addView(info);
+
+        Spinner active = new Spinner(this);
+        String[] activeOptions = new String[]{"Tidak Aktif", "Aktif"};
+        ArrayAdapter<String> activeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, activeOptions);
+        active.setAdapter(activeAdapter);
+        active.setSelection(readFlag(driver, "bpjs_active", "bpjs_is_active") ? 1 : 0);
+        form.addView(active, inputLp());
+
+        EditText number = input("Nomor BPJS Ketenagakerjaan");
+        number.setText(first(driver.optString("bpjs_number"), driver.optString("bpjs_no")));
+        form.addView(number, inputLp());
+
+        EditText name = input("Nama peserta sesuai BPJS");
+        name.setText(first(driver.optString("bpjs_name"), driver.optString("name")));
+        form.addView(name, inputLp());
+
+        EditText birthPlace = input("Tempat lahir");
+        birthPlace.setText(driver.optString("bpjs_birth_place"));
+        form.addView(birthPlace, inputLp());
+
+        EditText birthDate = input("Tanggal lahir (YYYY-MM-DD)");
+        birthDate.setText(driver.optString("bpjs_birth_date"));
+        form.addView(birthDate, inputLp());
+
+        EditText registeredSince = input("Terdaftar sejak (YYYY-MM-DD)");
+        registeredSince.setText(driver.optString("bpjs_registered_since"));
+        form.addView(registeredSince, inputLp());
+
+        EditText note = input("Catatan / kelengkapan dokumen");
+        note.setSingleLine(false);
+        note.setMinLines(2);
+        note.setText(driver.optString("bpjs_note"));
+        LinearLayout.LayoutParams noteLp = new LinearLayout.LayoutParams(-1, dp(76));
+        noteLp.setMargins(0, dp(9), 0, 0);
+        form.addView(note, noteLp);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(form);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("BPJS Ketenagakerjaan")
+                .setView(scroll)
+                .setNegativeButton("Batal", null)
+                .setPositiveButton("Simpan", null)
+                .create();
+
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
+            boolean enabled = active.getSelectedItemPosition() == 1;
+            String bpjsNumber = clean(number.getText().toString());
+            String bpjsName = clean(name.getText().toString());
+
+            if (enabled && (bpjsNumber.isEmpty() || bpjsName.isEmpty())) {
+                toast("Nomor BPJS dan nama peserta wajib diisi saat status Aktif");
+                return;
+            }
+
+            JSONObject data = new JSONObject();
+            try {
+                data.put("action", "update_bpjs");
+                data.put("user_id", driver.optInt("user_id", 0));
+                data.put("bpjs_active", enabled ? 1 : 0);
+                data.put("bpjs_number", bpjsNumber);
+                data.put("bpjs_name", bpjsName);
+                data.put("bpjs_birth_place", clean(birthPlace.getText().toString()));
+                data.put("bpjs_birth_date", clean(birthDate.getText().toString()));
+                data.put("bpjs_registered_since", clean(registeredSince.getText().toString()));
+                data.put("bpjs_note", clean(note.getText().toString()));
+            } catch (Exception e) {
+                toast("Data BPJS tidak valid");
+                return;
+            }
+
+            dialog.dismiss();
+            executeAction(data);
+        }));
+
+        dialog.show();
     }
 
     private void showDriverForm(
@@ -1937,6 +2047,19 @@ public class AdminDriverManagementActivity extends Activity {
         }
 
         return "";
+    }
+
+    private boolean readFlag(JSONObject object, String... keys) {
+        if (object == null || keys == null) return false;
+        for (String key : keys) {
+            if (!object.has(key) || object.isNull(key)) continue;
+            Object value = object.opt(key);
+            if (value instanceof Boolean) return (Boolean) value;
+            if (value instanceof Number) return ((Number) value).intValue() == 1;
+            String text = clean(String.valueOf(value)).toLowerCase(Locale.ROOT);
+            if ("1".equals(text) || "true".equals(text) || "active".equals(text) || "aktif".equals(text) || "yes".equals(text)) return true;
+        }
+        return false;
     }
 
     private String clean(

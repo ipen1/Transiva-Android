@@ -57,6 +57,9 @@ public class DriverProfileActivity extends Activity {
     private TextView speedValue;
     private TextView balanceValue;
     private TextView noteValue;
+    private TextView bpjsStatusValue;
+    private TextView bpjsSummaryValue;
+    private JSONObject latestProfile;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -126,6 +129,7 @@ public class DriverProfileActivity extends Activity {
         content.addView(buildIdentityCard(), sectionLp());
         content.addView(buildDriverInfoCard(), sectionLp());
         content.addView(buildStatusCard(), sectionLp());
+        content.addView(buildBpjsCard(), sectionLp());
         content.addView(buildDocumentCard(), sectionLp());
         content.addView(buildSecurityCard());
 
@@ -242,6 +246,28 @@ public class DriverProfileActivity extends Activity {
         return card;
     }
 
+    private View buildBpjsCard() {
+        LinearLayout card = whiteCard();
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.addView(sectionTitle("BPJS Ketenagakerjaan", "Perlindungan kepesertaan driver Transiva"));
+        bpjsStatusValue = addInfoRow(card, "Status Kepesertaan", "Tidak Aktif");
+        bpjsSummaryValue = addInfoRow(card, "Nomor BPJS", "Belum diisi");
+
+        TextView open = text("Lihat kartu & detail BPJS  ›", 11, "#0B7CFF", true);
+        open.setPadding(0, dp(13), 0, 0);
+        card.addView(open);
+
+        card.setOnClickListener(view -> {
+            Intent intent = new Intent(this, DriverBpjsActivity.class);
+            if (latestProfile != null) {
+                intent.putExtra("bpjs_profile_json", latestProfile.toString());
+            }
+            startActivity(intent);
+        });
+        return card;
+    }
+
     private View buildDocumentCard() {
         LinearLayout card = whiteCard();
         card.addView(sectionTitle("Kendaraan & Dokumen", "Preview dokumen yang tersimpan di server"));
@@ -299,6 +325,7 @@ public class DriverProfileActivity extends Activity {
     }
 
     private void bindProfile(JSONObject profile) {
+        latestProfile = profile;
         String name = first(profile.optString("name"), profile.optString("username"), "Driver");
         String username = first(profile.optString("username"), "driver");
         String driverType = normalizeDriverType(profile.optString("driver_type"));
@@ -318,6 +345,15 @@ public class DriverProfileActivity extends Activity {
         verifiedAtValue.setText(formatDate(profile.optString("verified_at")));
         balanceValue.setText(rupiah(profile.optDouble("balance", 0)));
         noteValue.setText(first(profile.optString("verification_note"), "-"));
+
+        boolean bpjsActive = readFlag(profile, "bpjs_active", "bpjs_is_active");
+        if (bpjsStatusValue != null) {
+            bpjsStatusValue.setText(bpjsActive ? "Aktif" : "Tidak Aktif");
+            bpjsStatusValue.setTextColor(Color.parseColor(bpjsActive ? "#0E9F4B" : "#C62828"));
+        }
+        if (bpjsSummaryValue != null) {
+            bpjsSummaryValue.setText(first(profile.optString("bpjs_number"), profile.optString("bpjs_no"), "Belum diisi"));
+        }
 
         boolean online = profile.optInt("is_online", 0) == 1;
         boolean busy = profile.optInt("is_busy", 0) == 1;
@@ -366,6 +402,19 @@ public class DriverProfileActivity extends Activity {
         if (clean.startsWith("http://") || clean.startsWith("https://")) return clean;
         while (clean.startsWith("/")) clean = clean.substring(1);
         return "https://transiva.my.id/" + clean;
+    }
+
+    private boolean readFlag(JSONObject object, String... keys) {
+        if (object == null || keys == null) return false;
+        for (String key : keys) {
+            if (!object.has(key) || object.isNull(key)) continue;
+            Object value = object.opt(key);
+            if (value instanceof Boolean) return (Boolean) value;
+            if (value instanceof Number) return ((Number) value).intValue() == 1;
+            String text = clean(String.valueOf(value)).toLowerCase(Locale.ROOT);
+            if ("1".equals(text) || "true".equals(text) || "active".equals(text) || "aktif".equals(text) || "yes".equals(text)) return true;
+        }
+        return false;
     }
 
     private String normalizeDriverType(String value) {
