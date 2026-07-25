@@ -1074,11 +1074,11 @@ public class AdminDriverManagementActivity extends Activity {
                 11, "#64748B", false), marginTop(14));
 
         form.addView(buildMediaPicker(media, "driver_photo", "Foto Driver",
-                editing ? existing.optString("driver_photo") : ""), editing), marginTop(9));
+                editing ? existing.optString("driver_photo") : "", editing), marginTop(9));
         form.addView(buildMediaPicker(media, "vehicle_photo", "Foto Kendaraan",
-                editing ? existing.optString("vehicle_photo") : ""), editing), marginTop(9));
+                editing ? existing.optString("vehicle_photo") : "", editing), marginTop(9));
         form.addView(buildMediaPicker(media, "ktp_photo", "Foto KTP",
-                editing ? existing.optString("ktp_photo") : ""), editing), marginTop(9));
+                editing ? existing.optString("ktp_photo") : "", editing), marginTop(9));
 
         ScrollView container = new ScrollView(this);
         container.addView(form);
