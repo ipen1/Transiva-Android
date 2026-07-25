@@ -496,80 +496,65 @@ public class TransRideActivity extends Activity {
     private String mapHtml() {
         String pickupIcon = drawableDataUri("map_pickup_pin", "ic_pickup_pin", "pickup_pin", "pickup", "point_pickup", "ic_pickup");
         String deliveryIcon = drawableDataUri("map_destination_pin", "map_delivery_pin", "ic_delivery_pin", "delivery_pin", "delivery", "point_delivery", "ic_delivery");
-        String bikeIcon = drawableDataUri("map_motor_top", "ic_motor_top", "motor_top", "ic_transbike", "transbike", "motor", "bike_marker");
         String placeIcon = drawableDataUri("mark", "map_place_pin", "business_pin", "merchant_pin", "laundry_pin");
         String driverIcon = drawableDataUri("user", "driver_online", "ic_driver_online", "map_motor_top", "ic_motor_top", "motor_top");
         final boolean useDarkMap = CustomerAppSettings.isDarkMode(this);
 
         return "<!DOCTYPE html><html><head>" +
                 "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>" +
-                "<link rel='stylesheet' href='" + BASE_URL + "js/leaflet.css'>" +
-                "<script src='" + BASE_URL + "js/leaflet.js'></script>" +
-                "<style>html,body,#map{height:100%;margin:0;padding:0;background:#eef6ff;overflow:hidden;}" +
-                ".leaflet-control-attribution,.leaflet-control-zoom{display:none!important;}" +
-                ".leaflet-container{font-family:Arial,sans-serif;border-radius:14px;background:#eef6ff;}" +
-                ".pin{font-size:25px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.24));}" +
-                ".assetpin{display:block;width:" + MARKER_IMAGE_WIDTH_DP +
-                "px;height:" + MARKER_IMAGE_HEIGHT_DP +
-                "px;object-fit:contain;filter:drop-shadow(0 4px 4px rgba(0,0,0,.26));}" +
-                ".bikepin{width:46px;height:46px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
-                ".placepin{width:42px;height:42px;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
-                ".driverpin{width:42px;height:42px;object-fit:contain;border-radius:50%;filter:drop-shadow(0 6px 6px rgba(0,0,0,.30));}" +
-                ".route{stroke-linecap:round;stroke-linejoin:round;}" +
-                ".popup{min-width:170px;line-height:1.55;font-size:13px;color:#0f172a;}" +
+                "<link href='https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css' rel='stylesheet'>" +
+                "<script src='https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js'></script>" +
+                "<style>html,body,#map{height:100%;margin:0;padding:0;overflow:hidden;background:" + (useDarkMap ? "#10151d" : "#eef6ff") + ";}" +
+                ".maplibregl-ctrl-bottom-left,.maplibregl-ctrl-bottom-right,.maplibregl-ctrl-top-left,.maplibregl-ctrl-top-right{display:none!important;}" +
+                ".maplibregl-canvas{outline:none;border-radius:14px;}" +
+                ".marker-img{display:block;object-fit:contain;filter:drop-shadow(0 5px 5px rgba(0,0,0,.34));}" +
+                ".marker-fallback{font-size:28px;line-height:44px;text-align:center;filter:drop-shadow(0 4px 4px rgba(0,0,0,.30));}" +
+                ".maplibregl-popup-content{border-radius:14px;padding:11px 13px;box-shadow:0 8px 24px rgba(0,0,0,.24);}" +
+                ".popup{min-width:160px;line-height:1.5;font:13px Arial,sans-serif;color:#0f172a;}" +
                 ".popup b{font-size:15px;color:#0B3A78;}" +
                 "</style></head><body><div id='map'></div><script>" +
-                "var map,pickup=null,delivery=null,centerMarker=null,route=null,baseMapLayer=null,currentMapTheme=\'\';" +
+                "var map=null,pickup=null,delivery=null,centerMarker=null,routeReady=false;" +
                 "var placeMarkers=[],driverMarkers=[];" +
-                "function desiredMapTheme(){return " + (useDarkMap ? "\'night\'" : "\'day\'") + ";}" +
-                "function applyMapTheme(force){if(!map)return;var theme=desiredMapTheme();if(!force&&theme===currentMapTheme)return;currentMapTheme=theme;if(baseMapLayer){try{map.removeLayer(baseMapLayer);}catch(e){}}var isDay=(theme===\'day\');var url=isDay?\'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png\':\'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png\';baseMapLayer=L.tileLayer(url,{subdomains:\'abcd\',maxZoom:20,attribution:\'&copy; OpenStreetMap contributors &copy; CARTO\'}).addTo(map);document.documentElement.style.background=isDay?\'#eef6ff\':\'#111827\';document.body.style.background=isDay?\'#eef6ff\':\'#111827\';}" +
-                "var pickupIconData='" + js(pickupIcon) + "',deliveryIconData='" + js(deliveryIcon) + "',bikeIconData='" + js(bikeIcon) + "',placeIconData='" + js(placeIcon) + "',driverIconData='" + js(driverIcon) + "';" +
+                "var darkMode=" + (useDarkMap ? "true" : "false") + ";" +
+                "var pickupIconData='" + js(pickupIcon) + "',deliveryIconData='" + js(deliveryIcon) + "',placeIconData='" + js(placeIcon) + "',driverIconData='" + js(driverIcon) + "';" +
                 "function esc(v){return String(v||'').replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}" +
-                "function ready(){try{map=L.map('map',{zoomControl:false,attributionControl:false}).setView([" + centerLat + "," + centerLng + "],17);" +
-                "applyMapTheme(true);" +
-                "setCenterMarker('pickup');" +
-                "function notifyCenter(){var c=map.getCenter();if(centerMarker)centerMarker.setLatLng(c);try{AndroidBike.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
-                "map.on('move',function(){if(centerMarker)centerMarker.setLatLng(map.getCenter());});" +
-                "map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
-                "setTimeout(function(){map.invalidateSize(true);var c=map.getCenter();try{AndroidBike.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}},600);" +
-                "}catch(e){setTimeout(ready,700);}}" +
-                "function iconData(data,fallback){" +
-                "var w=" + MARKER_BOX_WIDTH_DP + "," +
-                "h=" + MARKER_BOX_HEIGHT_DP + "," +
-                "ax=" + MARKER_ANCHOR_X_PX + "," +
-                "ay=" + MARKER_ANCHOR_Y_PX + ";" +
-                "var html=(data&&data.length>20)" +
-                "?'<img class=assetpin src=\"'+data+'\">'" +
-                ":'<div class=pin style=\"width:'+w+'px;height:'+h+'px;line-height:'+h+'px\">'+fallback+'</div>';" +
-                "return L.divIcon({" +
-                "html:html,className:''," +
-                "iconSize:[w,h]," +
-                "iconAnchor:[ax,ay]," +
-                "popupAnchor:[0,-Math.max(1,ay-2)]" +
-                "});" +
+                "function safePaint(id,p,v){try{map.setPaintProperty(id,p,v);}catch(e){}}" +
+                "function styleNight(){if(!map||!darkMode)return;var s=map.getStyle();if(!s||!s.layers)return;" +
+                "s.layers.forEach(function(l){var id=(l.id||'').toLowerCase(),src=(l['source-layer']||'').toLowerCase();" +
+                "if(l.type==='background'){safePaint(l.id,'background-color','#10151d');return;}" +
+                "if(l.type==='fill'){" +
+                " if(id.indexOf('building')>=0||src==='building'){safePaint(l.id,'fill-color','#49515c');safePaint(l.id,'fill-opacity',0.70);}" +
+                " else if(id.indexOf('water')>=0||src==='water'){safePaint(l.id,'fill-color','#101f33');}" +
+                " else if(id.indexOf('park')>=0||id.indexOf('landcover')>=0||src==='landcover'){safePaint(l.id,'fill-color','#18231f');safePaint(l.id,'fill-opacity',0.78);}" +
+                " else {safePaint(l.id,'fill-color','#171d26');safePaint(l.id,'fill-opacity',0.86);}" +
                 "}" +
-                "function setCenterMarker(type){" +
-                "if(!map)return;" +
-                "var isPickup=(type==='pickup');" +
-                "var icon=iconData(isPickup?pickupIconData:deliveryIconData,isPickup?'🟢':'🔴');" +
-                "var position=map.getCenter();" +
-                "if(centerMarker){centerMarker.setLatLng(position);centerMarker.setIcon(icon);}" +
-                "else{centerMarker=L.marker(position,{icon:icon,interactive:false,keyboard:false,zIndexOffset:1200}).addTo(map);}" +
+                "if(l.type==='line'){" +
+                " var road=(id.indexOf('road')>=0||id.indexOf('street')>=0||id.indexOf('motorway')>=0||id.indexOf('highway')>=0||src==='transportation');" +
+                " if(road){var major=(id.indexOf('motorway')>=0||id.indexOf('trunk')>=0||id.indexOf('primary')>=0||id.indexOf('secondary')>=0);safePaint(l.id,'line-color',major?'#FFC94A':'#E9D38A');safePaint(l.id,'line-opacity',major?0.98:0.84);}" +
+                " else if(id.indexOf('water')>=0){safePaint(l.id,'line-color','#315276');}" +
                 "}" +
-                "function placeData(){if(placeIconData&&placeIconData.length>20){return L.divIcon({html:'<img class=placepin src=\"'+placeIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,42],popupAnchor:[0,-40]});}return L.divIcon({html:'<div class=pin>📍</div>',className:'',iconSize:[32,36],iconAnchor:[16,31],popupAnchor:[0,-29]});}" +
-                "function driverData(){if(driverIconData&&driverIconData.length>20){return L.divIcon({html:'<img class=driverpin src=\"'+driverIconData+'\">',className:'',iconSize:[42,42],iconAnchor:[21,21],popupAnchor:[0,-24]});}return L.divIcon({html:'<div class=pin>🏍️</div>',className:'',iconSize:[46,46],iconAnchor:[23,28],popupAnchor:[0,-28]});}" +
-                "function setPickup(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLatLng([lat,lng]);else pickup=L.marker([lat,lng],{icon:iconData(pickupIconData,'🟢'),zIndexOffset:700}).addTo(map);if(label)pickup.bindPopup('<div class=popup><b>Lokasi Jemput</b><br>'+esc(label)+'</div>');}" +
-                "function setDelivery(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLatLng([lat,lng]);else delivery=L.marker([lat,lng],{icon:iconData(deliveryIconData,'🔴'),zIndexOffset:700}).addTo(map);if(label)delivery.bindPopup('<div class=popup><b>Lokasi Tujuan</b><br>'+esc(label)+'</div>');}" +
-                "function moveTo(lat,lng,z){if(!map)return;map.setView([+lat,+lng],z||17,{animate:true});}" +
-                "function clearPlaces(){for(var i=0;i<placeMarkers.length;i++){try{map.removeLayer(placeMarkers[i]);}catch(e){}}placeMarkers=[];}" +
-                "function addPlace(lat,lng,name,type,address){if(!map||!lat||!lng)return;var html='<div class=popup><b>'+esc(name)+'</b><br>'+esc(type||'Transiva')+(address?'<br>'+esc(address):'')+'</div>';var m=L.marker([+lat,+lng],{icon:placeData(),zIndexOffset:350}).addTo(map).bindPopup(html);placeMarkers.push(m);}" +
-                "function clearDrivers(){for(var i=0;i<driverMarkers.length;i++){try{map.removeLayer(driverMarkers[i]);}catch(e){}}driverMarkers=[];}" +
-                "function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var m=L.marker([+lat,+lng],{icon:driverData(),zIndexOffset:500}).addTo(map).bindPopup('<div class=popup><b>'+esc(name||'Driver')+'</b><br>Driver online</div>');driverMarkers.push(m);}" +
-                "function drawRouteAfterOrder(){if(route){map.removeLayer(route);route=null;}if(pickup&&delivery){var a=pickup.getLatLng(),b=delivery.getLatLng();route=L.polyline([a,b],{color:'#0B7CFF',weight:5,opacity:.9,dashArray:'8,8',className:'route'}).addTo(map);map.fitBounds([a,b],{padding:[60,60],maxZoom:17,animate:true});}}" +
-                "ready();" +
+                "if(l.type==='symbol'){safePaint(l.id,'text-color','#F8FAFC');safePaint(l.id,'text-halo-color','#111827');safePaint(l.id,'text-halo-width',1.7);safePaint(l.id,'text-halo-blur',0.5);}" +
+                "});}" +
+                "function markerEl(data,fallback,w,h){var el=document.createElement('div');el.style.width=w+'px';el.style.height=h+'px';if(data&&data.length>20){var im=document.createElement('img');im.src=data;im.className='marker-img';im.style.width=w+'px';im.style.height=h+'px';el.appendChild(im);}else{el.className='marker-fallback';el.innerHTML=fallback;}return el;}" +
+                "function newMarker(lat,lng,data,fallback,w,h,anchor){return new maplibregl.Marker({element:markerEl(data,fallback,w,h),anchor:anchor||'bottom'}).setLngLat([+lng,+lat]).addTo(map);}" +
+                "function popup(html){return new maplibregl.Popup({offset:28,closeButton:false}).setHTML(html);}" +
+                "function setCenterMarker(type){if(!map)return;var c=map.getCenter(),isPickup=(type==='pickup'),data=isPickup?pickupIconData:deliveryIconData,fb=isPickup?'🟢':'🔴';if(centerMarker)centerMarker.remove();centerMarker=newMarker(c.lat,c.lng,data,fb," + MARKER_BOX_WIDTH_DP + "," + MARKER_BOX_HEIGHT_DP + ",'bottom');}" +
+                "function setPickup(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(pickup)pickup.setLngLat([lng,lat]);else pickup=newMarker(lat,lng,pickupIconData,'🟢'," + MARKER_BOX_WIDTH_DP + "," + MARKER_BOX_HEIGHT_DP + ",'bottom');if(label)pickup.setPopup(popup('<div class=popup><b>Lokasi Jemput</b><br>'+esc(label)+'</div>'));}" +
+                "function setDelivery(lat,lng,label){lat=+lat;lng=+lng;if(!lat||!lng)return;if(delivery)delivery.setLngLat([lng,lat]);else delivery=newMarker(lat,lng,deliveryIconData,'🔴'," + MARKER_BOX_WIDTH_DP + "," + MARKER_BOX_HEIGHT_DP + ",'bottom');if(label)delivery.setPopup(popup('<div class=popup><b>Lokasi Tujuan</b><br>'+esc(label)+'</div>'));}" +
+                "function moveTo(lat,lng,z){if(!map)return;map.easeTo({center:[+lng,+lat],zoom:z||17,duration:650});}" +
+                "function clearPlaces(){for(var i=0;i<placeMarkers.length;i++)try{placeMarkers[i].remove();}catch(e){}placeMarkers=[];}" +
+                "function addPlace(lat,lng,name,type,address){if(!map||!lat||!lng)return;var m=newMarker(+lat,+lng,placeIconData,'📍',42,42,'bottom');m.setPopup(popup('<div class=popup><b>'+esc(name)+'</b><br>'+esc(type||'Transiva')+(address?'<br>'+esc(address):'')+'</div>'));placeMarkers.push(m);}" +
+                "function clearDrivers(){for(var i=0;i<driverMarkers.length;i++)try{driverMarkers[i].remove();}catch(e){}driverMarkers=[];}" +
+                "function addDriver(lat,lng,name){if(!map||!lat||!lng)return;var m=newMarker(+lat,+lng,driverIconData,'🏍️',42,42,'center');m.setPopup(popup('<div class=popup><b>'+esc(name||'Driver')+'</b><br>Driver online</div>'));driverMarkers.push(m);}" +
+                "function ensureRoute(){if(routeReady)return;try{map.addSource('transiva-route',{type:'geojson',data:{type:'FeatureCollection',features:[]}});map.addLayer({id:'transiva-route-glow',type:'line',source:'transiva-route',paint:{'line-color':'#08111f','line-width':9,'line-opacity':0.38}});map.addLayer({id:'transiva-route',type:'line',source:'transiva-route',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#1687ff','line-width':5.5,'line-opacity':0.98}});routeReady=true;}catch(e){}}" +
+                "function drawRouteAfterOrder(){if(!map||!pickup||!delivery)return;ensureRoute();var a=pickup.getLngLat(),b=delivery.getLngLat(),geo={type:'Feature',geometry:{type:'LineString',coordinates:[[a.lng,a.lat],[b.lng,b.lat]]},properties:{}};try{map.getSource('transiva-route').setData(geo);}catch(e){}var bounds=new maplibregl.LngLatBounds();bounds.extend([a.lng,a.lat]);bounds.extend([b.lng,b.lat]);map.fitBounds(bounds,{padding:60,maxZoom:17,duration:700});}" +
+                "function notifyCenter(){if(!map)return;var c=map.getCenter();if(centerMarker)centerMarker.setLngLat([c.lng,c.lat]);try{AndroidBike.onCenterChanged(c.lat,c.lng,c.lat,c.lng);}catch(e){}}" +
+                "function ready(){try{map=new maplibregl.Map({container:'map',style:darkMode?'https://tiles.openfreemap.org/styles/dark':'https://tiles.openfreemap.org/styles/liberty',center:[" + centerLng + "," + centerLat + "],zoom:17,attributionControl:false,dragRotate:false,pitchWithRotate:false});" +
+                "map.on('load',function(){styleNight();ensureRoute();setCenterMarker('pickup');var c=map.getCenter();try{AndroidBike.onMapReady(c.lat,c.lng,c.lat,c.lng);}catch(e){}});" +
+                "map.on('move',function(){if(centerMarker){var c=map.getCenter();centerMarker.setLngLat([c.lng,c.lat]);}});map.on('moveend',notifyCenter);map.on('zoomend',notifyCenter);" +
+                "}catch(e){setTimeout(ready,700);}}ready();" +
                 "</script></body></html>";
     }
-
     public class MapBridge {
         @JavascriptInterface public void onMapReady(double lat, double lng, double pLat, double pLng) {
             mainHandler.post(() -> {
