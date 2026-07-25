@@ -206,6 +206,7 @@ public class DriverTripActivity extends Activity {
         progressBar = new ProgressBar(this); progressBar.setVisibility(View.GONE);
         FrameLayout.LayoutParams pp = new FrameLayout.LayoutParams(dp(48), dp(48)); pp.gravity = Gravity.CENTER; page.addView(progressBar, pp);
         setContentView(page);
+        DriverAppSettings.apply(this);
     }
     private void renderEmpty(){
         root.removeAllViews(); top("Driver Trip", "Status perjalanan order native");

@@ -119,11 +119,13 @@ public class DriverDashboardActivity extends Activity
         );
 
         setContentView(buildScreen());
+        DriverAppSettings.apply(this);
         presenter.load(true);
     }
 
     @Override protected void onResume() {
         super.onResume();
+        DriverAppSettings.apply(this);
         if (!validSession()) return;
         handler.removeCallbacks(refreshRunnable);
         handler.removeCallbacks(countdownRunnable);
@@ -251,9 +253,22 @@ public class DriverDashboardActivity extends Activity
         verificationText.setPadding(dp(8), dp(4), dp(8), dp(4));
         add(left, verificationText, 0, dp(5), 0, 0);
 
+        LinearLayout actions = new LinearLayout(this);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+
         lastUpdateText = text("Belum diperbarui", 10, "#64748B", false);
         lastUpdateText.setGravity(Gravity.END);
-        row.addView(lastUpdateText, new LinearLayout.LayoutParams(-2, -2));
+        actions.addView(lastUpdateText, new LinearLayout.LayoutParams(-2, -2));
+
+        TextView settingsButton = text("⚙", 25, "#0B7CFF", true);
+        settingsButton.setGravity(Gravity.CENTER);
+        settingsButton.setContentDescription("Pengaturan Driver");
+        settingsButton.setPadding(dp(5), 0, 0, 0);
+        settingsButton.setOnClickListener(v ->
+                startActivity(new Intent(this, DriverSettingsActivity.class)));
+        actions.addView(settingsButton, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+        row.addView(actions, new LinearLayout.LayoutParams(-2, -2));
 
         content.addView(row);
     }

@@ -123,6 +123,7 @@ public class DriverChatRoomActivity extends Activity {
         session = new SessionManager(this);
         readIntent();
         setContentView(buildScreen());
+        DriverAppSettings.apply(this);
         DriverChatNotificationPoller.requestPermission(this);
         DriverChatNotificationPoller.start(this);
         DriverChatNotificationPoller.setOpenRoom(roomId);

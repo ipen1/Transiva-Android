@@ -72,6 +72,7 @@ public class DriverChatActivity extends Activity {
         }
 
         setContentView(buildScreen());
+        DriverAppSettings.apply(this);
         DriverChatNotificationPoller.requestPermission(this);
         DriverChatNotificationPoller.start(this);
         loadConversations();

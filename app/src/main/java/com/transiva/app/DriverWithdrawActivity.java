@@ -269,6 +269,7 @@ public class DriverWithdrawActivity extends Activity {
         page.addView(progressBar, plp);
 
         setContentView(page);
+        DriverAppSettings.apply(this);
     }
 
     private Button chip(String label, long amount) {

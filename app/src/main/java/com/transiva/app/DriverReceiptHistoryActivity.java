@@ -109,6 +109,7 @@ public class DriverReceiptHistoryActivity extends Activity {
         plp.gravity = Gravity.CENTER;
         page.addView(progressBar, plp);
         setContentView(page);
+        DriverAppSettings.apply(this);
     }
 
     private void loadReceipts() {

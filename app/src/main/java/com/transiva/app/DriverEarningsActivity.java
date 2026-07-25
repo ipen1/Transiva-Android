@@ -44,6 +44,7 @@ public class DriverEarningsActivity extends Activity {
         }
 
         setContentView(buildScreen());
+        DriverAppSettings.apply(this);
     }
 
     @Override

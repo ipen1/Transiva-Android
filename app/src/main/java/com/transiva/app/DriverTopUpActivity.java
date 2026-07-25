@@ -102,6 +102,7 @@ public class DriverTopUpActivity extends Activity {
         pLp.gravity = Gravity.CENTER;
         page.addView(progressBar, pLp);
         setContentView(page);
+        DriverAppSettings.apply(this);
         buildTopBar();
         buildBalanceCard();
         buildAmountCard();

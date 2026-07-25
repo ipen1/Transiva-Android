@@ -383,6 +383,7 @@ public class DriverNavigationActivity extends Activity {
         page.addView(attribution, attrLp);
 
         setContentView(page);
+        DriverAppSettings.apply(this);
     }
 
     private android.graphics.drawable.GradientDrawable roundRect(int color, int radiusDp) {

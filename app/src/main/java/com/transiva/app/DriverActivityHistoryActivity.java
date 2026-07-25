@@ -39,6 +39,7 @@ public class DriverActivityHistoryActivity extends Activity {
         }
 
         setContentView(buildScreen());
+        DriverAppSettings.apply(this);
     }
 
     private boolean validDriverSession() {

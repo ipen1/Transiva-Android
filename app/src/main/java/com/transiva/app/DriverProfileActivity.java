@@ -72,6 +72,7 @@ public class DriverProfileActivity extends Activity {
 
         api = new DriverApiClient(session);
         setContentView(buildScreen());
+        DriverAppSettings.apply(this);
         loadProfile();
     }
 

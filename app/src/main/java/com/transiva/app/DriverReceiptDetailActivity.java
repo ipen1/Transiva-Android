@@ -56,6 +56,7 @@ public class DriverReceiptDetailActivity extends Activity {
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
         render();
         setContentView(page);
+        DriverAppSettings.apply(this);
     }
 
     private void render() {
