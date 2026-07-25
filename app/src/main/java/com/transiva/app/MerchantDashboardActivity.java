@@ -5,6 +5,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.widget.*;
 import org.json.JSONArray;
@@ -39,13 +40,29 @@ public class MerchantDashboardActivity extends MerchantBaseActivity {
         root = new LinearLayout(this);
         setContentView(page(root));
 
-        TextView badge = tv("🍔 Food Store", 13, BLUE, true);
-        badge.setGravity(Gravity.RIGHT);
-        root.addView(badge);
+        LinearLayout hero = new LinearLayout(this);
+        hero.setOrientation(LinearLayout.VERTICAL);
+        hero.setPadding(dp(18), dp(18), dp(18), dp(18));
+        GradientDrawable heroBg = new GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.parseColor("#0B7CFF"), Color.parseColor("#0756C9")});
+        heroBg.setCornerRadius(dp(24));
+        hero.setBackground(heroBg);
+        hero.setElevation(dp(5));
+        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(-1, -2);
+        heroLp.setMargins(0, 0, 0, dp(14));
+        root.addView(hero, heroLp);
 
-        root.addView(title("Transiva Merchant"));
-        nameText = sub("Halo, " + (username().isEmpty() ? "Merchant" : username()));
-        root.addView(nameText);
+        TextView badge = tv("TRANSIVA  •  MERCHANT", 11, Color.parseColor("#DCEEFF"), true);
+        hero.addView(badge);
+        TextView heroTitle = tv("Kelola bisnis lebih mudah", 24, Color.WHITE, true);
+        heroTitle.setPadding(0, dp(7), 0, dp(3));
+        hero.addView(heroTitle);
+        nameText = tv("Halo, " + (username().isEmpty() ? "Merchant" : username()), 13, Color.WHITE, false);
+        hero.addView(nameText);
+        TextView heroSub = tv("Pesanan, menu, ulasan, dan status toko dalam satu tempat.", 12, Color.parseColor("#DCEEFF"), false);
+        heroSub.setPadding(0, dp(4), 0, 0);
+        hero.addView(heroSub);
 
         LinearLayout statusCard = new LinearLayout(this);
         statusCard.setOrientation(LinearLayout.VERTICAL);
@@ -88,7 +105,11 @@ public class MerchantDashboardActivity extends MerchantBaseActivity {
 
         LinearLayout r3 = row(); grid.addView(r3);
         tile(r3, "🏪", "Profil Merchant", () -> open(MerchantRestaurantProfileActivity.class));
-        tile(r3, "🔄", "Refresh", () -> loadAll());
+        tile(r3, "⚙️", "Pengaturan", () -> open(MerchantSettingsActivity.class));
+
+        Button refresh = outlineBtn("↻  Refresh Dashboard");
+        refresh.setOnClickListener(v -> loadAll());
+        root.addView(refresh);
 
         Button logout = outlineBtn("Keluar");
         logout.setOnClickListener(v -> logout());

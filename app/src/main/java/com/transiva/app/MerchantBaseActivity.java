@@ -39,6 +39,11 @@ public class MerchantBaseActivity extends Activity {
         sessionManager = new SessionManager(this);
     }
 
+    @Override protected void onResume(){
+        super.onResume();
+        MerchantAppSettings.apply(this);
+    }
+
     protected String username(){
         try { String v = sessionManager.getUsername(); if(v != null && !v.trim().isEmpty()) return v.trim(); } catch(Exception ignored){}
         return getSharedPreferences("transiva_fcm", MODE_PRIVATE).getString("username", "");
@@ -62,14 +67,24 @@ public class MerchantBaseActivity extends Activity {
         return getSharedPreferences("transiva", MODE_PRIVATE).getInt("user_id", 0);
     }
 
-    protected ScrollView page(LinearLayout root){
+    protected View page(LinearLayout root){
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(16), dp(18), dp(16), dp(24));
         root.setBackgroundColor(BG);
+
+        LinearLayout shell = new LinearLayout(this);
+        shell.setOrientation(LinearLayout.VERTICAL);
+        shell.setBackgroundColor(BG);
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
+        scroll.setClipToPadding(false);
         scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
-        return scroll;
+        shell.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+
+        View bottom = MerchantBottomNavigation.build(this, MerchantBottomNavigation.resolve(this));
+        shell.addView(bottom, new LinearLayout.LayoutParams(-1, dp(66)));
+        return shell;
     }
 
     protected TextView title(String text){

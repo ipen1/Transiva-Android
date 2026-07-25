@@ -48,9 +48,13 @@ public class UpdateDownloadActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         String role = getIntent().getStringExtra(EXTRA_ROLE);
-        dark = "driver".equalsIgnoreCase(role)
-                ? DriverAppSettings.isDarkMode(this)
-                : CustomerAppSettings.isDarkMode(this);
+        if ("driver".equalsIgnoreCase(role)) {
+            dark = DriverAppSettings.isDarkMode(this);
+        } else if ("merchant".equalsIgnoreCase(role)) {
+            dark = MerchantAppSettings.isDarkMode(this);
+        } else {
+            dark = CustomerAppSettings.isDarkMode(this);
+        }
         setContentView(buildScreen());
         checkUpdate();
     }
