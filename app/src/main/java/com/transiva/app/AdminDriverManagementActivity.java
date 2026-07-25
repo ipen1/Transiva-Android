@@ -3,6 +3,9 @@ package com.transiva.app;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.net.Uri;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -15,6 +18,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -27,6 +31,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -35,6 +40,8 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class AdminDriverManagementActivity extends Activity {
 
@@ -58,6 +65,27 @@ public class AdminDriverManagementActivity extends Activity {
     private boolean loading;
     private JSONArray cachedDrivers =
             new JSONArray();
+
+    private static final int REQ_PICK_DRIVER_MEDIA = 7301;
+    private DriverMediaSelection activeMediaSelection;
+    private String pendingMediaField = "";
+
+    private static final class MediaUpload {
+        final byte[] bytes;
+        final String mimeType;
+        final String fileName;
+
+        MediaUpload(byte[] bytes, String mimeType, String fileName) {
+            this.bytes = bytes;
+            this.mimeType = mimeType;
+            this.fileName = fileName;
+        }
+    }
+
+    private static final class DriverMediaSelection {
+        final Map<String, MediaUpload> uploads = new LinkedHashMap<>();
+        final Map<String, ImageView> previews = new LinkedHashMap<>();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -994,299 +1022,278 @@ public class AdminDriverManagementActivity extends Activity {
         dialog.show();
     }
 
-    private void showDriverForm(
-            JSONObject existing
-    ) {
-        boolean editing =
-                existing != null;
+    private void showDriverForm(JSONObject existing) {
+        boolean editing = existing != null;
+        DriverMediaSelection media = new DriverMediaSelection();
+        activeMediaSelection = media;
 
-        LinearLayout form =
-                new LinearLayout(this);
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(6), dp(4), dp(6), 0);
 
-        form.setOrientation(
-                LinearLayout.VERTICAL
-        );
-
-        form.setPadding(
-                dp(6),
-                dp(4),
-                dp(6),
-                0
-        );
-
-        EditText username =
-                input("Username");
-
-        username.setText(
-                editing
-                        ? existing.optString(
-                        "username"
-                )
-                        : ""
-        );
-
+        EditText username = input("Username");
+        username.setText(editing ? existing.optString("username") : "");
         username.setEnabled(!editing);
         form.addView(username, inputLp());
 
-        EditText name =
-                input("Nama lengkap");
-
-        name.setText(
-                editing
-                        ? existing.optString("name")
-                        : ""
-        );
-
+        EditText name = input("Nama lengkap");
+        name.setText(editing ? existing.optString("name") : "");
         form.addView(name, inputLp());
 
-        EditText email =
-                input("Email");
-
-        email.setInputType(
-                InputType.TYPE_CLASS_TEXT
-                        | InputType
-                        .TYPE_TEXT_VARIATION_EMAIL_ADDRESS
-        );
-
-        email.setText(
-                editing
-                        ? existing.optString("email")
-                        : ""
-        );
-
+        EditText email = input("Email");
+        email.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        email.setText(editing ? existing.optString("email") : "");
         form.addView(email, inputLp());
 
-        EditText phone =
-                input("Nomor HP");
-
-        phone.setInputType(
-                InputType.TYPE_CLASS_PHONE
-        );
-
-        phone.setText(
-                editing
-                        ? existing.optString("phone")
-                        : ""
-        );
-
+        EditText phone = input("Nomor HP");
+        phone.setInputType(InputType.TYPE_CLASS_PHONE);
+        phone.setText(editing ? existing.optString("phone") : "");
         form.addView(phone, inputLp());
 
-        EditText plate =
-                input("Nomor polisi");
-
-        plate.setText(
-                editing
-                        ? existing.optString("plate")
-                        : ""
-        );
-
+        EditText plate = input("Nomor polisi");
+        plate.setText(editing ? existing.optString("plate") : "");
         form.addView(plate, inputLp());
 
-        Spinner driverType =
-                new Spinner(this);
-
-        String[] types = {
-                "bike",
-                "car"
-        };
-
-        ArrayAdapter<String> adapter =
-                new ArrayAdapter<>(
-                        this,
-                        android.R.layout
-                                .simple_spinner_dropdown_item,
-                        types
-                );
-
+        Spinner driverType = new Spinner(this);
+        String[] types = {"bike", "car"};
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, types);
         driverType.setAdapter(adapter);
-
-        if (
-                editing
-                        && "car".equalsIgnoreCase(
-                        existing.optString(
-                                "driver_type"
-                        )
-                )
-        ) {
+        if (editing && "car".equalsIgnoreCase(existing.optString("driver_type"))) {
             driverType.setSelection(1);
         }
+        form.addView(driverType, inputLp());
 
-        form.addView(
-                driverType,
-                inputLp()
-        );
-
-        EditText password =
-                input(
-                        editing
-                                ? "Password baru (opsional)"
-                                : "Password"
-                );
-
-        password.setInputType(
-                InputType.TYPE_CLASS_TEXT
-                        | InputType
-                        .TYPE_TEXT_VARIATION_PASSWORD
-        );
-
+        EditText password = input(editing ? "Password baru (opsional)" : "Password");
+        password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         form.addView(password, inputLp());
 
-        ScrollView container =
-                new ScrollView(this);
+        form.addView(text(editing
+                        ? "Foto aktif dapat diganti, tetapi tidak dapat dihapus."
+                        : "Tambahkan ketiga foto untuk melengkapi data driver.",
+                11, "#64748B", false), marginTop(14));
 
+        form.addView(buildMediaPicker(media, "driver_photo", "Foto Driver",
+                editing ? existing.optString("driver_photo") : ""), editing), marginTop(9));
+        form.addView(buildMediaPicker(media, "vehicle_photo", "Foto Kendaraan",
+                editing ? existing.optString("vehicle_photo") : ""), editing), marginTop(9));
+        form.addView(buildMediaPicker(media, "ktp_photo", "Foto KTP",
+                editing ? existing.optString("ktp_photo") : ""), editing), marginTop(9));
+
+        ScrollView container = new ScrollView(this);
         container.addView(form);
 
-        AlertDialog dialog =
-                new AlertDialog.Builder(this)
-                        .setTitle(
-                                editing
-                                        ? "Edit Driver"
-                                        : "Tambah Driver"
-                        )
-                        .setView(container)
-                        .setNegativeButton(
-                                "Batal",
-                                null
-                        )
-                        .setPositiveButton(
-                                "Simpan",
-                                null
-                        )
-                        .create();
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(editing ? "Edit Driver" : "Tambah Driver")
+                .setView(container)
+                .setNegativeButton("Batal", null)
+                .setPositiveButton("Simpan", null)
+                .create();
 
-        dialog.setOnShowListener(
-                ignored ->
-                        dialog.getButton(
-                                AlertDialog
-                                        .BUTTON_POSITIVE
-                        ).setOnClickListener(
-                                view -> {
-                                    String user =
-                                            clean(
-                                                    username
-                                                            .getText()
-                                                            .toString()
-                                            );
+        dialog.setOnDismissListener(ignored -> {
+            if (activeMediaSelection == media) activeMediaSelection = null;
+        });
 
-                                    String pass =
-                                            clean(
-                                                    password
-                                                            .getText()
-                                                            .toString()
-                                            );
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(view -> {
+                    String user = clean(username.getText().toString());
+                    String pass = clean(password.getText().toString());
+                    if (!editing && user.length() < 3) {
+                        toast("Username minimal 3 karakter");
+                        return;
+                    }
+                    if (!editing && pass.length() < 6) {
+                        toast("Password minimal 6 karakter");
+                        return;
+                    }
+                    if (!editing && (!media.uploads.containsKey("driver_photo")
+                            || !media.uploads.containsKey("vehicle_photo")
+                            || !media.uploads.containsKey("ktp_photo"))) {
+                        toast("Foto driver, kendaraan, dan KTP wajib dipilih");
+                        return;
+                    }
 
-                                    if (
-                                            !editing
-                                                    && user.length()
-                                                    < 3
-                                    ) {
-                                        toast(
-                                                "Username minimal 3 karakter"
-                                        );
-                                        return;
-                                    }
+                    JSONObject data = new JSONObject();
+                    try {
+                        data.put("action", editing ? "update" : "create");
+                        if (editing) data.put("user_id", existing.optInt("user_id"));
+                        data.put("username", user);
+                        data.put("name", clean(name.getText().toString()));
+                        data.put("email", clean(email.getText().toString()));
+                        data.put("phone", clean(phone.getText().toString()));
+                        data.put("plate", clean(plate.getText().toString()));
+                        data.put("driver_type", String.valueOf(driverType.getSelectedItem()));
+                        data.put("password", pass);
+                    } catch (Exception error) {
+                        toast("Form tidak valid");
+                        return;
+                    }
 
-                                    if (
-                                            !editing
-                                                    && pass.length()
-                                                    < 6
-                                    ) {
-                                        toast(
-                                                "Password minimal 6 karakter"
-                                        );
-                                        return;
-                                    }
-
-                                    JSONObject data =
-                                            new JSONObject();
-
-                                    try {
-                                        data.put(
-                                                "action",
-                                                editing
-                                                        ? "update"
-                                                        : "create"
-                                        );
-
-                                        if (editing) {
-                                            data.put(
-                                                    "user_id",
-                                                    existing.optInt(
-                                                            "user_id"
-                                                    )
-                                            );
-                                        }
-
-                                        data.put(
-                                                "username",
-                                                user
-                                        );
-
-                                        data.put(
-                                                "name",
-                                                clean(
-                                                        name
-                                                                .getText()
-                                                                .toString()
-                                                )
-                                        );
-
-                                        data.put(
-                                                "email",
-                                                clean(
-                                                        email
-                                                                .getText()
-                                                                .toString()
-                                                )
-                                        );
-
-                                        data.put(
-                                                "phone",
-                                                clean(
-                                                        phone
-                                                                .getText()
-                                                                .toString()
-                                                )
-                                        );
-
-                                        data.put(
-                                                "plate",
-                                                clean(
-                                                        plate
-                                                                .getText()
-                                                                .toString()
-                                                )
-                                        );
-
-                                        data.put(
-                                                "driver_type",
-                                                String.valueOf(
-                                                        driverType
-                                                                .getSelectedItem()
-                                                )
-                                        );
-
-                                        data.put(
-                                                "password",
-                                                pass
-                                        );
-
-                                    } catch (
-                                            Exception error
-                                    ) {
-                                        toast(
-                                                "Form tidak valid"
-                                        );
-                                        return;
-                                    }
-
-                                    dialog.dismiss();
-                                    executeAction(data);
-                                }
-                        )
-        );
-
+                    dialog.dismiss();
+                    executeAction(data, media.uploads);
+                }));
         dialog.show();
+    }
+
+    private View buildMediaPicker(DriverMediaSelection media, String field,
+                                  String label, String currentUrl, boolean editing) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(dp(10), dp(10), dp(10), dp(10));
+        box.setBackground(roundStroke("#F8FBFF", "#D8E5F3", 14, 1));
+
+        ImageView preview = new ImageView(this);
+        preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        preview.setBackground(round("#E8F1FC", 12));
+        preview.setClipToOutline(true);
+        media.previews.put(field, preview);
+        box.addView(preview, new LinearLayout.LayoutParams(dp(74), dp(74)));
+
+        String url = absoluteMediaUrl(currentUrl);
+        if (!url.isEmpty()) {
+            RemoteImageLoader.loadCenterCrop(preview, url, android.R.drawable.ic_menu_gallery);
+        } else {
+            preview.setImageResource(android.R.drawable.ic_menu_gallery);
+        }
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(11), 0, 0, 0);
+        copy.addView(text(label, 13, "#0B3A78", true));
+        copy.addView(text(editing && !url.isEmpty() ? "Foto aktif • pilih untuk mengganti" : "Pilih gambar dari perangkat",
+                10, "#64748B", false), marginTop(4));
+        Button choose = outlineButton(editing && !url.isEmpty() ? "Ubah Foto" : "Pilih Foto");
+        choose.setOnClickListener(v -> openMediaPicker(media, field));
+        LinearLayout.LayoutParams chooseLp = new LinearLayout.LayoutParams(-1, dp(42));
+        chooseLp.setMargins(0, dp(7), 0, 0);
+        copy.addView(choose, chooseLp);
+        box.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+        return box;
+    }
+
+    private void openMediaPicker(DriverMediaSelection media, String field) {
+        activeMediaSelection = media;
+        pendingMediaField = field;
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.setType("image/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(Intent.createChooser(intent, "Pilih foto"), REQ_PICK_DRIVER_MEDIA);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_PICK_DRIVER_MEDIA || resultCode != RESULT_OK
+                || data == null || data.getData() == null || activeMediaSelection == null) return;
+        Uri uri = data.getData();
+        String field = pendingMediaField;
+        new Thread(() -> {
+            try {
+                MediaUpload upload = prepareImage(uri, field);
+                mainHandler.post(() -> {
+                    if (activeMediaSelection == null) return;
+                    activeMediaSelection.uploads.put(field, upload);
+                    ImageView preview = activeMediaSelection.previews.get(field);
+                    if (preview != null) {
+                        Bitmap bitmap = BitmapFactory.decodeByteArray(upload.bytes, 0, upload.bytes.length);
+                        if (bitmap != null) preview.setImageBitmap(bitmap);
+                    }
+                    toast("Foto dipilih dan dioptimalkan");
+                });
+            } catch (Exception error) {
+                mainHandler.post(() -> showError("Foto tidak dapat dipakai", readable(error)));
+            }
+        }).start();
+    }
+
+    private MediaUpload prepareImage(Uri uri, String field) throws Exception {
+        long originalSize = -1L;
+        try (android.database.Cursor cursor = getContentResolver().query(uri,
+                new String[]{android.provider.OpenableColumns.SIZE}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE);
+                if (index >= 0 && !cursor.isNull(index)) originalSize = cursor.getLong(index);
+            }
+        }
+
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            BitmapFactory.decodeStream(input, null, bounds);
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw new IllegalArgumentException("File bukan gambar yang valid");
+        }
+
+        boolean alreadySmall = originalSize > 0 && originalSize <= 350L * 1024L
+                && bounds.outWidth <= 1600 && bounds.outHeight <= 1600;
+        if (alreadySmall) {
+            byte[] raw = readImageBytes(uri, 2L * 1024L * 1024L);
+            String mime = first(getContentResolver().getType(uri), "image/jpeg");
+            return new MediaUpload(raw, mime, field + imageExtension(mime));
+        }
+
+        int sample = 1;
+        while (bounds.outWidth / sample > 2200 || bounds.outHeight / sample > 2200) sample *= 2;
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sample;
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+        Bitmap bitmap;
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            bitmap = BitmapFactory.decodeStream(input, null, options);
+        }
+        if (bitmap == null) throw new IllegalArgumentException("Gambar gagal dibaca");
+
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        float scale = Math.min(1f, 1600f / Math.max(width, height));
+        Bitmap resized = scale < 1f
+                ? Bitmap.createScaledBitmap(bitmap, Math.max(1, Math.round(width * scale)),
+                Math.max(1, Math.round(height * scale)), true)
+                : bitmap;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int quality = 84;
+        resized.compress(Bitmap.CompressFormat.JPEG, quality, out);
+        while (out.size() > 500 * 1024 && quality > 58) {
+            quality -= 7;
+            out.reset();
+            resized.compress(Bitmap.CompressFormat.JPEG, quality, out);
+        }
+        if (resized != bitmap) resized.recycle();
+        bitmap.recycle();
+        return new MediaUpload(out.toByteArray(), "image/jpeg", field + ".jpg");
+    }
+
+    private byte[] readImageBytes(Uri uri, long maxBytes) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (InputStream input = getContentResolver().openInputStream(uri)) {
+            if (input == null) throw new IllegalArgumentException("File tidak bisa dibaca");
+            byte[] buffer = new byte[8192];
+            int length;
+            long total = 0;
+            while ((length = input.read(buffer)) != -1) {
+                total += length;
+                if (total > maxBytes) throw new IllegalArgumentException("Ukuran foto terlalu besar");
+                out.write(buffer, 0, length);
+            }
+        }
+        return out.toByteArray();
+    }
+
+    private String imageExtension(String mime) {
+        String value = clean(mime).toLowerCase(Locale.ROOT);
+        if (value.contains("png")) return ".png";
+        if (value.contains("webp")) return ".webp";
+        return ".jpg";
+    }
+
+    private String absoluteMediaUrl(String value) {
+        String clean = clean(value);
+        if (clean.isEmpty()) return "";
+        if (clean.startsWith("http://") || clean.startsWith("https://")) return clean;
+        while (clean.startsWith("/")) clean = clean.substring(1);
+        return "https://transiva.my.id/" + clean;
     }
 
     private void confirmStatus(
@@ -1397,9 +1404,11 @@ public class AdminDriverManagementActivity extends Activity {
                 .show();
     }
 
-    private void executeAction(
-            JSONObject data
-    ) {
+    private void executeAction(JSONObject data) {
+        executeAction(data, null);
+    }
+
+    private void executeAction(JSONObject data, Map<String, MediaUpload> uploads) {
         if (loading) {
             return;
         }
@@ -1408,11 +1417,9 @@ public class AdminDriverManagementActivity extends Activity {
 
         new Thread(() -> {
             try {
-                JSONObject response =
-                        request(
-                                "POST",
-                                data
-                        );
+                JSONObject response = uploads != null && !uploads.isEmpty()
+                        ? requestMultipart(data, uploads)
+                        : request("POST", data);
 
                 if (
                         !response.optBoolean(
@@ -1450,6 +1457,55 @@ public class AdminDriverManagementActivity extends Activity {
                 });
             }
         }).start();
+    }
+
+    private JSONObject requestMultipart(JSONObject body, Map<String, MediaUpload> uploads) throws Exception {
+        String boundary = "----TransivaDriver" + System.currentTimeMillis();
+        HttpURLConnection connection = (HttpURLConnection) new URL(ENDPOINT).openConnection();
+        connection.setConnectTimeout(CONNECT_TIMEOUT);
+        connection.setReadTimeout(READ_TIMEOUT + 20000);
+        connection.setRequestMethod("POST");
+        connection.setUseCaches(false);
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("Authorization", "Bearer " + adminToken);
+        connection.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+
+        try (OutputStream output = connection.getOutputStream()) {
+            java.util.Iterator<String> keys = body.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                writeMultipartText(output, boundary, key, String.valueOf(body.opt(key)));
+            }
+            for (Map.Entry<String, MediaUpload> entry : uploads.entrySet()) {
+                MediaUpload upload = entry.getValue();
+                String header = "--" + boundary + "\r\n"
+                        + "Content-Disposition: form-data; name=\"" + entry.getKey()
+                        + "\"; filename=\"" + upload.fileName + "\"\r\n"
+                        + "Content-Type: " + upload.mimeType + "\r\n\r\n";
+                output.write(header.getBytes(StandardCharsets.UTF_8));
+                output.write(upload.bytes);
+                output.write("\r\n".getBytes(StandardCharsets.UTF_8));
+            }
+            output.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        }
+        int status = connection.getResponseCode();
+        InputStream stream = status >= 200 && status < 400
+                ? connection.getInputStream() : connection.getErrorStream();
+        String response = readStream(stream);
+        connection.disconnect();
+        if (response.trim().isEmpty()) throw new IllegalStateException("Respons server kosong");
+        JSONObject json = new JSONObject(response);
+        if (status == 401) throw new SecurityException(json.optString("message", "Sesi admin berakhir"));
+        return json;
+    }
+
+    private void writeMultipartText(OutputStream output, String boundary,
+                                    String name, String value) throws Exception {
+        String part = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n"
+                + value + "\r\n";
+        output.write(part.getBytes(StandardCharsets.UTF_8));
     }
 
     private JSONObject request(
