@@ -409,6 +409,15 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".AdminDriverTrackerMapActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+        <activity
+            android:name=".AdminDriverTrackerActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".AdminDashboardActivity"
             android:exported="false"
             android:screenOrientation="portrait"
