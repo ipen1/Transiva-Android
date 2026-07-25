@@ -497,7 +497,7 @@ public class PassengerCarActivity extends Activity {
         String pickupIcon = drawableDataUri("map_pickup_pin", "ic_pickup_pin", "pickup_pin", "pickup", "point_pickup", "ic_pickup");
         String deliveryIcon = drawableDataUri("map_destination_pin", "map_delivery_pin", "ic_delivery_pin", "delivery_pin", "delivery", "point_delivery", "ic_delivery");
         String placeIcon = drawableDataUri("mark", "map_place_pin", "business_pin", "merchant_pin", "laundry_pin");
-        String driverIcon = drawableDataUri("user", "driver_online", "ic_driver_online", "map_motor_top", "ic_motor_top", "motor_top");
+        String driverIcon = drawableDataUri("user", "driver_online", "ic_driver_online", "map_car_top", "ic_car_top", "car_top");
         final boolean useDarkMap = CustomerAppSettings.isDarkMode(this);
 
         return "<!DOCTYPE html><html><head>" +
