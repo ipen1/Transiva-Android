@@ -271,6 +271,12 @@
             android:theme="@style/AppTheme" />
 
         <activity
+            android:name=".DriverSettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".DriverTripActivity"
             android:exported="false"
             android:screenOrientation="portrait"
