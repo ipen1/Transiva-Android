@@ -18,7 +18,6 @@ import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -97,9 +96,6 @@ public class DriverNavigationActivity extends Activity {
     private Marker driverMarker;
     private Marker pickupMarker;
     private Marker deliveryMarker;
-    // Vehicle is a native Android overlay, always rendered ABOVE every map layer.
-    // In heading-up mode it stays pointing straight toward the top of the screen.
-    private ImageView vehicleOverlay;
 
     private TextView routeBadge;
     private TextView instructionBadge;
@@ -317,15 +313,9 @@ public class DriverNavigationActivity extends Activity {
             });
         });
 
-        vehicleOverlay = new ImageView(this);
-        vehicleOverlay.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        String vehicleDrawable = vehicleType.equals("car") ? "map_car_top" : "map_motor_top";
-        int vehicleRes = getResources().getIdentifier(vehicleDrawable, "drawable", getPackageName());
-        if (vehicleRes <= 0) vehicleRes = android.R.drawable.ic_menu_directions;
-        vehicleOverlay.setImageResource(vehicleRes);
-        FrameLayout.LayoutParams vehicleLp = new FrameLayout.LayoutParams(dp(48), dp(48));
-        vehicleLp.gravity = Gravity.CENTER;
-        page.addView(vehicleOverlay, vehicleLp);
+        // FIX: kendaraan tidak lagi berupa ImageView Gravity.CENTER.
+        // Marker kendaraan sekarang terikat ke LatLng di peta, sehingga saat pinch zoom
+        // kendaraan tetap berada pada koordinat/rute dan tidak mengikuti titik tengah HP.
 
         TextView back = new TextView(this);
         back.setText("‹");
@@ -452,8 +442,19 @@ public class DriverNavigationActivity extends Activity {
             }
         } catch (Exception ignored) {}
 
-        // Driver vehicle is intentionally NOT a MapLibre annotation.
-        // The Android ImageView overlay guarantees the route can never cover it.
+        // FIX ZOOM: marker driver adalah objek peta (LatLng), bukan overlay layar.
+        if (driverMarker == null) {
+            double lat = displayInitialized ? displayLat : driverLat;
+            double lng = displayInitialized ? displayLng : driverLng;
+            if (valid(lat, lng)) {
+                String drawable = vehicleType.equals("car") ? "map_car_top" : "map_motor_top";
+                Icon icon = iconFromDrawableScaled(f, drawable,
+                        android.R.drawable.ic_menu_directions, dp(48), dp(48));
+                driverMarker = map.addMarker(new MarkerOptions()
+                        .position(new LatLng(lat, lng))
+                        .icon(icon));
+            }
+        }
     }
 
     private Icon iconFromDrawable(IconFactory factory, String name, int fallback) {
@@ -603,6 +604,12 @@ public class DriverNavigationActivity extends Activity {
         double lat = displayInitialized ? displayLat : driverLat;
         double lng = displayInitialized ? displayLng : driverLng;
         if (!valid(lat, lng)) return;
+
+        // FIX ZOOM: koordinat kendaraan selalu diperbarui sebagai LatLng marker.
+        // Jadi pinch zoom hanya mengubah proyeksi kamera; marker tetap menempel ke rute.
+        if (driverMarker != null) {
+            driverMarker.setPosition(new LatLng(lat, lng));
+        }
 
         double desiredBearing = routePoints.size() >= 2 && Double.isFinite(snappedBearing)
                 ? snappedBearing
