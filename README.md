@@ -1,48 +1,27 @@
-# Transiva Driver Android
+# Transiva Android WebView
 
-Repository Android khusus **Driver Transiva**.
+Project Android WebView untuk https://transiva.my.id/?app=1
 
-## Identitas aplikasi
+## Fitur
+- WebView modern
+- Kamera dan upload file
+- GPS/location permission
+- Download Manager
+- Getar via JavaScript: `Android.vibrate(300)` atau `window.transivaVibrate(300)`
+- Notifikasi lokal via JavaScript: `Android.notify('Transiva','Pesan masuk')` atau `window.transivaNotify('Transiva','Pesan masuk')`
+- Halaman offline
+- Back button dua kali untuk keluar
+- GitHub Actions build AAB dan APK
 
-- Application ID: `com.transiva.driver`
-- Java namespace: `com.transiva.app`
-- App name: `Transiva Driver`
-- Min SDK: 23
-- Target SDK: 35
+## Cara build di GitHub
+1. Upload semua isi folder ini ke repository GitHub.
+2. Buka tab Actions.
+3. Pilih workflow `Build Transiva AAB`.
+4. Klik `Run workflow`.
+5. Download artifact `Transiva-release-aab`.
 
-Namespace Java sengaja tetap `com.transiva.app` agar source stabil. Identitas instalasi Android ditentukan oleh `applicationId`.
+## Catatan Play Store
+AAB release dari workflow ini belum memakai keystore upload pribadi. Untuk upload final Play Store sebaiknya tambahkan signing config dengan keystore upload milik Anda.
 
-## Source yang dipertahankan
-
-Repository ini hanya memuat source Driver dan helper bersama yang memang dibutuhkan Driver:
-dashboard, order/trip, navigasi, chat, riwayat, pendapatan, profil, BPJS,
-top-up/withdraw, foreground/background location, Firebase notification,
-session/PIN/login, dan updater.
-
-Source Java Customer, Merchant, dan Admin telah dihapus dari source aktif.
-Login dan session juga dikunci untuk role `driver`.
-
-## Firebase
-
-Sebelum release production:
-
-1. Tambahkan Android app `com.transiva.driver` di Firebase project Transiva.
-2. Download `google-services.json` resmi.
-3. Replace `app/google-services.json`.
-
-File konfigurasi dalam repository memiliki entry sementara yang cocok dengan
-`com.transiva.driver` agar struktur project dapat diproses, tetapi file resmi
-Firebase wajib digunakan untuk FCM production.
-
-## GitHub Actions signing
-
-Tambahkan Repository Secrets:
-
-- `KEYSTORE_BASE64`
-- `KEYSTORE_PASSWORD`
-- `KEY_ALIAS`
-- `KEY_PASSWORD`
-
-Keystore tidak boleh di-commit ke repository.
-
-Lalu buka **Actions → Build Transiva Driver Signed Release → Run workflow**.
+## Package name
+`com.transiva.app`
