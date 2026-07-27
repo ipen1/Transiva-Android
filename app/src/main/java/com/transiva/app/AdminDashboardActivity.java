@@ -116,6 +116,8 @@ public class AdminDashboardActivity extends Activity {
                 {"✅", "Verifikasi"},
                 {"🎁", "Promo"},
                 {"⭐", "Rekomendasi"},
+                {"📋", "Order & Fee"},
+                {"🌧️", "Harga Hujan"},
                 {"⚙", "Fee & Harga"}
         };
 
@@ -202,6 +204,12 @@ public class AdminDashboardActivity extends Activity {
                 break;
             case "Rekomendasi":
                 intent = new Intent(this, AdminRecommendationManagementActivity.class);
+                break;
+            case "Order & Fee":
+                intent = new Intent(this, AdminOrderManagementActivity.class);
+                break;
+            case "Harga Hujan":
+                intent = new Intent(this, AdminWeatherPricingActivity.class);
                 break;
             case "Fee & Harga":
                 intent = new Intent(this, AdminFeeSettingsActivity.class);
