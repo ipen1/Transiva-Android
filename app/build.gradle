@@ -8,7 +8,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId 'com.transiva.app'
+        applicationId 'com.transiva.driver'
         minSdk 23
         targetSdk 35
         versionCode 2
