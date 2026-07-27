@@ -64,9 +64,9 @@
     },
     {
       "client_info": {
-        "mobilesdk_app_id": "1:450425290065:android:a7b6cda68f819d1d5c6770",
+        "mobilesdk_app_id": "1:450425290065:android:07fbf4a1c038a61d5c6770",
         "android_client_info": {
-          "package_name": "com.transiva.mobile"
+          "package_name": "com.transiva.merchant"
         }
       },
       "oauth_client": [],
